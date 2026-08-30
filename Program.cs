@@ -5,6 +5,7 @@ using JumpStart.Services;
 using JumpStart.Services.Authentication;
 using JumpStart.Services.Authentication.Clients;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using RustArchon.Panel.Clients;
@@ -35,6 +36,23 @@ builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 // ============================================
 // 3. IDENTITY SERVICES
 // ============================================
+
+// Persisted, named Data Protection key ring - without this, both this cookie and every antiforgery
+// token silently invalidate on every restart (container recreation, redeploy), since ASP.NET Core
+// otherwise falls back to an ephemeral per-machine key. SessionKeyPath defaults to a folder shared
+// with RustArchon.Web (one level up from each project - the umbrella repo root), NOT
+// RustArchon.Api's own /keys volume (a separate key ring for a separate purpose - RCON password
+// encryption, see RustArchon.Api/Program.cs). RustArchon.Web must use the exact same ApplicationName
+// and point at the exact same physical location, or it can never decrypt this cookie - see its
+// Program.cs and the README's cross-app session section.
+var sessionKeyPath = builder.Configuration["DataProtection:SessionKeyPath"]
+    ?? Path.Combine(builder.Environment.ContentRootPath, "..", "App_Data", "dataprotection-keys-session");
+Directory.CreateDirectory(sessionKeyPath);
+
+builder.Services.AddDataProtection()
+    .SetApplicationName("RustArchon.Session")
+    .PersistKeysToFileSystem(new DirectoryInfo(sessionKeyPath));
+
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<IdentityRedirectManager>();
 builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
@@ -45,6 +63,18 @@ builder.Services.AddAuthentication(options =>
         options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
     })
     .AddIdentityCookies();
+
+// CookieDomain left unset locally - localhost:5100/:5200 already share cookies as the same hostname
+// on different ports, no Domain attribute needed. In production, www.rustarchon.com and
+// panel.rustarchon.com are genuinely different hostnames - set CookieDomain=.rustarchon.com (the
+// leading dot covers the parent domain and every subdomain) so RustArchon.Web actually receives this
+// cookie at all. This is what makes cross-subdomain SSO possible; the shared Data Protection key
+// ring above is what makes it *verifiable* once received.
+var cookieDomain = builder.Configuration["CookieDomain"];
+if (!string.IsNullOrEmpty(cookieDomain))
+{
+    builder.Services.ConfigureApplicationCookie(options => options.Cookie.Domain = cookieDomain);
+}
 
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
     {
