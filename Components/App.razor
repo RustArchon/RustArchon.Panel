@@ -1,0 +1,43 @@
+﻿<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <ResourcePreloader />
+    <!-- Anti-flash: apply the stored theme preference before first paint, so the page never
+         flashes dark-then-light (or vice versa) while theme.js and Blazor itself are still
+         loading. Kept intentionally tiny and dependency-free - this is the one script in the app
+         that must run synchronously, in <head>, before anything else. -->
+    <script>
+        (function () {
+            try {
+                var stored = localStorage.getItem("rustarchon-theme");
+                if (stored === "light" || stored === "dark") {
+                    document.documentElement.setAttribute("data-bs-theme", stored);
+                }
+            } catch { /* storage unavailable - fall back to the dark default already on <html> */ }
+        })();
+    </script>
+    <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["RustArchon.Panel.styles.css"]" />
+    <ImportMap />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <HeadOutlet />
+</head>
+
+<body>
+    <Routes />
+    <ReconnectModal />
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script src="@Assets["Components/Account/Shared/PasskeySubmit.razor.js"]" type="module"></script>
+    <script src="@Assets["theme.js"]"></script>
+</body>
+
+</html>

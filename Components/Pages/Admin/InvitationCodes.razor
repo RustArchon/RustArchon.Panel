@@ -1,0 +1,315 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/InvitationCodes"
+@using System.ComponentModel.DataAnnotations
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IInvitationCodeApiClient InvitationCodeClient
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>Invitation Codes</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Invitation Codes</h1>
+    @if (accessDenied != true)
+    {
+        <button class="btn btn-primary" @onclick="ShowMintForm">
+            <i class="bi bi-plus-circle"></i> Mint Code
+        </button>
+    }
+</div>
+
+@if (accessDenied == true)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> You don't have access to manage invitation codes.
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    @if (minting)
+    {
+        <div class="card mb-4">
+            <div class="card-header">Mint Invitation Code</div>
+            <div class="card-body">
+                <EditForm Model="mintForm" OnValidSubmit="SaveMint">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary class="text-danger" role="alert" />
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label" for="code-note">Note</label>
+                            <InputText id="code-note" class="form-control" @bind-Value="mintForm.Note" placeholder="e.g. Discord mods batch" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="code-email">Bind to email (optional)</label>
+                            <InputText id="code-email" class="form-control" @bind-Value="mintForm.BoundEmail" placeholder="Leave blank to let anyone redeem it first" />
+                            <ValidationMessage For="() => mintForm.BoundEmail" class="text-danger" />
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <button type="submit" class="btn btn-primary" disabled="@saving">
+                            @(saving ? "Minting..." : "Mint Code")
+                        </button>
+                        <button type="button" class="btn btn-secondary" @onclick="CancelMint" disabled="@saving">
+                            Cancel
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    }
+
+    @if (loading)
+    {
+        <p><em>Loading invitation codes...</em></p>
+    }
+    else if (codes != null)
+    {
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                        <th>Note</th>
+                        <th>Bound Email</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var invite in codes.OrderByDescending(c => c.CreatedOn))
+                    {
+                        <tr>
+                            <td><code>@invite.Code</code></td>
+                            <td>@invite.Note</td>
+                            <td>@(invite.BoundEmail ?? "Anyone")</td>
+                            <td>@StatusLabel(invite)</td>
+                            <td>@invite.CreatedOn.LocalDateTime.ToString("g")</td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    @if (invite.RedeemedAtUtc == null && invite.IsActive)
+                                    {
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleActive(invite, false)">
+                                            <i class="bi bi-slash-circle"></i> Revoke
+                                        </button>
+                                    }
+                                    else if (invite.RedeemedAtUtc == null && !invite.IsActive)
+                                    {
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleActive(invite, true)">
+                                            <i class="bi bi-arrow-counterclockwise"></i> Reactivate
+                                        </button>
+                                    }
+                                    @if (invite.RedeemedAtUtc == null)
+                                    {
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(invite)">
+                                            <i class="bi bi-trash"></i> Delete
+                                        </button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (!codes.Any())
+        {
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> No invitation codes yet. Mint one to invite someone to sign up.
+            </div>
+        }
+    }
+
+    @if (showDeleteConfirmation && codeToDelete != null)
+    {
+        <RustArchon.Panel.Components.Shared.ConfirmationModal
+            Title="Delete Invitation Code"
+            ConfirmButtonText="Delete"
+            ConfirmButtonClass="btn-danger"
+            OnClose="HandleDeleteModalClose">
+            <Message>
+                Are you sure you want to permanently delete code '@codeToDelete.Code'? This cannot be undone.
+            </Message>
+        </RustArchon.Panel.Components.Shared.ConfirmationModal>
+    }
+}
+
+@code {
+    private IEnumerable<InvitationCodeDto>? codes;
+    private bool loading = true;
+    private bool saving;
+    private bool minting;
+    private bool? accessDenied;
+    private string? errorMessage;
+    private string? successMessage;
+    private MintFormModel mintForm = new();
+    private bool showDeleteConfirmation;
+    private InvitationCodeDto? codeToDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCodes();
+    }
+
+    private async Task LoadCodes()
+    {
+        loading = true;
+        errorMessage = null;
+        try
+        {
+            var result = await InvitationCodeClient.GetAllAsync();
+            codes = result.Items;
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load invitation codes: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private void ShowMintForm()
+    {
+        mintForm = new MintFormModel();
+        minting = true;
+    }
+
+    private void CancelMint()
+    {
+        minting = false;
+    }
+
+    private async Task SaveMint()
+    {
+        saving = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            var created = await InvitationCodeClient.CreateAsync(new CreateInvitationCodeDto
+            {
+                Note = string.IsNullOrWhiteSpace(mintForm.Note) ? null : mintForm.Note,
+                BoundEmail = string.IsNullOrWhiteSpace(mintForm.BoundEmail) ? null : mintForm.BoundEmail
+            });
+            successMessage = $"Code '{created.Code}' was minted.";
+            minting = false;
+            await LoadCodes();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to mint code: {ex.Message}";
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task ToggleActive(InvitationCodeDto code, bool isActive)
+    {
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            await InvitationCodeClient.UpdateAsync(code.Id, new UpdateInvitationCodeDto
+            {
+                Id = code.Id,
+                Note = code.Note,
+                IsActive = isActive
+            });
+            successMessage = isActive ? $"Code '{code.Code}' was reactivated." : $"Code '{code.Code}' was revoked.";
+            await LoadCodes();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to update code: {ex.Message}";
+        }
+    }
+
+    private void ConfirmDelete(InvitationCodeDto code)
+    {
+        codeToDelete = code;
+        showDeleteConfirmation = true;
+    }
+
+    private async Task HandleDeleteModalClose(bool confirmed)
+    {
+        showDeleteConfirmation = false;
+
+        if (!confirmed || codeToDelete == null)
+        {
+            codeToDelete = null;
+            return;
+        }
+
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            await InvitationCodeClient.DeleteAsync(codeToDelete.Id);
+            successMessage = $"Code '{codeToDelete.Code}' was deleted.";
+            await LoadCodes();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to delete code: {ex.Message}";
+        }
+        finally
+        {
+            codeToDelete = null;
+        }
+    }
+
+    private static string StatusLabel(InvitationCodeDto code)
+    {
+        if (code.RedeemedAtUtc != null)
+        {
+            return $"Redeemed by {code.RedeemedByEmail} on {code.RedeemedAtUtc.Value.LocalDateTime:g}";
+        }
+
+        return code.IsActive ? "Active" : "Revoked";
+    }
+
+    private sealed class MintFormModel
+    {
+        [MaxLength(200)]
+        public string? Note { get; set; }
+
+        [EmailAddress]
+        [MaxLength(256)]
+        public string? BoundEmail { get; set; }
+    }
+}

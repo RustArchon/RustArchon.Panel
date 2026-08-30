@@ -1,0 +1,15 @@
+@page "/"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager NavigationManager
+
+@* "/" used to serve Home.razor (the marketing page) before the Web/Panel split - that page now
+   lives in the separate RustArchon.Web app. This app's root has no content of its own: an
+   authenticated hit goes straight to the server list (the real landing page for a signed-in user);
+   an anonymous hit falls through to Routes.razor's existing [Authorize]-failure handling
+   (RedirectToLogin), the same mechanism every other authenticated-only page here already relies on
+   - no separate anonymous-vs-authenticated branching needed here. *@
+
+@code {
+    protected override void OnInitialized() => NavigationManager.NavigateTo("servers");
+}

@@ -1,0 +1,329 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/servers"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IRustServerApiClient RustServerClient
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>Servers</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Servers</h1>
+    <button class="btn btn-primary" @onclick="ShowAddForm">
+        <i class="bi bi-plus-circle"></i> Add Server
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(successMessage))
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        @successMessage
+        <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+    </div>
+}
+
+@if (editingServer != null)
+{
+    <div class="card mb-4">
+        <div class="card-header">
+            @(editingServer.Id == Guid.Empty ? "Add Server" : "Edit Server")
+        </div>
+        <div class="card-body">
+            <EditForm Model="editingServer" OnValidSubmit="SaveServer">
+                <DataAnnotationsValidator />
+                <ValidationSummary class="text-danger" role="alert" />
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label" for="server-name">Name</label>
+                        <InputText id="server-name" class="form-control" @bind-Value="editingServer.Name" />
+                        <ValidationMessage For="() => editingServer.Name" class="text-danger" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="server-description">Description</label>
+                        <InputText id="server-description" class="form-control" @bind-Value="editingServer.Description" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="server-host">Host / IP address</label>
+                        <InputText id="server-host" class="form-control" @bind-Value="editingServer.Host" />
+                        <ValidationMessage For="() => editingServer.Host" class="text-danger" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label" for="server-port">RCON Port</label>
+                        <InputNumber id="server-port" class="form-control" @bind-Value="editingServer.Port" />
+                        <ValidationMessage For="() => editingServer.Port" class="text-danger" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="server-password">
+                            RCON Password
+                            @if (editingServer.Id != Guid.Empty)
+                            {
+                                <span class="text-muted">(leave blank to keep unchanged)</span>
+                            }
+                        </label>
+                        <InputText id="server-password" type="password" class="form-control" @bind-Value="editingServer.RconPassword" autocomplete="new-password" />
+                        <ValidationMessage For="() => editingServer.RconPassword" class="text-danger" />
+                    </div>
+                </div>
+
+                <div class="mt-3">
+                    <button type="submit" class="btn btn-primary" disabled="@saving">
+                        @(saving ? "Saving..." : "Save")
+                    </button>
+                    <button type="button" class="btn btn-secondary" @onclick="CancelEdit" disabled="@saving">
+                        Cancel
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@if (loading)
+{
+    <p><em>Loading servers...</em></p>
+}
+else if (servers != null)
+{
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Host</th>
+                    <th>Port</th>
+                    <th>Description</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var server in servers.OrderBy(s => s.Name))
+                {
+                    <tr>
+                        <td>@server.Name</td>
+                        <td>@server.Host</td>
+                        <td>@server.Port</td>
+                        <td>@server.Description</td>
+                        <td>
+                            <div class="btn-group" role="group">
+                                <a class="btn btn-sm btn-primary" href="@($"servers/{server.Id}")">
+                                    <i class="bi bi-terminal"></i> View
+                                </a>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => ShowEditForm(server)">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(server)">
+                                    <i class="bi bi-trash"></i> Delete
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (!servers.Any())
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> No servers yet. Add one to start managing it over RCON.
+        </div>
+    }
+}
+
+@if (showDeleteConfirmation && serverToDelete != null)
+{
+    <RustArchon.Panel.Components.Shared.ConfirmationModal
+        Title="Delete Server"
+        ConfirmButtonText="Delete"
+        ConfirmButtonClass="btn-danger"
+        OnClose="HandleDeleteModalClose">
+        <Message>
+            Are you sure you want to remove '@serverToDelete.Name'? This cannot be undone.
+        </Message>
+    </RustArchon.Panel.Components.Shared.ConfirmationModal>
+}
+
+@code {
+    private IEnumerable<RustServerDto>? servers;
+    private bool loading = true;
+    private bool saving;
+    private string? errorMessage;
+    private string? successMessage;
+    private ServerFormModel? editingServer;
+    private bool showDeleteConfirmation;
+    private RustServerDto? serverToDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadServers();
+    }
+
+    private async Task LoadServers()
+    {
+        loading = true;
+        errorMessage = null;
+        try
+        {
+            var result = await RustServerClient.GetAllAsync();
+            servers = result.Items;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load servers: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private void ShowAddForm()
+    {
+        editingServer = new ServerFormModel { Port = 28016 };
+    }
+
+    private void ShowEditForm(RustServerDto server)
+    {
+        editingServer = new ServerFormModel
+        {
+            Id = server.Id,
+            Name = server.Name,
+            Host = server.Host,
+            Port = server.Port,
+            Description = server.Description
+        };
+    }
+
+    private void CancelEdit()
+    {
+        editingServer = null;
+    }
+
+    private async Task SaveServer()
+    {
+        if (editingServer == null)
+        {
+            return;
+        }
+
+        saving = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            if (editingServer.Id == Guid.Empty)
+            {
+                await RustServerClient.CreateAsync(new CreateRustServerDto
+                {
+                    Name = editingServer.Name,
+                    Host = editingServer.Host,
+                    Port = editingServer.Port,
+                    RconPassword = editingServer.RconPassword ?? string.Empty,
+                    Description = editingServer.Description
+                });
+                successMessage = $"Server '{editingServer.Name}' was added.";
+            }
+            else
+            {
+                await RustServerClient.UpdateAsync(editingServer.Id, new UpdateRustServerDto
+                {
+                    Id = editingServer.Id,
+                    Name = editingServer.Name,
+                    Host = editingServer.Host,
+                    Port = editingServer.Port,
+                    RconPassword = string.IsNullOrEmpty(editingServer.RconPassword) ? null : editingServer.RconPassword,
+                    Description = editingServer.Description
+                });
+                successMessage = $"Server '{editingServer.Name}' was updated.";
+            }
+
+            editingServer = null;
+            await LoadServers();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to save server: {ex.Message}";
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private void ConfirmDelete(RustServerDto server)
+    {
+        serverToDelete = server;
+        showDeleteConfirmation = true;
+    }
+
+    private async Task HandleDeleteModalClose(bool confirmed)
+    {
+        showDeleteConfirmation = false;
+
+        if (!confirmed || serverToDelete == null)
+        {
+            serverToDelete = null;
+            return;
+        }
+
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            await RustServerClient.DeleteAsync(serverToDelete.Id);
+            successMessage = $"Server '{serverToDelete.Name}' was removed.";
+            await LoadServers();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to remove server: {ex.Message}";
+        }
+        finally
+        {
+            serverToDelete = null;
+        }
+    }
+
+    private sealed class ServerFormModel : IValidatableObject
+    {
+        public Guid Id { get; set; }
+
+        [Required, MaxLength(100)]
+        public string Name { get; set; } = string.Empty;
+
+        [Required, MaxLength(255)]
+        public string Host { get; set; } = string.Empty;
+
+        [Range(1, 65535)]
+        public int Port { get; set; } = 28016;
+
+        /// <summary>Required when adding a new server; optional when editing (blank keeps it unchanged).</summary>
+        public string? RconPassword { get; set; }
+
+        [MaxLength(500)]
+        public string? Description { get; set; }
+
+        public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+        {
+            if (Id == Guid.Empty && string.IsNullOrEmpty(RconPassword))
+            {
+                yield return new ValidationResult("RCON password is required.", [nameof(RconPassword)]);
+            }
+        }
+    }
+}

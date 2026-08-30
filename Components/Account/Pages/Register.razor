@@ -1,0 +1,260 @@
+@page "/Account/Register"
+@layout MainLayout
+
+@using System.ComponentModel.DataAnnotations
+@using System.Text
+@using System.Text.Encodings.Web
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Data
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IUserStore<ApplicationUser> UserStore
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IEmailSender<ApplicationUser> EmailSender
+@inject ILogger<Register> Logger
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+@inject NewTenantBootstrapper TenantBootstrapper
+@inject IInvitationApiClient InvitationClient
+
+<PageTitle>Register</PageTitle>
+
+<h1>Register</h1>
+
+<div class="row">
+    <div class="col-lg-6">
+        <StatusMessage Message="@Message" />
+        @if (invitationError != null)
+        {
+            <div class="alert alert-danger" role="alert">@invitationError</div>
+        }
+        @if (invitationStatus == null)
+        {
+            <p><em>Checking sign-up availability...</em></p>
+        }
+        else
+        {
+            <EditForm Model="Input" method="post" OnValidSubmit="RegisterUser" FormName="register">
+                <DataAnnotationsValidator />
+                <h2>Create a new account.</h2>
+                <hr />
+                <ValidationSummary class="text-danger" role="alert" />
+                @if (invitationStatus.Enabled)
+                {
+                    <div class="form-floating mb-3">
+                        <InputText @bind-Value="Input.InvitationCode" id="Input.InvitationCode" class="form-control" placeholder="Invitation code" />
+                        <label for="Input.InvitationCode">Invitation code</label>
+                        <ValidationMessage For="() => Input.InvitationCode" class="text-danger" />
+                    </div>
+                }
+                <div class="form-floating mb-3">
+                    <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
+                    <label for="Input.Email">Email</label>
+                    <ValidationMessage For="() => Input.Email" class="text-danger" />
+                </div>
+                <div class="form-floating mb-3">
+                    <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
+                    <label for="Input.Password">Password</label>
+                    <ValidationMessage For="() => Input.Password" class="text-danger" />
+                </div>
+                <div class="form-floating mb-3">
+                    <InputText type="password" @bind-Value="Input.ConfirmPassword" id="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
+                    <label for="Input.ConfirmPassword">Confirm Password</label>
+                    <ValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
+                </div>
+                <button type="submit" class="w-100 btn btn-lg btn-primary" disabled="@registering">
+                    @(registering ? "Registering..." : "Register")
+                </button>
+            </EditForm>
+        }
+    </div>
+    <div class="col-lg-4 col-lg-offset-2">
+        <section>
+            <h3>Use another service to register.</h3>
+            <hr />
+            <ExternalLoginPicker />
+        </section>
+    </div>
+</div>
+
+@code {
+    private IEnumerable<IdentityError>? identityErrors;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private string? Message => identityErrors is null ? null : $"Error: {string.Join(", ", identityErrors.Select(error => error.Description))}";
+
+    private InvitationStatusDto? invitationStatus;
+    private string? invitationError;
+    private bool registering;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        // Fail closed: if the status check itself fails, invitationStatus stays null, which hides the
+        // form entirely (see the markup above) rather than risking an open sign-up because the API
+        // happened to be briefly unreachable.
+        try
+        {
+            invitationStatus = await InvitationClient.GetStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to check invitation-code status");
+        }
+    }
+
+    public async Task RegisterUser(EditContext editContext)
+    {
+        identityErrors = null;
+        invitationError = null;
+
+        if (invitationStatus == null)
+        {
+            invitationError = "Unable to verify invitation status right now. Please try again in a moment.";
+            return;
+        }
+
+        if (invitationStatus.Enabled && string.IsNullOrWhiteSpace(Input.InvitationCode))
+        {
+            invitationError = "An invitation code is required to register.";
+            return;
+        }
+
+        registering = true;
+        try
+        {
+            var user = CreateUser();
+
+            await UserStore.SetUserNameAsync(user, Input.Email, CancellationToken.None);
+            var emailStore = GetEmailStore();
+            await emailStore.SetEmailAsync(user, Input.Email, CancellationToken.None);
+            var result = await UserManager.CreateAsync(user, Input.Password);
+
+            if (!result.Succeeded)
+            {
+                identityErrors = result.Errors;
+                return;
+            }
+
+            // The invitation gate is deliberately the last check before the account is considered
+            // real, run *after* UserManager.CreateAsync rather than before it: that way a rejected
+            // password or a duplicate email (both already caught above) never burns a single-use code
+            // for no reason. If redemption fails here - already used, invalid, bound to a different
+            // email, or lost a race to someone else redeeming the same code - the just-created
+            // Identity user is rolled back rather than leaving an unauthorized account behind.
+            if (invitationStatus.Enabled)
+            {
+                var redeemed = await InvitationClient.RedeemAsync(new RedeemInvitationCodeRequest
+                {
+                    Code = Input.InvitationCode!.Trim(),
+                    Email = Input.Email
+                });
+
+                if (!redeemed.Success)
+                {
+                    await UserManager.DeleteAsync(user);
+                    invitationError = redeemed.Error ?? "That invitation code is not valid.";
+                    return;
+                }
+            }
+
+            Logger.LogInformation("User created a new account with password.");
+
+            // Every new user needs their own tenant and an Owner role before they can call any
+            // permission-gated API endpoint (see JumpStart ADR-012's bootstrapping note), so this
+            // provisions both right here rather than waiting for them to hit a 403 on their first
+            // request. Mirrors JumpStart's own DemoNewUserBootstrapper pattern.
+            await TenantBootstrapper.ProvisionAsync(user.Id, Input.Email);
+
+            // By this point the account, tenant, and (if enabled) invitation redemption have all
+            // already committed - there's nothing left to roll back, so a failure sending the
+            // confirmation email (a flaky mail provider, say) shouldn't strand the user on an
+            // unhandled-exception page for an account that actually exists. They can always request a
+            // fresh link from Account/ResendEmailConfirmation.
+            try
+            {
+                var userId = await UserManager.GetUserIdAsync(user);
+                var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
+                code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+                var callbackUrl = NavigationManager.GetUriWithQueryParameters(
+                    NavigationManager.ToAbsoluteUri("Account/ConfirmEmail").AbsoluteUri,
+                    new Dictionary<string, object?> { ["userId"] = userId, ["code"] = code, ["returnUrl"] = ReturnUrl });
+
+                await EmailSender.SendConfirmationLinkAsync(user, Input.Email, HtmlEncoder.Default.Encode(callbackUrl));
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to send confirmation email to new user {UserId}", user.Id);
+            }
+
+            if (UserManager.Options.SignIn.RequireConfirmedAccount)
+            {
+                RedirectManager.RedirectTo(
+                    "Account/RegisterConfirmation",
+                    new() { ["email"] = Input.Email, ["returnUrl"] = ReturnUrl });
+            }
+            else
+            {
+                await SignInManager.SignInAsync(user, isPersistent: false);
+                RedirectManager.RedirectTo(ReturnUrl);
+            }
+        }
+        finally
+        {
+            registering = false;
+        }
+    }
+
+    private ApplicationUser CreateUser()
+    {
+        try
+        {
+            return Activator.CreateInstance<ApplicationUser>();
+        }
+        catch
+        {
+            throw new InvalidOperationException($"Can't create an instance of '{nameof(ApplicationUser)}'. " +
+                $"Ensure that '{nameof(ApplicationUser)}' is not an abstract class and has a parameterless constructor.");
+        }
+    }
+
+    private IUserEmailStore<ApplicationUser> GetEmailStore()
+    {
+        if (!UserManager.SupportsUserEmail)
+        {
+            throw new NotSupportedException("The default UI requires a user store with email support.");
+        }
+        return (IUserEmailStore<ApplicationUser>)UserStore;
+    }
+
+    private sealed class InputModel
+    {
+        public string? InvitationCode { get; set; }
+
+        [Required]
+        [EmailAddress]
+        [Display(Name = "Email")]
+        public string Email { get; set; } = "";
+
+        [Required]
+        [StringLength(100, ErrorMessage = "The {0} must be at least {2} and at max {1} characters long.", MinimumLength = 6)]
+        [DataType(DataType.Password)]
+        [Display(Name = "Password")]
+        public string Password { get; set; } = "";
+
+        [DataType(DataType.Password)]
+        [Display(Name = "Confirm password")]
+        [Compare("Password", ErrorMessage = "The password and confirmation password do not match.")]
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

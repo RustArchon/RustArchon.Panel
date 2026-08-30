@@ -1,0 +1,68 @@
+@* Reusable Bootstrap modal for confirmations *@
+<div class="modal fade @(IsVisible ? "show" : "")" 
+     id="@ModalId" 
+     tabindex="-1" 
+     style="display: @(IsVisible ? "block" : "none")"
+     aria-labelledby="@($"{ModalId}Label")" 
+     aria-hidden="@(!IsVisible)">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="@($"{ModalId}Label")">@Title</h5>
+                <button type="button" class="btn-close" @onclick="Cancel" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                @Message
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" @onclick="Cancel">
+                    @CancelButtonText
+                </button>
+                <button type="button" class="btn @ConfirmButtonClass" @onclick="Confirm">
+                    @ConfirmButtonText
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (IsVisible)
+{
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    [Parameter] public string ModalId { get; set; } = $"modal-{Guid.NewGuid():N}";
+    [Parameter] public string Title { get; set; } = "Confirm";
+    [Parameter] public RenderFragment? Message { get; set; }
+    [Parameter] public string ConfirmButtonText { get; set; } = "Yes";
+    [Parameter] public string CancelButtonText { get; set; } = "No";
+    [Parameter] public string ConfirmButtonClass { get; set; } = "btn-danger";
+    [Parameter] public EventCallback<bool> OnClose { get; set; }
+
+    private bool IsVisible { get; set; }
+
+    public void Show()
+    {
+        IsVisible = true;
+        StateHasChanged();
+    }
+
+    public void Hide()
+    {
+        IsVisible = false;
+        StateHasChanged();
+    }
+
+    private async Task Confirm()
+    {
+        IsVisible = false;
+        await OnClose.InvokeAsync(true);
+    }
+
+    private async Task Cancel()
+    {
+        IsVisible = false;
+        await OnClose.InvokeAsync(false);
+    }
+}

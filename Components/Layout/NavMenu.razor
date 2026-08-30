@@ -1,0 +1,116 @@
+﻿@implements IDisposable
+
+@inject NavigationManager NavigationManager
+@inject IConfiguration Configuration
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        @* Panel's own "/" is just a redirect-to-servers page (see Index.razor) since the marketing
+           home page now lives in the separate RustArchon.Web app - the brand mark navigates there
+           instead of Panel's own root. *@
+        <a class="navbar-brand" href="@marketingBaseUrl">RustArchon</a>
+        <button type="button" class="theme-toggle" data-theme-toggle aria-label="Toggle light/dark theme" aria-pressed="true">
+            <span data-theme-icon>☀</span>
+        </button>
+    </div>
+</div>
+
+<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <nav class="nav flex-column">
+        <div class="nav-item px-3">
+            <a class="nav-link" href="@marketingBaseUrl">
+                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
+            </a>
+        </div>
+
+        <AuthorizeView>
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="servers">
+                        <span class="bi bi-hdd-network-fill-nav-menu" aria-hidden="true"></span> Servers
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+
+        <AuthorizeView>
+            <Authorized>
+                <div class="nav-item px-3">
+                    @* Visible to any signed-in user - the page/API itself enforces the PlatformAdmin
+                       allow-list, so a non-admin who clicks through just sees an access-denied
+                       message rather than the link needing to know their permissions up front. *@
+                    <NavLink class="nav-link" href="Admin/InvitationCodes">
+                        <span class="bi bi-ticket-perforated-fill-nav-menu" aria-hidden="true"></span> Invitation Codes
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Account/Manage">
+                        <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> @context.User.Identity?.Name
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    @* data-enhance="false" forces a real browser navigation instead of Blazor's
+                       enhanced-navigation fetch/DOM-patch - without it, the SignalR circuit (and
+                       its cached JWT in ITokenStore) survives logout indefinitely. *@
+                    <form action="Account/Logout" method="post" data-enhance="false">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="ReturnUrl" value="@currentUrl" />
+                        <button type="submit" class="nav-link">
+                            <span class="bi bi-arrow-bar-left-nav-menu" aria-hidden="true"></span> Logout
+                        </button>
+                    </form>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+
+        @* AGPL-3.0 §13: anyone interacting with this app over a network - including signed-in users,
+           not just marketing-site visitors - must be offered a way to get its source. See NOTICE.md. *@
+        <div class="nav-item px-3 nav-source">
+            <a class="nav-link" href="https://github.com/RustArchon" target="_blank" rel="noopener">
+                <i class="bi bi-github" aria-hidden="true"></i> Source
+            </a>
+        </div>
+
+        <AuthorizeView>
+            <NotAuthorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Account/Register">
+                        <span class="bi bi-person-nav-menu" aria-hidden="true"></span> Register
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Account/Login">
+                        <span class="bi bi-person-badge-nav-menu" aria-hidden="true"></span> Login
+                    </NavLink>
+                </div>
+            </NotAuthorized>
+        </AuthorizeView>
+    </nav>
+</div>
+
+@code {
+    private string? currentUrl;
+    private string marketingBaseUrl = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        marketingBaseUrl = Configuration["MarketingBaseUrl"]
+            ?? throw new InvalidOperationException("MarketingBaseUrl configuration is missing.");
+        currentUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(e.Location);
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+    }
+}
+

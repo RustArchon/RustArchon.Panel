@@ -1,0 +1,122 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/servers/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IRustServerApiClient RustServerClient
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>@(server?.Name ?? "Server") — RustArchon</PageTitle>
+
+@if (loading)
+{
+    <p><em>Loading server...</em></p>
+}
+else if (server is null)
+{
+    <div class="alert alert-danger">
+        <i class="bi bi-exclamation-triangle"></i> Server not found, or it's not one of yours.
+    </div>
+    <a class="btn btn-outline-secondary" href="servers"><i class="bi bi-arrow-left"></i> Back to Servers</a>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+        <div>
+            <a href="servers" class="link-arrow d-inline-block mb-2"><i class="bi bi-arrow-left"></i> All Servers</a>
+            <h1 class="mb-0">@server.Name</h1>
+            <p class="text-muted mb-0">
+                <code>@server.Host:@server.Port</code>
+                @if (!string.IsNullOrEmpty(server.Description))
+                {
+                    <span> — @server.Description</span>
+                }
+            </p>
+        </div>
+        <span class="badge status-badge status-pending">
+            <i class="bi bi-hourglass-split"></i> Live monitoring coming soon
+        </span>
+    </div>
+
+    <ul class="nav nav-tabs console-tabs mb-3">
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Console ? "active" : "")" @onclick='() => activeTab = Tab.Console'>
+                <i class="bi bi-terminal"></i> Console
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Chat ? "active" : "")" @onclick='() => activeTab = Tab.Chat'>
+                <i class="bi bi-chat-dots"></i> Chat
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Players ? "active" : "")" @onclick='() => activeTab = Tab.Players'>
+                <i class="bi bi-people"></i> Players
+            </button>
+        </li>
+    </ul>
+
+    <div class="console-pane">
+        @if (activeTab == Tab.Console)
+        {
+            <div class="console-empty">
+                <i class="bi bi-broadcast"></i>
+                <p>Live console capture isn't wired up for this server yet.</p>
+                <p class="text-muted small">Once connected, every console line will stream here in
+                real time, and history will still be here the next time you check back - even if
+                nobody was watching when it happened.</p>
+            </div>
+            <div class="console-input">
+                <input type="text" class="form-control" placeholder="Send a command..." disabled />
+                <button class="btn btn-primary" disabled>Send</button>
+            </div>
+        }
+        else if (activeTab == Tab.Chat)
+        {
+            <div class="console-empty">
+                <i class="bi bi-chat-dots"></i>
+                <p>No chat activity captured yet.</p>
+                <p class="text-muted small">In-game chat will show up here once this server's
+                connection is live.</p>
+            </div>
+        }
+        else
+        {
+            <div class="console-empty">
+                <i class="bi bi-people"></i>
+                <p>Player list isn't available yet.</p>
+                <p class="text-muted small">Active players, connect/disconnect events, and playtime
+                will show up here once this server's connection is live.</p>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private RustServerDto? server;
+    private bool loading = true;
+    private Tab activeTab = Tab.Console;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            server = await RustServerClient.GetByIdAsync(Id);
+        }
+        catch (Exception)
+        {
+            server = null;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private enum Tab { Console, Chat, Players }
+}
