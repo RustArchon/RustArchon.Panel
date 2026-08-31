@@ -34,7 +34,13 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     Task<RconCommandResult> SendCommandAsync(Guid id, [Body] SendCommandRequest request);
 
     [Get("/{id}/events")]
-    Task<PagedResult<RconEventDto>> GetEventsAsync(Guid id, [Query] int pageNumber = 1, [Query] int pageSize = 100);
+    Task<PagedResult<RconEventDto>> GetEventsAsync(
+        Guid id,
+        [Query] int pageNumber = 1,
+        [Query] int pageSize = 100,
+        [Query] bool? isChat = null,
+        [Query] DateTimeOffset? since = null,
+        [Query] DateTimeOffset? until = null);
 }
 
 /// <summary>

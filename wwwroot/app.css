@@ -1045,6 +1045,34 @@ code, .badge {
 
 /* ---- Live console/chat log (ServerDetail.razor) ---- */
 
+.console-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--ra-border);
+}
+
+    .console-toolbar label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        font-size: 0.75rem;
+        color: var(--ra-text-dim);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .console-toolbar select,
+    .console-toolbar input {
+        min-width: 8.5rem;
+    }
+
+    .console-toolbar button {
+        white-space: nowrap;
+    }
+
 .console-log {
     flex: 1;
     overflow-y: auto;
@@ -1070,4 +1098,8 @@ code, .badge {
     color: var(--ra-text);
     word-break: break-word;
     white-space: pre-wrap;
+}
+
+.chat-username {
+    font-weight: 600;
 }

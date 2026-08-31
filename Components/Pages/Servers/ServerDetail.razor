@@ -1,6 +1,7 @@
 @* Copyright ©2026 Scott Blomfield *@
 
 @page "/servers/{Id:guid}"
+@using System.Text.Json
 @using Microsoft.AspNetCore.Authorization
 @using RustArchon.Messaging.Contracts
 @using RustArchon.Panel.Clients
@@ -9,6 +10,7 @@
 @attribute [Authorize]
 @inject IRustServerApiClient RustServerClient
 @inject RconHubClient HubClient
+@inject IJSRuntime JS
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @implements IAsyncDisposable
 
@@ -46,17 +48,17 @@ else
 
     <ul class="nav nav-tabs console-tabs mb-3">
         <li class="nav-item">
-            <button class="nav-link @(activeTab == Tab.Console ? "active" : "")" @onclick='() => activeTab = Tab.Console'>
+            <button class="nav-link @(activeTab == Tab.Console ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Console)">
                 <i class="bi bi-terminal"></i> Console
             </button>
         </li>
         <li class="nav-item">
-            <button class="nav-link @(activeTab == Tab.Chat ? "active" : "")" @onclick='() => activeTab = Tab.Chat'>
+            <button class="nav-link @(activeTab == Tab.Chat ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Chat)">
                 <i class="bi bi-chat-dots"></i> Chat
             </button>
         </li>
         <li class="nav-item">
-            <button class="nav-link @(activeTab == Tab.Players ? "active" : "")" @onclick='() => activeTab = Tab.Players'>
+            <button class="nav-link @(activeTab == Tab.Players ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Players)">
                 <i class="bi bi-people"></i> Players
             </button>
         </li>
@@ -65,6 +67,36 @@ else
     <div class="console-pane">
         @if (activeTab == Tab.Console)
         {
+            <div class="console-toolbar">
+                <label>
+                    Lines
+                    <select class="form-select form-select-sm" @bind="consoleLineCount">
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                        <option value="500">500</option>
+                        <option value="1000">1000</option>
+                    </select>
+                </label>
+                <label>
+                    From
+                    <input type="datetime-local" class="form-control form-control-sm" @bind="consoleSince" @bind:format="yyyy-MM-ddTHH:mm" />
+                </label>
+                <label>
+                    To
+                    <input type="datetime-local" class="form-control form-control-sm" @bind="consoleUntil" @bind:format="yyyy-MM-ddTHH:mm" />
+                </label>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => LoadConsoleHistoryAsync()" disabled="@loadingConsoleHistory">
+                    <i class="bi bi-arrow-clockwise"></i> Load
+                </button>
+                @if (consoleFilterActive)
+                {
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ResetConsoleFilterAsync" disabled="@loadingConsoleHistory">
+                        <i class="bi bi-x-circle"></i> Reset to latest
+                    </button>
+                }
+            </div>
+
             @if (consoleEvents.Count == 0)
             {
                 <div class="console-empty">
@@ -77,7 +109,7 @@ else
             }
             else
             {
-                <div class="console-log">
+                <div class="console-log" @ref="consoleLogRef">
                     @foreach (var evt in consoleEvents)
                     {
                         <div class="console-line">
@@ -102,6 +134,36 @@ else
         }
         else if (activeTab == Tab.Chat)
         {
+            <div class="console-toolbar">
+                <label>
+                    Lines
+                    <select class="form-select form-select-sm" @bind="chatLineCount">
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                        <option value="500">500</option>
+                        <option value="1000">1000</option>
+                    </select>
+                </label>
+                <label>
+                    From
+                    <input type="datetime-local" class="form-control form-control-sm" @bind="chatSince" @bind:format="yyyy-MM-ddTHH:mm" />
+                </label>
+                <label>
+                    To
+                    <input type="datetime-local" class="form-control form-control-sm" @bind="chatUntil" @bind:format="yyyy-MM-ddTHH:mm" />
+                </label>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => LoadChatHistoryAsync()" disabled="@loadingChatHistory">
+                    <i class="bi bi-arrow-clockwise"></i> Load
+                </button>
+                @if (chatFilterActive)
+                {
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ResetChatFilterAsync" disabled="@loadingChatHistory">
+                        <i class="bi bi-x-circle"></i> Reset to latest
+                    </button>
+                }
+            </div>
+
             @if (chatEvents.Count == 0)
             {
                 <div class="console-empty">
@@ -113,15 +175,37 @@ else
             }
             else
             {
-                <div class="console-log">
+                <div class="console-log" @ref="chatLogRef">
                     @foreach (var evt in chatEvents)
                     {
+                        var chat = ParseChatMessage(evt.Message);
                         <div class="console-line">
                             <span class="console-line-time">@evt.CapturedAtUtc.ToLocalTime().ToString("HH:mm:ss")</span>
-                            <span class="console-line-message">@evt.Message</span>
+                            @if (chat is not null)
+                            {
+                                <span class="console-line-message">
+                                    <span class="chat-username" style="@ChatUsernameStyle(chat.Color)">@chat.Username</span>: @chat.Message
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="console-line-message">@evt.Message</span>
+                            }
                         </div>
                     }
                 </div>
+            }
+            <div class="console-input">
+                <input type="text" class="form-control" placeholder="Send a chat message..."
+                       @bind="chatText" @bind:event="oninput" @onkeydown="OnChatKeyDown"
+                       disabled="@sendingChat" />
+                <button class="btn btn-primary" @onclick="SendChatAsync" disabled="@(sendingChat || string.IsNullOrWhiteSpace(chatText))">
+                    Send
+                </button>
+            </div>
+            @if (!string.IsNullOrEmpty(chatError))
+            {
+                <p class="text-danger small mt-2">@chatError</p>
             }
         }
         else
@@ -149,12 +233,38 @@ else
     private string commandText = string.Empty;
     private bool sendingCommand;
     private string? commandError;
+    private string chatText = string.Empty;
+    private bool sendingChat;
+    private string? chatError;
 
     // Frames whose Type matches this (case-insensitively) are chat lines, not generic console
     // output. Kept as the one bit of classification this page needs rather than waiting on the
     // reader-side layer the RconEvent.Type remarks defer full classification to - RustWebRconClient
     // already reports chat frames with this exact type string.
     private const string ChatFrameType = "Chat";
+
+    // ---- History loading (line count + optional date/time range), independent per tab ----
+    private ElementReference consoleLogRef;
+    private ElementReference chatLogRef;
+    private int consoleLineCount = 200;
+    private int chatLineCount = 200;
+    private DateTime? consoleSince;
+    private DateTime? consoleUntil;
+    private DateTime? chatSince;
+    private DateTime? chatUntil;
+    private bool consoleFilterActive;
+    private bool chatFilterActive;
+    private bool loadingConsoleHistory;
+    private bool loadingChatHistory;
+
+    // ---- Auto-scroll bookkeeping ----
+    // Set (via a JS check of the pane's *current* scroll position) right before a new line is added
+    // to the list that backs it, then consumed in OnAfterRenderAsync once that line has actually been
+    // rendered - see consoleScroll.js's isNearBottom remarks for why the check has to happen before
+    // the mutation, not after.
+    private bool pendingConsoleScroll;
+    private bool pendingChatScroll;
+    private bool initialScrollDone;
 
     protected override async Task OnInitializedAsync()
     {
@@ -171,21 +281,8 @@ else
         {
             status = server.ConnectionStatus;
 
-            try
-            {
-                var history = await RustServerClient.GetEventsAsync(Id, pageNumber: 1, pageSize: 200);
-                // Newest-first from the API - reverse for a natural top-to-bottom reading order, then
-                // split by type the same way live events are split below.
-                foreach (var evt in history.Items.Reverse())
-                {
-                    Classify(evt);
-                }
-            }
-            catch (Exception)
-            {
-                // History failing to load shouldn't block live tailing from working - the console
-                // pane just starts empty instead of pre-populated.
-            }
+            await LoadConsoleHistoryAsync(resetScroll: false);
+            await LoadChatHistoryAsync(resetScroll: false);
 
             HubClient.EventReceived += OnEventReceived;
             HubClient.StatusChanged += OnStatusChanged;
@@ -194,6 +291,164 @@ else
 
         loading = false;
     }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!loading && !initialScrollDone)
+        {
+            initialScrollDone = true;
+            await ScrollActiveTabToBottomAsync();
+        }
+
+        if (pendingConsoleScroll)
+        {
+            pendingConsoleScroll = false;
+            // The .console-log div (and consoleLogRef with it) only exists in the DOM once
+            // consoleEvents is non-empty - the empty-state placeholder renders in its place
+            // otherwise. Invoking JS interop against an ElementReference that was never actually
+            // bound to a rendered element throws and takes the whole circuit down with it.
+            if (activeTab == Tab.Console && consoleEvents.Count > 0)
+            {
+                await JS.InvokeVoidAsync("consoleScroll.scrollToBottom", consoleLogRef);
+            }
+        }
+
+        if (pendingChatScroll)
+        {
+            pendingChatScroll = false;
+            if (activeTab == Tab.Chat && chatEvents.Count > 0)
+            {
+                await JS.InvokeVoidAsync("consoleScroll.scrollToBottom", chatLogRef);
+            }
+        }
+    }
+
+    private async Task ScrollActiveTabToBottomAsync()
+    {
+        if (activeTab == Tab.Console && consoleEvents.Count > 0)
+        {
+            await JS.InvokeVoidAsync("consoleScroll.scrollToBottom", consoleLogRef);
+        }
+        else if (activeTab == Tab.Chat && chatEvents.Count > 0)
+        {
+            await JS.InvokeVoidAsync("consoleScroll.scrollToBottom", chatLogRef);
+        }
+    }
+
+    private async Task SwitchTabAsync(Tab tab)
+    {
+        if (activeTab == tab)
+        {
+            return;
+        }
+
+        activeTab = tab;
+
+        // The newly-active tab's log wasn't in the DOM a moment ago (its @if block wasn't rendering),
+        // so there's no "previous scroll position" to preserve - always land at the bottom, same as
+        // the very first load.
+        if (tab == Tab.Console)
+        {
+            pendingConsoleScroll = true;
+        }
+        else if (tab == Tab.Chat)
+        {
+            pendingChatScroll = true;
+        }
+
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task LoadConsoleHistoryAsync(bool resetScroll = true)
+    {
+        loadingConsoleHistory = true;
+        StateHasChanged();
+
+        try
+        {
+            var since = ToServerLocalUtc(consoleSince);
+            var until = ToServerLocalUtc(consoleUntil);
+            var history = await RustServerClient.GetEventsAsync(
+                Id, pageNumber: 1, pageSize: consoleLineCount, isChat: false, since: since, until: until);
+
+            consoleEvents.Clear();
+            // Newest-first from the API - reverse for a natural top-to-bottom reading order.
+            consoleEvents.AddRange(history.Items.Reverse());
+            consoleFilterActive = since.HasValue || until.HasValue;
+        }
+        catch (Exception)
+        {
+            // A failed (re)load leaves whatever was already on screen in place rather than blanking it.
+        }
+        finally
+        {
+            loadingConsoleHistory = false;
+        }
+
+        if (resetScroll)
+        {
+            pendingConsoleScroll = true;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadChatHistoryAsync(bool resetScroll = true)
+    {
+        loadingChatHistory = true;
+        StateHasChanged();
+
+        try
+        {
+            var since = ToServerLocalUtc(chatSince);
+            var until = ToServerLocalUtc(chatUntil);
+            var history = await RustServerClient.GetEventsAsync(
+                Id, pageNumber: 1, pageSize: chatLineCount, isChat: true, since: since, until: until);
+
+            chatEvents.Clear();
+            chatEvents.AddRange(history.Items.Reverse());
+            chatFilterActive = since.HasValue || until.HasValue;
+        }
+        catch (Exception)
+        {
+            // Same reasoning as LoadConsoleHistoryAsync.
+        }
+        finally
+        {
+            loadingChatHistory = false;
+        }
+
+        if (resetScroll)
+        {
+            pendingChatScroll = true;
+        }
+
+        StateHasChanged();
+    }
+
+    private Task ResetConsoleFilterAsync()
+    {
+        consoleSince = null;
+        consoleUntil = null;
+        return LoadConsoleHistoryAsync();
+    }
+
+    private Task ResetChatFilterAsync()
+    {
+        chatSince = null;
+        chatUntil = null;
+        return LoadChatHistoryAsync();
+    }
+
+    // <input type="datetime-local"> gives a plain wall-clock value with no offset - interpreted here
+    // as the server's own local time zone, matching how CapturedAtUtc is already displayed elsewhere
+    // on this page (.ToLocalTime(), which for a Blazor Server app means the server's zone, not the
+    // viewer's browser). Good enough for "show me roughly what happened around this time" filtering.
+    private static DateTimeOffset? ToServerLocalUtc(DateTime? localValue) =>
+        localValue.HasValue
+            ? new DateTimeOffset(DateTime.SpecifyKind(localValue.Value, DateTimeKind.Local)).ToUniversalTime()
+            : null;
 
     private void Classify(RconEventDto evt)
     {
@@ -209,8 +464,28 @@ else
 
     private void OnEventReceived(RconEventDto evt)
     {
-        InvokeAsync(() =>
+        var isChat = string.Equals(evt.Type, ChatFrameType, StringComparison.OrdinalIgnoreCase);
+
+        InvokeAsync(async () =>
         {
+            // Only worth asking "is the pane already scrolled to the bottom" when that pane is the
+            // one currently on screen - the other tab's log isn't in the DOM at all right now, so
+            // there's nothing to check (it gets its own scroll-to-bottom when the user switches to
+            // it). And only when its log div actually exists yet - an empty list renders the
+            // empty-state placeholder instead, leaving consoleLogRef/chatLogRef unbound; invoking JS
+            // interop against an unbound ElementReference throws. This new event is about to become
+            // that list's very first item, so there's nothing to be "not at the bottom of" anyway.
+            if (isChat && activeTab == Tab.Chat)
+            {
+                pendingChatScroll = chatEvents.Count == 0
+                    || await JS.InvokeAsync<bool>("consoleScroll.isNearBottom", chatLogRef);
+            }
+            else if (!isChat && activeTab == Tab.Console)
+            {
+                pendingConsoleScroll = consoleEvents.Count == 0
+                    || await JS.InvokeAsync<bool>("consoleScroll.isNearBottom", consoleLogRef);
+            }
+
             Classify(evt);
             StateHasChanged();
         });
@@ -275,6 +550,106 @@ else
             sendingCommand = false;
         }
     }
+
+    private async Task OnChatKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendChatAsync();
+        }
+    }
+
+    private async Task SendChatAsync()
+    {
+        if (string.IsNullOrWhiteSpace(chatText) || sendingChat)
+        {
+            return;
+        }
+
+        sendingChat = true;
+        chatError = null;
+        var message = chatText;
+        chatText = string.Empty;
+
+        try
+        {
+            // Rust's own console command for broadcasting to every player's in-game chat - there's no
+            // separate "chat" RCON verb, so this rides the exact same command channel/endpoint the
+            // Console tab uses. The server echoes it back as its own Chat-typed frame, so it'll appear
+            // in this list via the live tail rather than being added optimistically here.
+            var result = await RustServerClient.SendCommandAsync(Id, new SendCommandRequest { Command = BuildSayCommand(message) });
+            if (!result.Success)
+            {
+                chatError = result.Error switch
+                {
+                    "NotConnected" => "This server isn't connected right now - the message wasn't sent.",
+                    _ => result.Error ?? "The message failed to send."
+                };
+            }
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
+        {
+            chatError = "No worker responded in time - this server may not have an active connection.";
+        }
+        catch (Exception)
+        {
+            chatError = "Something went wrong sending that message.";
+        }
+        finally
+        {
+            sendingChat = false;
+        }
+    }
+
+    // Rust's WebRCON reports an unsolicited chat frame's Type as "Chat" and its Message as a
+    // JSON-encoded object (Username/Message/Color/...), not plain text - this is the protocol's own
+    // wire format (vanilla Rust, not a Carbon/Oxide quirk), and RustArchon's capture pipeline
+    // (RustArchon.Worker's ServerConnectionActor) stores every frame's Message verbatim by design,
+    // deferring exactly this kind of parsing to a reader-side layer - see RconEvent's remarks.
+    // RustArchon.Rcon already has a ChatParser/ChatMessage pair for this shape, but it's built for
+    // chat.tail's *array* response, not a single live frame's bare object - rather than pull that
+    // library in here (this project only ever reaches RustArchon entities through DTOs/API clients,
+    // never their lower-level implementation types) and adapt it for a shape it wasn't built for,
+    // this is a small, display-only parse: falls back to the raw text on anything that doesn't match,
+    // so an unexpected shape (or a genuinely plain-text "Chat" frame from some other setup) still
+    // shows something instead of an empty line.
+    private static readonly JsonSerializerOptions ChatPayloadJsonOptions = new() { PropertyNameCaseInsensitive = true };
+
+    private sealed class ChatPayload
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Message { get; set; } = string.Empty;
+        public string? Color { get; set; }
+    }
+
+    private static ChatPayload? ParseChatMessage(string rawMessage)
+    {
+        try
+        {
+            var payload = JsonSerializer.Deserialize<ChatPayload>(rawMessage, ChatPayloadJsonOptions);
+            return !string.IsNullOrEmpty(payload?.Username) ? payload : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    // Rust reports colors as plain hex ("#eeeeee") or a handful of named values - allowlisting the
+    // shape before it lands in a style attribute is cheap insurance against a malformed/unexpected
+    // value breaking the CSS declaration, not a defense against HTML injection (Blazor already
+    // HTML-encodes attribute values regardless).
+    private static string ChatUsernameStyle(string? color) =>
+        !string.IsNullOrWhiteSpace(color) && System.Text.RegularExpressions.Regex.IsMatch(color, "^#?[0-9a-zA-Z]{1,10}$")
+            ? $"color: {color};"
+            : string.Empty;
+
+    // Rust's "say" console command takes the rest of the line as the message verbatim - it does not
+    // treat quotes as argument delimiters. Wrapping the message in quotes (an earlier version of this
+    // method did) doesn't protect anything; it just makes the quote characters part of what gets
+    // spoken, confirmed live: sending `say "hello"` broadcasts the literal text `"hello"`, quotes and
+    // all. So this is intentionally a bare passthrough, not an escaping no-op.
+    private static string BuildSayCommand(string message) => $"say {message}";
 
     private static string StatusBadgeClass(RconConnectionStatus status) => status switch
     {
