@@ -1,0 +1,324 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/servers/{ServerId:guid}/players/{SteamId}"
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IRustServerApiClient RustServerClient
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>@(detail?.DisplayName ?? "Player") — RustArchon</PageTitle>
+
+@if (loading)
+{
+    <p><em>Loading player...</em></p>
+}
+else if (detail is null)
+{
+    <div class="alert alert-danger">
+        <i class="bi bi-exclamation-triangle"></i> This player has no history on this server.
+    </div>
+    <a class="btn btn-outline-secondary" href="@BackHref"><i class="bi bi-arrow-left"></i> Back to Server</a>
+}
+else
+{
+    <a href="@BackHref" class="link-arrow d-inline-block mb-2"><i class="bi bi-arrow-left"></i> Back to Server</a>
+
+    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+        <div>
+            <h1 class="mb-0">@detail.DisplayName</h1>
+            <p class="text-muted mb-0">
+                <code>@detail.SteamId</code>
+                — <a href="@SteamProfileUrl" target="_blank" rel="noopener">Steam profile</a>
+            </p>
+        </div>
+        @if (detail.IsCurrentlyConnected)
+        {
+            <span class="badge status-badge status-connected"><i class="bi bi-check-circle-fill"></i> Currently connected</span>
+        }
+        else
+        {
+            <span class="badge status-badge status-disconnected"><i class="bi bi-x-circle-fill"></i> Not connected</span>
+        }
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="card card-body h-100">
+                <div class="text-muted small text-uppercase">Country</div>
+                <div class="fs-5">@CountrySummary(detail)</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card card-body h-100">
+                <div class="text-muted small text-uppercase">VPN</div>
+                <div class="fs-5">@VpnStatus(detail.IsVpn)</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card card-body h-100">
+                <div class="text-muted small text-uppercase">VAC / Game Bans</div>
+                <div class="fs-5 @(HasAnyBan(detail) ? "text-danger fw-semibold" : "")">
+                    @(detail.VacBanned.HasValue ? $"{detail.NumberOfVacBans ?? 0} / {detail.NumberOfGameBans ?? 0}" : "—")
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card card-body h-100">
+                <div class="text-muted small text-uppercase">Hours on Record</div>
+                <div class="fs-5">@FormatHoursOnRecord(detail.SteamMinutesPlayedForever)</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card card-body h-100">
+                <div class="text-muted small text-uppercase">Hours on Server</div>
+                <div class="fs-5">@FormatDurationLong(detail.HoursOnServer)</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card card-body h-100">
+                <div class="text-muted small text-uppercase">Sessions</div>
+                <div class="fs-5">@detail.SessionCount</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card card-body h-100">
+                <div class="text-muted small text-uppercase">First Seen</div>
+                <div class="fs-5">@detail.FirstConnectedAtUtc.ToLocalTime().ToString("g")</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card card-body h-100">
+                <div class="text-muted small text-uppercase">Last Seen</div>
+                <div class="fs-5">@detail.LastConnectedAtUtc.ToLocalTime().ToString("g")</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-6">
+            <h2 class="h6 text-muted text-uppercase">Session history</h2>
+            @if (loadingSessions && sessions.Count == 0)
+            {
+                <p><em>Loading...</em></p>
+            }
+            else if (sessions.Count == 0)
+            {
+                <p class="text-muted">No sessions recorded.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm player-table">
+                        <thead>
+                            <tr>
+                                <th>Connected</th>
+                                <th>Duration</th>
+                                <th>IP address</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in sessions)
+                            {
+                                <tr>
+                                    <td>@s.ConnectedAtUtc.ToLocalTime().ToString("g")</td>
+                                    <td>@FormatDurationLong((s.DisconnectedAtUtc ?? DateTimeOffset.UtcNow) - s.ConnectedAtUtc)@(s.DisconnectedAtUtc is null ? " (ongoing)" : "")</td>
+                                    <td><code>@s.IpAddress</code></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                @if (sessions.Count < sessionsTotalCount)
+                {
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => LoadSessionsAsync(append: true)" disabled="@loadingSessions">
+                        @(loadingSessions ? "Loading..." : $"Load more ({sessions.Count} of {sessionsTotalCount})")
+                    </button>
+                }
+            }
+        </div>
+
+        <div class="col-lg-6">
+            <h2 class="h6 text-muted text-uppercase">Kills</h2>
+            @if (loadingKills && kills.Count == 0)
+            {
+                <p><em>Loading...</em></p>
+            }
+            else if (kills.Count == 0)
+            {
+                <p class="text-muted">No kills recorded.</p>
+            }
+            else
+            {
+                <div class="console-log">
+                    @foreach (var k in kills)
+                    {
+                        <div class="console-line">
+                            <span class="console-line-time">@k.OccurredAtUtc.ToLocalTime().ToString("g")</span>
+                            <span class="console-line-message">@KillSummary(k)</span>
+                        </div>
+                    }
+                </div>
+
+                @if (kills.Count < killsTotalCount)
+                {
+                    <button class="btn btn-sm btn-outline-secondary mt-2" @onclick="() => LoadKillsAsync(append: true)" disabled="@loadingKills">
+                        @(loadingKills ? "Loading..." : $"Load more ({kills.Count} of {killsTotalCount})")
+                    </button>
+                }
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Guid ServerId { get; set; }
+
+    [Parameter]
+    public string SteamId { get; set; } = string.Empty;
+
+    private string BackHref => $"servers/{ServerId}?tab=players";
+    private string SteamProfileUrl => $"https://steamcommunity.com/profiles/{SteamId}";
+
+    private PlayerDetailDto? detail;
+    private bool loading = true;
+
+    private readonly List<PlayerSessionDto> sessions = new();
+    private bool loadingSessions = true;
+    private int sessionsPageNumber;
+    private int sessionsTotalCount;
+
+    private readonly List<PlayerKillEventDto> kills = new();
+    private bool loadingKills = true;
+    private int killsPageNumber;
+    private int killsTotalCount;
+
+    private const int PageSize = 50;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            detail = await RustServerClient.GetPlayerDetailAsync(ServerId, SteamId);
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            detail = null;
+        }
+        catch (Exception)
+        {
+            detail = null;
+        }
+
+        loading = false;
+
+        if (detail is not null)
+        {
+            await LoadSessionsAsync();
+            await LoadKillsAsync();
+        }
+    }
+
+    private async Task LoadSessionsAsync(bool append = false)
+    {
+        loadingSessions = true;
+        StateHasChanged();
+
+        try
+        {
+            var pageNumber = append ? sessionsPageNumber + 1 : 1;
+            var result = await RustServerClient.GetPlayerSessionsAsync(ServerId, SteamId, pageNumber, PageSize);
+
+            if (!append)
+            {
+                sessions.Clear();
+            }
+
+            sessions.AddRange(result.Items);
+            sessionsPageNumber = result.PageNumber;
+            sessionsTotalCount = result.TotalCount;
+        }
+        catch (Exception)
+        {
+            // Leave whatever was already on screen in place, same reasoning as ServerDetail's loads.
+        }
+        finally
+        {
+            loadingSessions = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadKillsAsync(bool append = false)
+    {
+        loadingKills = true;
+        StateHasChanged();
+
+        try
+        {
+            var pageNumber = append ? killsPageNumber + 1 : 1;
+            var result = await RustServerClient.GetPlayerKillsAsync(ServerId, SteamId, pageNumber, PageSize);
+
+            if (!append)
+            {
+                kills.Clear();
+            }
+
+            kills.AddRange(result.Items);
+            killsPageNumber = result.PageNumber;
+            killsTotalCount = result.TotalCount;
+        }
+        catch (Exception)
+        {
+        }
+        finally
+        {
+            loadingKills = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private static bool HasAnyBan(PlayerDetailDto p) => (p.NumberOfVacBans ?? 0) > 0 || (p.NumberOfGameBans ?? 0) > 0;
+
+    private static string CountrySummary(PlayerDetailDto p)
+    {
+        if (string.IsNullOrEmpty(p.Country))
+        {
+            return "—";
+        }
+
+        return !string.IsNullOrEmpty(p.CountryCode) ? $"{p.Country} ({p.CountryCode})" : p.Country;
+    }
+
+    private static string VpnStatus(bool? isVpn) => isVpn switch
+    {
+        true => "Yes",
+        false => "No",
+        null => "—"
+    };
+
+    private static string FormatHoursOnRecord(int? minutesPlayedForever) =>
+        minutesPlayedForever.HasValue ? FormatDurationLong(TimeSpan.FromMinutes(minutesPlayedForever.Value)) : "—";
+
+    private static string FormatDurationLong(TimeSpan duration) =>
+        $"{duration.Days:00}d, {duration.Hours:00}:{duration.Minutes:00}:{duration.Seconds:00}";
+
+    // Mirrors ServerDetail.razor's own KillSummary - kept as a plain victim/killer summary rather than
+    // "you" framing, since a reader lands here specifically because they already recognize this name.
+    private static string KillSummary(PlayerKillEventDto kill)
+    {
+        var weaponSuffix = string.IsNullOrEmpty(kill.Weapon) ? string.Empty : $" ({kill.Weapon})";
+
+        if (string.IsNullOrEmpty(kill.KillerName))
+        {
+            return $"{kill.VictimName} died{weaponSuffix}";
+        }
+
+        return $"{kill.VictimName} was killed by {kill.KillerName}{weaponSuffix}";
+    }
+}

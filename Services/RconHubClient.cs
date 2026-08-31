@@ -28,6 +28,10 @@ public class RconHubClient : IAsyncDisposable
 
     public event Action<RconEventDto>? EventReceived;
     public event Action<Guid, RconConnectionStatus, string?>? StatusChanged;
+    public event Action<PlayerSessionDto>? PlayerConnected;
+    public event Action<string>? PlayerDisconnected;
+    public event Action<PlayerSessionDto>? PlayerGeolocated;
+    public event Action<PlayerKillEventDto>? PlayerKilled;
 
     public RconHubClient(ITokenStore tokenStore, IConfiguration configuration)
     {
@@ -48,6 +52,10 @@ public class RconHubClient : IAsyncDisposable
         _connection.On<RconEventDto>("ReceiveEvent", dto => EventReceived?.Invoke(dto));
         _connection.On<Guid, RconConnectionStatus, string?>(
             "ReceiveStatusChanged", (id, status, detail) => StatusChanged?.Invoke(id, status, detail));
+        _connection.On<PlayerSessionDto>("ReceivePlayerConnected", dto => PlayerConnected?.Invoke(dto));
+        _connection.On<string>("ReceivePlayerDisconnected", steamId => PlayerDisconnected?.Invoke(steamId));
+        _connection.On<PlayerSessionDto>("ReceivePlayerGeolocated", dto => PlayerGeolocated?.Invoke(dto));
+        _connection.On<PlayerKillEventDto>("ReceivePlayerKilled", dto => PlayerKilled?.Invoke(dto));
 
         // Re-join the group on every (re)connect, including automatic-reconnect - SignalR groups
         // don't survive a dropped connection, even a briefly-reconnected one.
