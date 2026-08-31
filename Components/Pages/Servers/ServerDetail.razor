@@ -2,11 +2,15 @@
 
 @page "/servers/{Id:guid}"
 @using Microsoft.AspNetCore.Authorization
+@using RustArchon.Messaging.Contracts
 @using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject IRustServerApiClient RustServerClient
+@inject RconHubClient HubClient
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@implements IAsyncDisposable
 
 <PageTitle>@(server?.Name ?? "Server") — RustArchon</PageTitle>
 
@@ -35,8 +39,8 @@ else
                 }
             </p>
         </div>
-        <span class="badge status-badge status-pending">
-            <i class="bi bi-hourglass-split"></i> Live monitoring coming soon
+        <span class="badge status-badge @StatusBadgeClass(status)">
+            <i class="bi @StatusIcon(status)"></i> @StatusText(status)
         </span>
     </div>
 
@@ -61,26 +65,64 @@ else
     <div class="console-pane">
         @if (activeTab == Tab.Console)
         {
-            <div class="console-empty">
-                <i class="bi bi-broadcast"></i>
-                <p>Live console capture isn't wired up for this server yet.</p>
-                <p class="text-muted small">Once connected, every console line will stream here in
-                real time, and history will still be here the next time you check back - even if
-                nobody was watching when it happened.</p>
-            </div>
+            @if (consoleEvents.Count == 0)
+            {
+                <div class="console-empty">
+                    <i class="bi bi-broadcast"></i>
+                    <p>No console activity captured yet.</p>
+                    <p class="text-muted small">Once this server's connection is live, every console
+                    line will stream here in real time, and history will still be here the next time
+                    you check back - even if nobody was watching when it happened.</p>
+                </div>
+            }
+            else
+            {
+                <div class="console-log">
+                    @foreach (var evt in consoleEvents)
+                    {
+                        <div class="console-line">
+                            <span class="console-line-time">@evt.CapturedAtUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+                            <span class="console-line-message">@evt.Message</span>
+                        </div>
+                    }
+                </div>
+            }
             <div class="console-input">
-                <input type="text" class="form-control" placeholder="Send a command..." disabled />
-                <button class="btn btn-primary" disabled>Send</button>
+                <input type="text" class="form-control" placeholder="Send a command..."
+                       @bind="commandText" @bind:event="oninput" @onkeydown="OnCommandKeyDown"
+                       disabled="@sendingCommand" />
+                <button class="btn btn-primary" @onclick="SendCommandAsync" disabled="@(sendingCommand || string.IsNullOrWhiteSpace(commandText))">
+                    Send
+                </button>
             </div>
+            @if (!string.IsNullOrEmpty(commandError))
+            {
+                <p class="text-danger small mt-2">@commandError</p>
+            }
         }
         else if (activeTab == Tab.Chat)
         {
-            <div class="console-empty">
-                <i class="bi bi-chat-dots"></i>
-                <p>No chat activity captured yet.</p>
-                <p class="text-muted small">In-game chat will show up here once this server's
-                connection is live.</p>
-            </div>
+            @if (chatEvents.Count == 0)
+            {
+                <div class="console-empty">
+                    <i class="bi bi-chat-dots"></i>
+                    <p>No chat activity captured yet.</p>
+                    <p class="text-muted small">In-game chat will show up here once this server's
+                    connection is live.</p>
+                </div>
+            }
+            else
+            {
+                <div class="console-log">
+                    @foreach (var evt in chatEvents)
+                    {
+                        <div class="console-line">
+                            <span class="console-line-time">@evt.CapturedAtUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+                            <span class="console-line-message">@evt.Message</span>
+                        </div>
+                    }
+                </div>
+            }
         }
         else
         {
@@ -101,6 +143,18 @@ else
     private RustServerDto? server;
     private bool loading = true;
     private Tab activeTab = Tab.Console;
+    private RconConnectionStatus status;
+    private readonly List<RconEventDto> consoleEvents = new();
+    private readonly List<RconEventDto> chatEvents = new();
+    private string commandText = string.Empty;
+    private bool sendingCommand;
+    private string? commandError;
+
+    // Frames whose Type matches this (case-insensitively) are chat lines, not generic console
+    // output. Kept as the one bit of classification this page needs rather than waiting on the
+    // reader-side layer the RconEvent.Type remarks defer full classification to - RustWebRconClient
+    // already reports chat frames with this exact type string.
+    private const string ChatFrameType = "Chat";
 
     protected override async Task OnInitializedAsync()
     {
@@ -112,10 +166,145 @@ else
         {
             server = null;
         }
+
+        if (server is not null)
+        {
+            status = server.ConnectionStatus;
+
+            try
+            {
+                var history = await RustServerClient.GetEventsAsync(Id, pageNumber: 1, pageSize: 200);
+                // Newest-first from the API - reverse for a natural top-to-bottom reading order, then
+                // split by type the same way live events are split below.
+                foreach (var evt in history.Items.Reverse())
+                {
+                    Classify(evt);
+                }
+            }
+            catch (Exception)
+            {
+                // History failing to load shouldn't block live tailing from working - the console
+                // pane just starts empty instead of pre-populated.
+            }
+
+            HubClient.EventReceived += OnEventReceived;
+            HubClient.StatusChanged += OnStatusChanged;
+            await HubClient.ConnectAsync(Id);
+        }
+
+        loading = false;
+    }
+
+    private void Classify(RconEventDto evt)
+    {
+        if (string.Equals(evt.Type, ChatFrameType, StringComparison.OrdinalIgnoreCase))
+        {
+            chatEvents.Add(evt);
+        }
+        else
+        {
+            consoleEvents.Add(evt);
+        }
+    }
+
+    private void OnEventReceived(RconEventDto evt)
+    {
+        InvokeAsync(() =>
+        {
+            Classify(evt);
+            StateHasChanged();
+        });
+    }
+
+    private void OnStatusChanged(Guid serverId, RconConnectionStatus newStatus, string? detail)
+    {
+        if (serverId != Id)
+        {
+            return;
+        }
+
+        InvokeAsync(() =>
+        {
+            status = newStatus;
+            StateHasChanged();
+        });
+    }
+
+    private async Task OnCommandKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendCommandAsync();
+        }
+    }
+
+    private async Task SendCommandAsync()
+    {
+        if (string.IsNullOrWhiteSpace(commandText) || sendingCommand)
+        {
+            return;
+        }
+
+        sendingCommand = true;
+        commandError = null;
+        var command = commandText;
+        commandText = string.Empty;
+
+        try
+        {
+            var result = await RustServerClient.SendCommandAsync(Id, new SendCommandRequest { Command = command });
+            if (!result.Success)
+            {
+                commandError = result.Error switch
+                {
+                    "NotConnected" => "This server isn't connected right now - the command wasn't sent.",
+                    _ => result.Error ?? "The command failed."
+                };
+            }
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
+        {
+            commandError = "No worker responded in time - this server may not have an active connection.";
+        }
+        catch (Exception)
+        {
+            commandError = "Something went wrong sending that command.";
+        }
         finally
         {
-            loading = false;
+            sendingCommand = false;
         }
+    }
+
+    private static string StatusBadgeClass(RconConnectionStatus status) => status switch
+    {
+        RconConnectionStatus.Connected => "status-connected",
+        RconConnectionStatus.Connecting or RconConnectionStatus.Reconnecting => "status-pending",
+        _ => "status-disconnected"
+    };
+
+    private static string StatusIcon(RconConnectionStatus status) => status switch
+    {
+        RconConnectionStatus.Connected => "bi-check-circle-fill",
+        RconConnectionStatus.Connecting or RconConnectionStatus.Reconnecting => "bi-hourglass-split",
+        RconConnectionStatus.Error => "bi-exclamation-triangle-fill",
+        _ => "bi-x-circle-fill"
+    };
+
+    private static string StatusText(RconConnectionStatus status) => status switch
+    {
+        RconConnectionStatus.Connected => "Connected",
+        RconConnectionStatus.Connecting => "Connecting",
+        RconConnectionStatus.Reconnecting => "Reconnecting",
+        RconConnectionStatus.Error => "Connection error",
+        _ => "Disconnected"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        HubClient.EventReceived -= OnEventReceived;
+        HubClient.StatusChanged -= OnStatusChanged;
+        await HubClient.DisposeAsync();
     }
 
     private enum Tab { Console, Chat, Players }

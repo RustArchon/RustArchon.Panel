@@ -1,0 +1,184 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/PlatformSettings"
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IPlatformSettingsApiClient SettingsClient
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>Platform Settings</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Platform Settings</h1>
+</div>
+
+@if (accessDenied == true)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> You don't have access to manage platform settings.
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    @if (loading)
+    {
+        <p><em>Loading settings...</em></p>
+    }
+    else if (settings != null)
+    {
+        @if (!settings.Any())
+        {
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> No settings registered yet.
+            </div>
+        }
+        else
+        {
+            <div class="list-group">
+                @foreach (var setting in settings)
+                {
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-start gap-3">
+                            <div>
+                                <div class="fw-semibold">@setting.DisplayName</div>
+                                @if (!string.IsNullOrEmpty(setting.Description))
+                                {
+                                    <div class="text-muted small">@setting.Description</div>
+                                }
+                            </div>
+
+                            <div class="flex-shrink-0">
+                                @if (setting.ValueType == PlatformSettingValueType.Boolean)
+                                {
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch"
+                                               id="@($"setting-{setting.Key}")"
+                                               checked="@IsTrue(setting.Value)"
+                                               disabled="@savingKeys.Contains(setting.Key)"
+                                               @onchange="e => SaveBoolean(setting, (bool)e.Value!)" />
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="input-group">
+                                        <input class="form-control" style="max-width: 220px"
+                                               type="@(setting.ValueType == PlatformSettingValueType.Integer ? "number" : "text")"
+                                               value="@GetPendingValue(setting)"
+                                               disabled="@savingKeys.Contains(setting.Key)"
+                                               @onchange="e => pendingValues[setting.Key] = e.Value?.ToString() ?? string.Empty" />
+                                        <button class="btn btn-outline-primary" type="button"
+                                                disabled="@savingKeys.Contains(setting.Key)"
+                                                @onclick="() => SaveValue(setting)">
+                                            Save
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+}
+
+@code {
+    private List<PlatformSettingDto>? settings;
+    private bool loading = true;
+    private bool? accessDenied;
+    private string? errorMessage;
+    private string? successMessage;
+    private readonly HashSet<string> savingKeys = new();
+    private readonly Dictionary<string, string> pendingValues = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSettings();
+    }
+
+    private async Task LoadSettings()
+    {
+        loading = true;
+        errorMessage = null;
+        try
+        {
+            settings = await SettingsClient.GetAllAsync();
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load settings: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private static bool IsTrue(string value) => bool.TryParse(value, out var parsed) && parsed;
+
+    private string GetPendingValue(PlatformSettingDto setting) =>
+        pendingValues.TryGetValue(setting.Key, out var pending) ? pending : setting.Value;
+
+    private async Task SaveBoolean(PlatformSettingDto setting, bool value)
+    {
+        await SaveInternal(setting, value ? "true" : "false");
+    }
+
+    private async Task SaveValue(PlatformSettingDto setting)
+    {
+        var value = GetPendingValue(setting);
+        await SaveInternal(setting, value);
+    }
+
+    private async Task SaveInternal(PlatformSettingDto setting, string value)
+    {
+        savingKeys.Add(setting.Key);
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            var updated = await SettingsClient.UpdateValueAsync(setting.Key, new UpdatePlatformSettingValueDto { Value = value });
+            var index = settings!.FindIndex(s => s.Key == setting.Key);
+            if (index >= 0)
+            {
+                settings[index] = updated;
+            }
+
+            pendingValues.Remove(setting.Key);
+            successMessage = $"'{setting.DisplayName}' was updated.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to update '{setting.DisplayName}': {ex.Message}";
+        }
+        finally
+        {
+            savingKeys.Remove(setting.Key);
+        }
+    }
+}
