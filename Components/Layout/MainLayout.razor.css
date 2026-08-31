@@ -10,9 +10,9 @@ main {
 }
 
 .sidebar {
-    background-color: #0f120c;
+    background-color: var(--ra-bg-raised);
     background-image:
-        linear-gradient(180deg, #1a1508 0%, #0b0d0a 45%, #0b0d0a 100%),
+        linear-gradient(180deg, var(--ra-bg-raised) 0%, var(--ra-bg) 45%, var(--ra-bg) 100%),
         repeating-linear-gradient(135deg, rgba(255, 106, 26, 0.05) 0px, rgba(255, 106, 26, 0.05) 2px, transparent 2px, transparent 22px);
     border-right: 2px solid var(--ra-rust-dim);
     box-shadow: 4px 0 24px rgba(255, 106, 26, 0.08);

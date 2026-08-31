@@ -1,6 +1,7 @@
 // Copyright ©2026 Scott Blomfield
 
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using JumpStart.Api.Clients;
 using JumpStart.Repositories;
@@ -41,6 +42,40 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
         [Query] bool? isChat = null,
         [Query] DateTimeOffset? since = null,
         [Query] DateTimeOffset? until = null);
+
+    [Get("/{id}/players")]
+    Task<List<PlayerSessionDto>> GetCurrentPlayersAsync(Guid id);
+
+    [Get("/{id}/players/history")]
+    Task<PagedResult<PlayerSessionDto>> GetPlayerHistoryAsync(
+        Guid id,
+        [Query] int pageNumber = 1,
+        [Query] int pageSize = 100,
+        [Query] DateTimeOffset? since = null,
+        [Query] DateTimeOffset? until = null);
+
+    [Get("/{id}/kills")]
+    Task<PagedResult<PlayerKillEventDto>> GetKillsAsync(
+        Guid id,
+        [Query] int pageNumber = 1,
+        [Query] int pageSize = 100,
+        [Query] DateTimeOffset? since = null,
+        [Query] DateTimeOffset? until = null);
+
+    [Get("/{id}/players/inactive")]
+    Task<PagedResult<InactivePlayerDto>> GetInactivePlayersAsync(
+        Guid id, [Query] int pageNumber = 1, [Query] int pageSize = 100);
+
+    [Get("/{id}/players/{steamId}")]
+    Task<PlayerDetailDto> GetPlayerDetailAsync(Guid id, string steamId);
+
+    [Get("/{id}/players/{steamId}/sessions")]
+    Task<PagedResult<PlayerSessionDto>> GetPlayerSessionsAsync(
+        Guid id, string steamId, [Query] int pageNumber = 1, [Query] int pageSize = 100);
+
+    [Get("/{id}/players/{steamId}/kills")]
+    Task<PagedResult<PlayerKillEventDto>> GetPlayerKillsAsync(
+        Guid id, string steamId, [Query] int pageNumber = 1, [Query] int pageSize = 100);
 }
 
 /// <summary>

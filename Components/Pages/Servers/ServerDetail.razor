@@ -1,7 +1,11 @@
 @* Copyright ©2026 Scott Blomfield *@
 
 @page "/servers/{Id:guid}"
+@using System.Linq
+@using System.Net
+@using System.Text
 @using System.Text.Json
+@using System.Text.RegularExpressions
 @using Microsoft.AspNetCore.Authorization
 @using RustArchon.Messaging.Contracts
 @using RustArchon.Panel.Clients
@@ -11,6 +15,7 @@
 @inject IRustServerApiClient RustServerClient
 @inject RconHubClient HubClient
 @inject IJSRuntime JS
+@inject NavigationManager NavigationManager
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @implements IAsyncDisposable
 
@@ -114,7 +119,7 @@ else
                     {
                         <div class="console-line">
                             <span class="console-line-time">@evt.CapturedAtUtc.ToLocalTime().ToString("HH:mm:ss")</span>
-                            <span class="console-line-message">@evt.Message</span>
+                            <span class="console-line-message">@LinkifyConsoleLine(evt.Message)</span>
                         </div>
                     }
                 </div>
@@ -184,7 +189,15 @@ else
                             @if (chat is not null)
                             {
                                 <span class="console-line-message">
-                                    <span class="chat-username" style="@ChatUsernameStyle(chat.Color)">@chat.Username</span>: @chat.Message
+                                    @if (IsSteamId(chat.UserId))
+                                    {
+                                        <a class="chat-username" style="@ChatUsernameStyle(chat.Color)" href="@PlayerHref(chat.UserId!)">@chat.Username</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="chat-username" style="@ChatUsernameStyle(chat.Color)">@chat.Username</span>
+                                    }
+                                    : @chat.Message
                                 </span>
                             }
                             else
@@ -210,11 +223,148 @@ else
         }
         else
         {
-            <div class="console-empty">
-                <i class="bi bi-people"></i>
-                <p>Player list isn't available yet.</p>
-                <p class="text-muted small">Active players, connect/disconnect events, and playtime
-                will show up here once this server's connection is live.</p>
+            <div class="players-columns">
+                <div class="players-current">
+                    <h2 class="h6 text-muted text-uppercase">Currently connected</h2>
+                    @if (loadingPlayers)
+                    {
+                        <p><em>Loading players...</em></p>
+                    }
+                    else if (currentPlayers.Count == 0)
+                    {
+                        <div class="console-empty">
+                            <i class="bi bi-people"></i>
+                            <p>Nobody is connected right now.</p>
+                            <p class="text-muted small">Players show up here the moment they join,
+                            and drop off the moment they disconnect.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm player-table">
+                                <thead>
+                                    <tr>
+                                        <th>Player</th>
+                                        <th>Steam ID</th>
+                                        <th>IP address</th>
+                                        <th>Connected</th>
+                                        <th>Location</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var p in currentPlayers)
+                                    {
+                                        <tr>
+                                            <td><a href="@PlayerHref(p.SteamId)">@p.DisplayName</a></td>
+                                            <td><code>@p.SteamId</code></td>
+                                            <td><code>@p.IpAddress</code></td>
+                                            <td>@FormatDuration(p.ConnectedAtUtc)</td>
+                                            <td>@GeolocationSummary(p)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <div class="players-kills">
+                    <h2 class="h6 text-muted text-uppercase">Recent kills</h2>
+                    @if (loadingKills)
+                    {
+                        <p><em>Loading kill history...</em></p>
+                    }
+                    else if (recentKills.Count == 0)
+                    {
+                        <div class="console-empty">
+                            <i class="bi bi-crosshair"></i>
+                            <p>No kills captured yet.</p>
+                            <p class="text-muted small">Kills are detected heuristically from console
+                            text, so this may miss some and shouldn't be treated as authoritative.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="console-log">
+                            @foreach (var k in recentKills)
+                            {
+                                <div class="console-line">
+                                    <span class="console-line-time">@k.OccurredAtUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+                                    <span class="console-line-message">@KillSummary(k)</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="players-inactive">
+                <h2 class="h6 text-muted text-uppercase">Inactive players</h2>
+                @if (loadingInactivePlayers && inactivePlayers.Count == 0)
+                {
+                    <p><em>Loading player history...</em></p>
+                }
+                else if (inactivePlayers.Count == 0)
+                {
+                    <div class="console-empty">
+                        <i class="bi bi-clock-history"></i>
+                        <p>No player history yet.</p>
+                        <p class="text-muted small">Everyone who has ever connected and since
+                        disconnected will show up here, along with their playtime and account info.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm player-table">
+                            <thead>
+                                <tr>
+                                    <th>Nickname</th>
+                                    <th>Steam ID</th>
+                                    <th>Country</th>
+                                    <th>VAC Bans</th>
+                                    <th>Game Bans</th>
+                                    <th>Violations</th>
+                                    <th>Hours on Record</th>
+                                    <th>Hours on Server</th>
+                                    <th>Last Ping</th>
+                                    <th>Last Session</th>
+                                    <th>IP Address</th>
+                                    <th>VPN</th>
+                                    <th>Last Connected</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var p in inactivePlayers)
+                                {
+                                    <tr>
+                                        <td><a href="@PlayerHref(p.SteamId)">@p.DisplayName</a></td>
+                                        <td><code>@p.SteamId</code></td>
+                                        <td>@CountrySummary(p)</td>
+                                        <td class="@(p.NumberOfVacBans is > 0 ? "text-danger fw-semibold" : "")">@(p.VacBanned.HasValue ? p.NumberOfVacBans ?? 0 : (object)"—")</td>
+                                        <td class="@(p.NumberOfGameBans is > 0 ? "text-danger fw-semibold" : "")">@(p.VacBanned.HasValue ? p.NumberOfGameBans ?? 0 : (object)"—")</td>
+                                        <td>@(p.LastViolationLevel?.ToString("0.00") ?? "—")</td>
+                                        <td>@FormatHoursOnRecord(p.SteamMinutesPlayedForever)</td>
+                                        <td>@FormatDurationLong(p.HoursOnServer)</td>
+                                        <td>@(p.LastPing.HasValue ? $"{p.LastPing}ms" : "—")</td>
+                                        <td>@FormatDurationLong(p.LastConnectionDuration)</td>
+                                        <td><code>@p.IpAddress</code></td>
+                                        <td>@VpnStatus(p.IsVpn)</td>
+                                        <td>@p.LastConnectedAtUtc.ToLocalTime().ToString("g")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    @if (inactivePlayers.Count < inactivePlayersTotalCount)
+                    {
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => LoadInactivePlayersAsync(append: true)" disabled="@loadingInactivePlayers">
+                            @(loadingInactivePlayers ? "Loading..." : $"Load more ({inactivePlayers.Count} of {inactivePlayersTotalCount})")
+                        </button>
+                    }
+                }
             </div>
         }
     </div>
@@ -223,6 +373,14 @@ else
 @code {
     [Parameter]
     public Guid Id { get; set; }
+
+    // Query string, not a URL fragment - a fragment never reaches the server at all (it's stripped
+    // before the HTTP request is even made), so a hard refresh on e.g. "#players" can't restore
+    // anything without extra client-side JS to read window.location.hash. A query string round-trips
+    // through Blazor's own routing normally and SupplyParameterFromQuery reads it directly.
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? TabQuery { get; set; }
 
     private RustServerDto? server;
     private bool loading = true;
@@ -236,6 +394,19 @@ else
     private string chatText = string.Empty;
     private bool sendingChat;
     private string? chatError;
+
+    // ---- Players tab ----
+    private readonly List<PlayerSessionDto> currentPlayers = new();
+    private readonly List<PlayerKillEventDto> recentKills = new();
+    private bool loadingPlayers = true;
+    private bool loadingKills = true;
+    private const int MaxRecentKills = 50;
+
+    private readonly List<InactivePlayerDto> inactivePlayers = new();
+    private bool loadingInactivePlayers = true;
+    private int inactivePlayersPageNumber;
+    private int inactivePlayersTotalCount;
+    private const int InactivePlayersPageSize = 50;
 
     // Frames whose Type matches this (case-insensitively) are chat lines, not generic console
     // output. Kept as the one bit of classification this page needs rather than waiting on the
@@ -266,6 +437,19 @@ else
     private bool pendingChatScroll;
     private bool initialScrollDone;
 
+    // Runs after OnInitializedAsync on the very first pass, and again every time the query string
+    // changes (including from our own NavigateTo calls in SwitchTabAsync) - the URL is the single
+    // source of truth for which tab is active, not just the seed for the first render.
+    protected override void OnParametersSet()
+    {
+        activeTab = TabQuery switch
+        {
+            "chat" => Tab.Chat,
+            "players" => Tab.Players,
+            _ => Tab.Console
+        };
+    }
+
     protected override async Task OnInitializedAsync()
     {
         try
@@ -283,9 +467,16 @@ else
 
             await LoadConsoleHistoryAsync(resetScroll: false);
             await LoadChatHistoryAsync(resetScroll: false);
+            await LoadPlayersAsync();
+            await LoadKillsAsync();
+            await LoadInactivePlayersAsync();
 
             HubClient.EventReceived += OnEventReceived;
             HubClient.StatusChanged += OnStatusChanged;
+            HubClient.PlayerConnected += OnPlayerConnected;
+            HubClient.PlayerDisconnected += OnPlayerDisconnected;
+            HubClient.PlayerGeolocated += OnPlayerGeolocated;
+            HubClient.PlayerKilled += OnPlayerKilled;
             await HubClient.ConnectAsync(Id);
         }
 
@@ -356,6 +547,15 @@ else
             pendingChatScroll = true;
         }
 
+        // Keeps the URL in sync so a refresh (or a shared/bookmarked link) lands back on this tab -
+        // replace: true so tab-switching doesn't pile up browser-history entries. Omitted entirely for
+        // Console (the default) so the plain "/servers/{id}" URL stays the common case. This also
+        // re-fires OnParametersSet with the same tab we just set directly above - a harmless,
+        // idempotent confirmation, not a fight over which value wins.
+        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", _ => null };
+        var newUri = tabQueryValue is null ? $"servers/{Id}" : $"servers/{Id}?tab={tabQueryValue}";
+        NavigationManager.NavigateTo(newUri, replace: true);
+
         StateHasChanged();
         await Task.CompletedTask;
     }
@@ -425,6 +625,140 @@ else
         }
 
         StateHasChanged();
+    }
+
+    private async Task LoadPlayersAsync()
+    {
+        loadingPlayers = true;
+        StateHasChanged();
+
+        try
+        {
+            var players = await RustServerClient.GetCurrentPlayersAsync(Id);
+            currentPlayers.Clear();
+            currentPlayers.AddRange(players.OrderBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase));
+        }
+        catch (Exception)
+        {
+            // Same reasoning as LoadConsoleHistoryAsync - leave whatever was already on screen alone.
+        }
+        finally
+        {
+            loadingPlayers = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadKillsAsync()
+    {
+        loadingKills = true;
+        StateHasChanged();
+
+        try
+        {
+            // Newest-first from the API - kept that way here, unlike the console/chat logs, since
+            // this reads as a "recent activity" feed rather than a transcript meant to be read
+            // top-to-bottom.
+            var history = await RustServerClient.GetKillsAsync(Id, pageNumber: 1, pageSize: MaxRecentKills);
+            recentKills.Clear();
+            recentKills.AddRange(history.Items);
+        }
+        catch (Exception)
+        {
+            // Same reasoning as LoadConsoleHistoryAsync.
+        }
+        finally
+        {
+            loadingKills = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadInactivePlayersAsync(bool append = false)
+    {
+        loadingInactivePlayers = true;
+        StateHasChanged();
+
+        try
+        {
+            var pageNumber = append ? inactivePlayersPageNumber + 1 : 1;
+            var result = await RustServerClient.GetInactivePlayersAsync(Id, pageNumber, InactivePlayersPageSize);
+
+            if (!append)
+            {
+                inactivePlayers.Clear();
+            }
+
+            inactivePlayers.AddRange(result.Items);
+            inactivePlayersPageNumber = result.PageNumber;
+            inactivePlayersTotalCount = result.TotalCount;
+        }
+        catch (Exception)
+        {
+            // Same reasoning as LoadConsoleHistoryAsync.
+        }
+        finally
+        {
+            loadingInactivePlayers = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private void OnPlayerConnected(PlayerSessionDto dto)
+    {
+        InvokeAsync(() =>
+        {
+            // Poll-and-diff detection (see ServerConnectionActor's remarks) can in principle re-report
+            // a session that's already tracked - de-dupe by Id rather than assuming exactly one
+            // PlayerConnected per player.
+            if (currentPlayers.All(p => p.Id != dto.Id))
+            {
+                currentPlayers.Add(dto);
+                currentPlayers.Sort((a, b) => string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase));
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    private void OnPlayerDisconnected(string steamId)
+    {
+        InvokeAsync(() =>
+        {
+            currentPlayers.RemoveAll(p => p.SteamId == steamId);
+            StateHasChanged();
+        });
+    }
+
+    private void OnPlayerGeolocated(PlayerSessionDto dto)
+    {
+        InvokeAsync(() =>
+        {
+            var index = currentPlayers.FindIndex(p => p.Id == dto.Id);
+            if (index >= 0)
+            {
+                currentPlayers[index] = dto;
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    private void OnPlayerKilled(PlayerKillEventDto dto)
+    {
+        InvokeAsync(() =>
+        {
+            recentKills.Insert(0, dto);
+            if (recentKills.Count > MaxRecentKills)
+            {
+                recentKills.RemoveRange(MaxRecentKills, recentKills.Count - MaxRecentKills);
+            }
+
+            StateHasChanged();
+        });
     }
 
     private Task ResetConsoleFilterAsync()
@@ -620,6 +954,12 @@ else
         public string Username { get; set; } = string.Empty;
         public string Message { get; set; } = string.Empty;
         public string? Color { get; set; }
+
+        /// <summary>The chatter's Steam64 ID - Rust's own chat frame includes this alongside
+        /// Username/Message/Color, confirmed live. Powers the username link to their player detail
+        /// page; left null/unlinked for anything that doesn't look like a real Steam64 ID (see
+        /// KillFeedTextParser's AsSteamId remarks for the same 17-digit heuristic).</summary>
+        public string? UserId { get; set; }
     }
 
     private static ChatPayload? ParseChatMessage(string rawMessage)
@@ -651,6 +991,145 @@ else
     // all. So this is intentionally a bare passthrough, not an escaping no-op.
     private static string BuildSayCommand(string message) => $"say {message}";
 
+    private static string FormatDuration(DateTimeOffset connectedAtUtc)
+    {
+        var elapsed = DateTimeOffset.UtcNow - connectedAtUtc;
+        if (elapsed < TimeSpan.Zero)
+        {
+            elapsed = TimeSpan.Zero;
+        }
+
+        return elapsed.TotalHours >= 1
+            ? $"{(int)elapsed.TotalHours}h {elapsed.Minutes}m"
+            : $"{Math.Max(0, (int)elapsed.TotalMinutes)}m";
+    }
+
+    // Every IGeolocationProvider is currently a stub that always returns null (see the Providers/
+    // remarks), so in practice this always falls through to "—" today - it's written against the
+    // real shape now so nothing here needs to change once a provider is actually wired up.
+    private static string GeolocationSummary(PlayerSessionDto player)
+    {
+        if (string.IsNullOrEmpty(player.GeolocationCountry))
+        {
+            return "—";
+        }
+
+        var label = !string.IsNullOrEmpty(player.GeolocationCountryCode)
+            ? $"{player.GeolocationCountry} ({player.GeolocationCountryCode})"
+            : player.GeolocationCountry;
+
+        var flags = new List<string>();
+        if (player.GeolocationIsVpn == true)
+        {
+            flags.Add("VPN");
+        }
+        if (player.GeolocationIsProxy == true)
+        {
+            flags.Add("Proxy");
+        }
+
+        return flags.Count > 0 ? $"{label} — {string.Join(", ", flags)}" : label!;
+    }
+
+    private string PlayerHref(string steamId) => $"servers/{Id}/players/{steamId}";
+
+    // Same 17-digit heuristic as KillFeedTextParser.AsSteamId - an NPC's network/entity ID never gets
+    // remotely close to that length, so this reliably tells a real player apart from one without
+    // needing to know anything about where the value came from.
+    private static bool IsSteamId(string? value) => value is { Length: 17 } && value.All(char.IsDigit);
+
+    // Finds every "<name>[<17-digit-steamid>]" occurrence in a raw console line (the shape used by
+    // kill lines, "has spawned", etc. - see KillFeedTextParser's remarks) and turns just the name
+    // portion into a link to that player's detail page, leaving the rest of the line as plain text.
+    // Deliberately narrow rather than an attempt at universal name detection - lines that don't
+    // happen to carry a bracketed Steam64 ID (e.g. the "ip:port/steamid/name joined" shape) simply
+    // stay unlinked, same as they'd read today.
+    private static readonly Regex ConsoleNameWithSteamIdPattern = new(@"(?<name>[^\[\]\r\n]+?)\[(?<id>\d{17})\]", RegexOptions.Compiled);
+
+    private MarkupString LinkifyConsoleLine(string message)
+    {
+        if (string.IsNullOrEmpty(message))
+        {
+            return new MarkupString(string.Empty);
+        }
+
+        var matches = ConsoleNameWithSteamIdPattern.Matches(message);
+        if (matches.Count == 0)
+        {
+            return new MarkupString(WebUtility.HtmlEncode(message));
+        }
+
+        var builder = new StringBuilder();
+        var lastIndex = 0;
+
+        foreach (Match match in matches)
+        {
+            builder.Append(WebUtility.HtmlEncode(message[lastIndex..match.Index]));
+
+            var name = match.Groups["name"].Value;
+            var steamId = match.Groups["id"].Value;
+            builder.Append("<a href=\"").Append(WebUtility.HtmlEncode(PlayerHref(steamId))).Append("\">")
+                   .Append(WebUtility.HtmlEncode(name))
+                   .Append("</a>[").Append(steamId).Append(']');
+
+            lastIndex = match.Index + match.Length;
+        }
+
+        builder.Append(WebUtility.HtmlEncode(message[lastIndex..]));
+
+        return new MarkupString(builder.ToString());
+    }
+
+    private static string CountrySummary(InactivePlayerDto player)
+    {
+        if (string.IsNullOrEmpty(player.Country))
+        {
+            return "—";
+        }
+
+        return !string.IsNullOrEmpty(player.CountryCode)
+            ? $"{player.Country} ({player.CountryCode})"
+            : player.Country;
+    }
+
+    private static string VpnStatus(bool? isVpn) => isVpn switch
+    {
+        true => "Yes",
+        false => "No",
+        null => "—"
+    };
+
+    // Every provider is currently a stub (see Infrastructure/Geolocation/Providers's remarks), so in
+    // practice this always shows "—" today - written against the real shape now so nothing here needs
+    // to change once a provider is actually wired up.
+    private static string FormatHoursOnRecord(int? minutesPlayedForever) =>
+        minutesPlayedForever.HasValue ? FormatDurationLong(TimeSpan.FromMinutes(minutesPlayedForever.Value)) : "—";
+
+    // "00d, HH:mm:ss" - used for every duration-shaped column in the inactive-players table (hours on
+    // server, hours on record, last session length) so they read consistently side by side.
+    private static string FormatDurationLong(TimeSpan duration) =>
+        $"{duration.Days:00}d, {duration.Hours:00}:{duration.Minutes:00}:{duration.Seconds:00}";
+
+    // VictimSteamId/KillerSteamId being null means "NPC" (see KillFeedTextParser's remarks) - this
+    // only cares about names for display, since the Players tab's job is showing what happened, not
+    // re-deriving who's a player vs. an NPC (the Worker already filtered NPC-vs-NPC noise out before
+    // publishing PlayerKilled at all).
+    private static string KillSummary(PlayerKillEventDto kill)
+    {
+        var weaponSuffix = string.IsNullOrEmpty(kill.Weapon) ? string.Empty : $" ({kill.Weapon})";
+
+        if (string.IsNullOrEmpty(kill.KillerName))
+        {
+            // No killer identified means this came from the "died (reason)" shape, not "was killed
+            // by" - confirmed live for a real player death ("CyberKnet[...] died (Fall)"), not just
+            // NPCs. Weapon holds that reason here (see KillFeedTextParser's DiedPattern remarks), and
+            // dropping it silently threw away the one piece of information the event actually has.
+            return $"{kill.VictimName} died{weaponSuffix}";
+        }
+
+        return $"{kill.VictimName} was killed by {kill.KillerName}{weaponSuffix}";
+    }
+
     private static string StatusBadgeClass(RconConnectionStatus status) => status switch
     {
         RconConnectionStatus.Connected => "status-connected",
@@ -679,6 +1158,10 @@ else
     {
         HubClient.EventReceived -= OnEventReceived;
         HubClient.StatusChanged -= OnStatusChanged;
+        HubClient.PlayerConnected -= OnPlayerConnected;
+        HubClient.PlayerDisconnected -= OnPlayerDisconnected;
+        HubClient.PlayerGeolocated -= OnPlayerGeolocated;
+        HubClient.PlayerKilled -= OnPlayerKilled;
         await HubClient.DisposeAsync();
     }
 
