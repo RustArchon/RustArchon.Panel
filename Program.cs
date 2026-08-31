@@ -99,6 +99,7 @@ builder.Services.PostConfigure<JwtTokenOptions>(options =>
 builder.Services.AddScoped<ITokenStore, TokenStore>();
 builder.Services.AddTransient<JwtAuthenticationHandler>();
 builder.Services.AddTransient<JwtExchangeHandler>();
+builder.Services.AddTransient<TokenBridgeHandler>();
 
 // API-client-based tenant selection - every user has exactly one tenant today (provisioned at
 // sign-up by NewTenantBootstrapper), but MainLayout's <TenantSwitcher> and future teammate-invite
@@ -137,11 +138,23 @@ builder.Services.AddScoped<NewTenantBootstrapper>();
 // in ITokenStore.
 builder.Services.AddApiClient<IRustServerApiClient>($"{apiBaseUrl}/api/rustservers")
     .AddHttpMessageHandler<JwtExchangeHandler>()
-    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+    .AddHttpMessageHandler<JwtAuthenticationHandler>()
+    // Innermost (runs last, right before the request is actually sent, after a real token is
+    // guaranteed to exist) - bridges it into the real circuit's own ITokenStore, since
+    // RconHubClient reads that one directly rather than through an API client's HTTP pipeline. See
+    // TokenBridgeHandler's remarks for why that bridge is necessary at all.
+    .AddHttpMessageHandler<TokenBridgeHandler>();
 
 // Same handler chain as IRustServerApiClient - only the account matching the API's
 // RUSTARCHON_ADMIN_EMAIL can actually use this; everyone else's calls 403.
 builder.Services.AddApiClient<IInvitationCodeApiClient>($"{apiBaseUrl}/api/invitation-codes")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// Same handler chain again - gated by the "Site Admin" role's Platform.ManageSettings permission
+// instead (see PlatformSettingsController), granted independently of Platform.ManageInvitations above
+// even though both currently land on the same account by default.
+builder.Services.AddApiClient<IPlatformSettingsApiClient>($"{apiBaseUrl}/api/platform-settings")
     .AddHttpMessageHandler<JwtExchangeHandler>()
     .AddHttpMessageHandler<JwtAuthenticationHandler>();
 
@@ -159,6 +172,9 @@ var internalApiKey = builder.Configuration["RUSTARCHON_INTERNAL_API_KEY"]
 builder.Services.AddApiClient<IInternalEmailApiClient>(apiBaseUrl)
     .ConfigureHttpClient(client => client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey));
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, QueuedEmailSender>();
+
+// Live console/chat/status tail for a server's detail page - see RconHubClient's own remarks.
+builder.Services.AddScoped<RconHubClient>();
 
 var app = builder.Build();
 

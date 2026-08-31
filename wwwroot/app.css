@@ -1042,3 +1042,32 @@ code, .badge {
     .console-input .form-control {
         font-family: var(--ra-font-mono);
     }
+
+/* ---- Live console/chat log (ServerDetail.razor) ---- */
+
+.console-log {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 420px;
+    padding: 0.75rem 1rem;
+    font-family: var(--ra-font-mono);
+    font-size: 0.85rem;
+}
+
+.console-line {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.15rem 0;
+    border-bottom: 1px solid var(--ra-border-soft);
+}
+
+.console-line-time {
+    flex-shrink: 0;
+    color: var(--ra-text-dim);
+}
+
+.console-line-message {
+    color: var(--ra-text);
+    word-break: break-word;
+    white-space: pre-wrap;
+}

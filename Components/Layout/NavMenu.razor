@@ -39,10 +39,17 @@
             <Authorized>
                 <div class="nav-item px-3">
                     @* Visible to any signed-in user - the page/API itself enforces the PlatformAdmin
-                       allow-list, so a non-admin who clicks through just sees an access-denied
+                       permission, so a non-admin who clicks through just sees an access-denied
                        message rather than the link needing to know their permissions up front. *@
                     <NavLink class="nav-link" href="Admin/InvitationCodes">
                         <span class="bi bi-ticket-perforated-fill-nav-menu" aria-hidden="true"></span> Invitation Codes
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    @* Same reasoning as Invitation Codes above - gated by ManagePlatformSettings, not
+                       hidden from non-admins up front. *@
+                    <NavLink class="nav-link" href="Admin/PlatformSettings">
+                        <span class="bi bi-sliders-nav-menu" aria-hidden="true"></span> Platform Settings
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
