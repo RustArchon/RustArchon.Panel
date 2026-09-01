@@ -7,7 +7,7 @@
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject IPlatformSettingsApiClient SettingsClient
-@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@rendermode RenderModes.NonPrerenderedServer
 
 <PageTitle>Platform Settings</PageTitle>
 

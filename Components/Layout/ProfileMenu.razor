@@ -1,0 +1,48 @@
+@* Top-row profile control: click the name/avatar to go straight to the account page, hover for
+   a dropdown with Preferences (not built yet - shown disabled as a preview of what's coming) and
+   Log Out. Mirrors the logout form NavMenu.razor already uses for the same reconnect/JWT reason. *@
+@implements IDisposable
+@inject NavigationManager NavigationManager
+
+<AuthorizeView>
+    <Authorized>
+        <div class="profile-menu">
+            <a class="profile-trigger" href="Account/Manage">
+                <i class="bi bi-person-circle" aria-hidden="true"></i>
+                <span class="profile-name">@context.User.Identity?.Name</span>
+            </a>
+            <div class="profile-dropdown">
+                <span class="profile-dropdown-item disabled" aria-disabled="true" title="Coming soon">
+                    <i class="bi bi-gear" aria-hidden="true"></i> Preferences
+                </span>
+                <form action="Account/Logout" method="post" data-enhance="false" class="profile-dropdown-form">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="ReturnUrl" value="@currentUrl" />
+                    <button type="submit" class="profile-dropdown-item profile-dropdown-button">
+                        <i class="bi bi-arrow-bar-left" aria-hidden="true"></i> Log Out
+                    </button>
+                </form>
+            </div>
+        </div>
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    private string? currentUrl;
+
+    protected override void OnInitialized()
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(e.Location);
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+    }
+}

@@ -16,7 +16,7 @@
 @inject RconHubClient HubClient
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
-@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@rendermode RenderModes.NonPrerenderedServer
 @implements IAsyncDisposable
 
 <PageTitle>@(server?.Name ?? "Server") — RustArchon</PageTitle>

@@ -8,7 +8,7 @@
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject IRustServerApiClient RustServerClient
-@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@rendermode RenderModes.NonPrerenderedServer
 
 <PageTitle>Servers</PageTitle>
 
