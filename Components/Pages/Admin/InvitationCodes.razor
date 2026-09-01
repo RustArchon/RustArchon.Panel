@@ -8,7 +8,7 @@
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject IInvitationCodeApiClient InvitationCodeClient
-@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@rendermode RenderModes.NonPrerenderedServer
 
 <PageTitle>Invitation Codes</PageTitle>
 

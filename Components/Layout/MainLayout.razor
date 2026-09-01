@@ -10,10 +10,10 @@
         <div class="top-row px-4">
             <AuthorizeView>
                 <Authorized>
-                    <TenantSwitcher @rendermode="new InteractiveServerRenderMode(prerender: false)" />
+                    <TenantSwitcher @rendermode="RenderModes.NonPrerenderedServer" />
                 </Authorized>
             </AuthorizeView>
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+            <ProfileMenu />
         </div>
 
         <article class="content px-4">
@@ -27,3 +27,7 @@
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@* TenantSwitcher's @rendermode above uses RenderModes.NonPrerenderedServer (a single, shared,
+   stable instance) rather than constructing a fresh InteractiveServerRenderMode inline - see that
+   class's own remarks for why an inline `new` there would be a real, confirmed bug, not just style. *@

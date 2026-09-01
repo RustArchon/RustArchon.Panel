@@ -11,5 +11,11 @@
    - no separate anonymous-vs-authenticated branching needed here. *@
 
 @code {
-    protected override void OnInitialized() => NavigationManager.NavigateTo("servers");
+    // Forwards the query string along with the redirect - this page has no meaning of its own, so it
+    // should be a transparent pass-through. Notably, TenantSwitcher relies on exactly this: it reloads
+    // to "/" with a "?tenantId=..." hint after a tenant switch (see
+    // ITenantSelectionService.TenantIdQueryParameterName's remarks for why), which would otherwise be
+    // silently dropped here, undoing the switch.
+    protected override void OnInitialized() =>
+        NavigationManager.NavigateTo("servers" + new Uri(NavigationManager.Uri).Query);
 }

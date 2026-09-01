@@ -1,0 +1,69 @@
+.profile-menu {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    height: 100%;
+}
+
+.profile-trigger {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 0.5rem;
+    height: 100%;
+}
+
+.profile-trigger i {
+    font-size: 1.25rem;
+}
+
+.profile-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    flex-direction: column;
+    min-width: 11rem;
+    padding: 0.35rem;
+    margin-top: -1px;
+    background-color: var(--ra-bg-raised);
+    border: 1px solid var(--ra-rust-dim);
+    border-radius: 0.25rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    z-index: 10;
+}
+
+.profile-menu:hover .profile-dropdown,
+.profile-menu:focus-within .profile-dropdown {
+    display: flex;
+}
+
+.profile-dropdown-form {
+    display: contents;
+}
+
+.profile-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: none;
+    border: none;
+    border-radius: 0.2rem;
+    font: inherit;
+    text-align: left;
+    color: var(--ra-text);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+    .profile-dropdown-item:hover:not(.disabled) {
+        background-color: var(--ra-bg);
+        color: var(--ra-cyan);
+    }
+
+    .profile-dropdown-item.disabled {
+        color: var(--ra-text-muted);
+        cursor: not-allowed;
+        opacity: 0.6;
+    }
