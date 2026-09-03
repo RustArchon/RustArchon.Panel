@@ -76,6 +76,16 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     [Get("/{id}/players/{steamId}/kills")]
     Task<PagedResult<PlayerKillEventDto>> GetPlayerKillsAsync(
         Guid id, string steamId, [Query] int pageNumber = 1, [Query] int pageSize = 100);
+
+    /// <summary>
+    /// The Stats tab's graph data (player count, network in/out, memory), oldest first. Defaults to
+    /// the last 24 hours when <paramref name="since"/> is omitted - see the endpoint's own remarks.
+    /// </summary>
+    [Get("/{id}/serverinfo/history")]
+    Task<List<ServerInfoSnapshotDto>> GetServerInfoHistoryAsync(
+        Guid id,
+        [Query] DateTimeOffset? since = null,
+        [Query] DateTimeOffset? until = null);
 }
 
 /// <summary>

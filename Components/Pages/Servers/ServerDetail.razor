@@ -67,6 +67,16 @@ else
                 <i class="bi bi-people"></i> Players
             </button>
         </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Stats ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Stats)">
+                <i class="bi bi-graph-up"></i> Stats
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Control ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Control)">
+                <i class="bi bi-sliders"></i> Control
+            </button>
+        </li>
     </ul>
 
     <div class="console-pane">
@@ -221,7 +231,7 @@ else
                 <p class="text-danger small mt-2">@chatError</p>
             }
         }
-        else
+        else if (activeTab == Tab.Players)
         {
             <div class="players-columns">
                 <div class="players-current">
@@ -366,6 +376,258 @@ else
                     }
                 }
             </div>
+
+            <div class="players-banlist">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h2 class="h6 text-muted text-uppercase mb-0">Ban list</h2>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="LoadBanListAsync" disabled="@loadingBanList">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                </div>
+                @if (banListError is not null)
+                {
+                    <div class="alert alert-warning py-2 px-3 small mt-2 mb-0">@banListError</div>
+                }
+                else if (loadingBanList && banList.Count == 0)
+                {
+                    <p><em>Loading ban list...</em></p>
+                }
+                else if (banList.Count == 0)
+                {
+                    <div class="console-empty">
+                        <i class="bi bi-slash-circle"></i>
+                        <p>No one is banned.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm player-table">
+                            <thead>
+                                <tr>
+                                    <th>Steam ID</th>
+                                    <th>Name</th>
+                                    <th>Reason</th>
+                                    <th>Expires</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var b in banList)
+                                {
+                                    <tr>
+                                        <td><code>@b.SteamId</code></td>
+                                        <td>@b.Name</td>
+                                        <td>@b.Reason</td>
+                                        <td>@(b.IsPermanent ? "Permanent" : b.Expiry)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+
+        @* A standalone @if here, not a further "else if" chained onto the Console/Chat/Players
+           block above - deliberately, not stylistically. Chaining it that way compiled fine but
+           the Razor compiler emitted this transition's own "else if (...) { " line as literal
+           markup text instead of recognizing it as code (confirmed via the generated
+           BuildRenderTree - it showed up as a literal AddMarkupContent(...) string, not a real
+           C# branch), immediately after the Players block above's own deep @if/@foreach nesting.
+           A standalone @if sidesteps whatever specific parser state that triggers - still
+           mutually exclusive with every other tab in practice, since activeTab only ever holds
+           one value at a time. *@
+        @if (activeTab == Tab.Stats)
+        {
+            <div class="stats-pane">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h2 class="h6 text-muted text-uppercase mb-0">Server info</h2>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => LoadLiveServerInfoAsync()" disabled="@loadingLiveServerInfo">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                </div>
+
+                @if (liveServerInfoError is not null)
+                {
+                    <div class="alert alert-warning py-2 px-3 small mb-3">@liveServerInfoError</div>
+                }
+
+                @if (loadingLiveServerInfo && liveServerInfo is null)
+                {
+                    <p><em>Loading server info...</em></p>
+                }
+                else if (liveServerInfo is not null)
+                {
+                    <dl class="server-info-grid mb-4">
+                        <div><dt>Hostname</dt><dd>@liveServerInfo.Hostname</dd></div>
+                        <div><dt>Map</dt><dd>@liveServerInfo.Map</dd></div>
+                        <div><dt>Players</dt><dd>@liveServerInfo.Players / @liveServerInfo.MaxPlayers @(liveServerInfo.ReservedSlots > 0 ? $"({liveServerInfo.ReservedSlots} reserved)" : "")</dd></div>
+                        <div><dt>Queued / Joining</dt><dd>@liveServerInfo.Queued / @liveServerInfo.Joining</dd></div>
+                        <div><dt>Entity Count</dt><dd>@liveServerInfo.EntityCount.ToString("N0")</dd></div>
+                        <div><dt>Framerate</dt><dd>@liveServerInfo.Framerate.ToString("0.0") fps</dd></div>
+                        <div><dt>Memory</dt><dd>@liveServerInfo.Memory MB @(liveServerInfo.MemoryUsageSystem > 0 ? $"({liveServerInfo.MemoryUsageSystem} MB system)" : "")</dd></div>
+                        <div><dt>Collections</dt><dd>@liveServerInfo.Collections</dd></div>
+                        <div><dt>Uptime</dt><dd>@FormatUptime(liveServerInfo.Uptime)</dd></div>
+                        <div><dt>Game Time</dt><dd>@liveServerInfo.GameTime</dd></div>
+                        <div><dt>Save Created</dt><dd>@liveServerInfo.SaveCreatedTime</dd></div>
+                        <div><dt>Version</dt><dd>@liveServerInfo.Version <span class="text-muted">(protocol @liveServerInfo.Protocol)</span></dd></div>
+                        <div><dt>Restarting</dt><dd>@(liveServerInfo.Restarting ? "Yes" : "No")</dd></div>
+                    </dl>
+                }
+
+                <h2 class="h6 text-muted text-uppercase mb-2">Trends</h2>
+                @if (serverInfoHistoryError is not null)
+                {
+                    <div class="alert alert-warning py-2 px-3 small mb-3">@serverInfoHistoryError</div>
+                }
+                @if (loadingServerInfoHistory && serverInfoHistory.Count == 0)
+                {
+                    <p><em>Loading history...</em></p>
+                }
+                else if (serverInfoHistory.Count == 0)
+                {
+                    <div class="console-empty">
+                        <i class="bi bi-graph-up"></i>
+                        <p>No history captured yet.</p>
+                        <p class="text-muted small">RustArchon.Worker polls <code>serverinfo</code> every
+                        60 seconds while connected - check back shortly after the server comes online.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="stats-charts">
+                        <div class="chart-card">
+                            <h3 class="h6">Player Count</h3>
+                            <div class="chart-wrap"><canvas id="playersChart"></canvas></div>
+                        </div>
+                        <div class="chart-card">
+                            <h3 class="h6">Network In/Out (bytes/s)</h3>
+                            <div class="chart-wrap"><canvas id="networkChart"></canvas></div>
+                        </div>
+                        <div class="chart-card">
+                            <h3 class="h6">Memory (MB)</h3>
+                            <div class="chart-wrap"><canvas id="memoryChart"></canvas></div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
+        @if (activeTab == Tab.Control)
+        {
+            <div class="control-pane">
+                @if (controlError is not null)
+                {
+                    <div class="alert alert-danger alert-dismissible py-2 px-3 small mb-3">
+                        @controlError
+                        <button type="button" class="btn-close" @onclick="() => controlError = null"></button>
+                    </div>
+                }
+                @if (controlSuccessMessage is not null)
+                {
+                    <div class="alert alert-success py-2 px-3 small mb-3">@controlSuccessMessage</div>
+                }
+
+                <div class="control-section">
+                    <h2 class="h6 text-muted text-uppercase">Time</h2>
+                    <div class="d-flex align-items-center gap-2">
+                        <input type="number" class="form-control form-control-sm" style="width:6rem" min="0" max="24" step="0.5" @bind="controlTimeValue" />
+                        <button class="btn btn-sm btn-outline-primary" @onclick="SetTimeAsync" disabled="@controlBusy">Set Time</button>
+                        <span class="text-muted small">0-24, e.g. 12 for noon</span>
+                    </div>
+                </div>
+
+                <div class="control-section">
+                    <h2 class="h6 text-muted text-uppercase">Weather</h2>
+                    <div class="control-weather-row">
+                        <span class="control-weather-label">Rain</span>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "1")' disabled="@controlBusy">On</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "0")' disabled="@controlBusy">Off</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "*")' disabled="@controlBusy">Auto</button>
+                        </div>
+                    </div>
+                    <div class="control-weather-row">
+                        <span class="control-weather-label">Fog</span>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "1")' disabled="@controlBusy">On</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "0")' disabled="@controlBusy">Off</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "*")' disabled="@controlBusy">Auto</button>
+                        </div>
+                    </div>
+                    <div class="control-weather-row">
+                        <span class="control-weather-label">Clouds</span>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "1")' disabled="@controlBusy">On</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "0")' disabled="@controlBusy">Off</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "*")' disabled="@controlBusy">Auto</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-section">
+                    <h2 class="h6 text-muted text-uppercase">Radiation</h2>
+                    <div class="btn-group" role="group">
+                        <button class="btn btn-sm btn-outline-success" @onclick="() => SetRadiationAsync(true)" disabled="@controlBusy">Enable</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => SetRadiationAsync(false)" disabled="@controlBusy">Disable</button>
+                    </div>
+                </div>
+
+                <div class="control-section">
+                    <h2 class="h6 text-muted text-uppercase">Animals</h2>
+                    <div class="d-flex flex-column gap-2">
+                        <div>
+                            <span class="control-weather-label">Movement</span>
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-sm btn-outline-success" @onclick='() => SetAiConvarAsync("ai.move", true)' disabled="@controlBusy">On</button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick='() => SetAiConvarAsync("ai.move", false)' disabled="@controlBusy">Off</button>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="control-weather-label">AI</span>
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-sm btn-outline-success" @onclick='() => SetAiConvarAsync("ai.think", true)' disabled="@controlBusy">On</button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick='() => SetAiConvarAsync("ai.think", false)' disabled="@controlBusy">Off</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-section">
+                    <h2 class="h6 text-muted text-uppercase">World Reset</h2>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-sm btn-outline-warning" @onclick="ResetAnimalsAsync" disabled="@controlBusy">
+                            <i class="bi bi-arrow-repeat"></i> Reset Animals
+                        </button>
+                        <button class="btn btn-sm btn-outline-warning" @onclick="ResetResourcesAsync" disabled="@controlBusy">
+                            <i class="bi bi-arrow-repeat"></i> Reset Resources
+                        </button>
+                        <button class="btn btn-sm btn-outline-warning" @onclick="ResetCollectiblesAsync" disabled="@controlBusy">
+                            <i class="bi bi-arrow-repeat"></i> Reset Collectibles
+                        </button>
+                    </div>
+                </div>
+
+                <div class="control-section">
+                    <h2 class="h6 text-muted text-uppercase">Configuration</h2>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="SaveConfigAsync" disabled="@controlBusy">
+                        <i class="bi bi-save"></i> Save server.cfg
+                    </button>
+                    <p class="text-muted small mb-0 mt-1">Writes the server's current convars to <code>server.cfg</code> so they survive a restart.</p>
+                </div>
+
+                <div class="control-section">
+                    <h2 class="h6 text-muted text-uppercase">Notice</h2>
+                    <div class="d-flex gap-2">
+                        <input type="text" class="form-control form-control-sm" placeholder="Message to pop up for everyone" @bind="noticeMessage" />
+                        <button class="btn btn-sm btn-outline-primary" @onclick="SendNoticeAsync" disabled="@(controlBusy || string.IsNullOrWhiteSpace(noticeMessage))">
+                            <i class="bi bi-megaphone"></i> Send Notice
+                        </button>
+                    </div>
+                    <p class="text-muted small mb-0 mt-1">A server-wide popup, distinct from a plain chat message - see the Chat tab for that.</p>
+                </div>
+            </div>
         }
     </div>
 }
@@ -408,6 +670,31 @@ else
     private int inactivePlayersTotalCount;
     private const int InactivePlayersPageSize = 50;
 
+    private readonly List<BanListEntry> banList = new();
+    private bool loadingBanList = true;
+    private string? banListError;
+
+    private record BanListEntry(string SteamId, string Name, string Reason, bool IsPermanent, string Expiry);
+
+    // ---- Stats tab ----
+    private ServerInfoLiveDto? liveServerInfo;
+    private bool loadingLiveServerInfo = true;
+    private string? liveServerInfoError;
+    private readonly List<ServerInfoSnapshotDto> serverInfoHistory = new();
+    private bool loadingServerInfoHistory = true;
+    private string? serverInfoHistoryError;
+
+    // Set whenever the chart canvases need a (re-)render - see SwitchTabAsync's remarks. Consumed in
+    // OnAfterRenderAsync, same pattern as pendingConsoleScroll/pendingChatScroll.
+    private bool pendingStatsChartRender;
+
+    // ---- Control tab ----
+    private double controlTimeValue = 12;
+    private bool controlBusy;
+    private string? controlError;
+    private string? controlSuccessMessage;
+    private string noticeMessage = string.Empty;
+
     // Frames whose Type matches this (case-insensitively) are chat lines, not generic console
     // output. Kept as the one bit of classification this page needs rather than waiting on the
     // reader-side layer the RconEvent.Type remarks defer full classification to - RustWebRconClient
@@ -446,6 +733,8 @@ else
         {
             "chat" => Tab.Chat,
             "players" => Tab.Players,
+            "stats" => Tab.Stats,
+            "control" => Tab.Control,
             _ => Tab.Console
         };
     }
@@ -470,6 +759,27 @@ else
             await LoadPlayersAsync();
             await LoadKillsAsync();
             await LoadInactivePlayersAsync();
+            await LoadServerInfoHistoryAsync();
+
+            // Not awaited, same reasoning as LoadLiveServerInfoAsync below - global.banlistex is a live
+            // RCON round-trip, not a local DB query like the other Players-tab loads above, so awaiting
+            // it here would hold up the whole page's "loading" state on a fetch only the ban list needs.
+            _ = LoadBanListAsync();
+
+            if (activeTab == Tab.Stats)
+            {
+                pendingStatsChartRender = true;
+            }
+
+            // Deliberately not awaited, unlike every other eager load above - serverinfo is a live RCON
+            // round-trip (confirmed live: 8+ seconds against a real server, not a local DB query like
+            // the others), so awaiting it here would hold up the *entire* page's "loading" state - every
+            // tab, not just Stats - on a fetch only the Stats tab needs. Its own StateHasChanged() call
+            // still safely updates the UI once it completes: unlike OnPlayerConnected and friends, this
+            // task is started from (and its continuations resume on) this component's own captured
+            // synchronization context, not an arbitrary SignalR callback thread, so it doesn't need
+            // InvokeAsync to get back onto it.
+            _ = LoadLiveServerInfoAsync();
 
             HubClient.EventReceived += OnEventReceived;
             HubClient.StatusChanged += OnStatusChanged;
@@ -512,6 +822,12 @@ else
                 await JS.InvokeVoidAsync("consoleScroll.scrollToBottom", chatLogRef);
             }
         }
+
+        if (pendingStatsChartRender && activeTab == Tab.Stats && serverInfoHistory.Count > 0)
+        {
+            pendingStatsChartRender = false;
+            await RenderStatsChartsAsync();
+        }
     }
 
     private async Task ScrollActiveTabToBottomAsync()
@@ -552,9 +868,19 @@ else
         // Console (the default) so the plain "/servers/{id}" URL stays the common case. This also
         // re-fires OnParametersSet with the same tab we just set directly above - a harmless,
         // idempotent confirmation, not a fight over which value wins.
-        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", _ => null };
+        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", Tab.Stats => "stats", Tab.Control => "control", _ => null };
         var newUri = tabQueryValue is null ? $"servers/{Id}" : $"servers/{Id}?tab={tabQueryValue}";
         NavigationManager.NavigateTo(newUri, replace: true);
+
+        // The Stats tab's <canvas> elements don't exist in the DOM until this @if block renders (same
+        // reasoning as pendingConsoleScroll/pendingChatScroll above) - and even if they did on a
+        // previous visit, switching away and back tears down and recreates them, orphaning whatever
+        // Chart.js instance was attached to the old ones. So charts always need a fresh render on
+        // every switch *to* Stats, not just the first time data loads.
+        if (tab == Tab.Stats)
+        {
+            pendingStatsChartRender = true;
+        }
 
         StateHasChanged();
         await Task.CompletedTask;
@@ -705,6 +1031,334 @@ else
         }
 
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// Fetches and parses the server-wide ban list via <c>global.banlistex</c> - a plain space +
+    /// quoted-field text table, not JSON (confirmed by watching a real third-party RCON client's
+    /// actual traffic through RustArchon.RconEmulator): one line per ban, shaped
+    /// <c>&lt;#&gt; &lt;steamid&gt; "&lt;name&gt;" "&lt;reason&gt;" &lt;expiry&gt;</c>, where expiry is
+    /// <c>-1</c> for a permanent ban.
+    /// </summary>
+    private async Task LoadBanListAsync()
+    {
+        loadingBanList = true;
+        banListError = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await RustServerClient.SendCommandAsync(Id, new SendCommandRequest { Command = "global.banlistex" });
+            if (result.Success)
+            {
+                banList.Clear();
+                banList.AddRange(ParseBanList(result.Message ?? string.Empty));
+            }
+            else
+            {
+                banListError = result.Error switch
+                {
+                    "NotConnected" => "This server isn't connected right now - the ban list is unavailable.",
+                    _ => result.Error ?? "Failed to load the ban list."
+                };
+            }
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
+        {
+            banListError = "No worker responded in time - this server may not have an active connection.";
+        }
+        catch (Exception)
+        {
+            banListError = "Something went wrong loading the ban list.";
+        }
+        finally
+        {
+            loadingBanList = false;
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Parses <c>global.banlistex</c>'s raw text, one entry per non-empty line. Quoted fields
+    /// (name, reason) may contain spaces, so this walks the line manually rather than a plain
+    /// <c>Split(' ')</c> - a naive split would break on any name or reason containing a space, which
+    /// real-world data does constantly.
+    /// </summary>
+    private static IEnumerable<BanListEntry> ParseBanList(string raw)
+    {
+        foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Length == 0)
+            {
+                continue;
+            }
+
+            var fields = new List<string>();
+            var i = 0;
+            while (i < trimmed.Length && fields.Count < 5)
+            {
+                while (i < trimmed.Length && trimmed[i] == ' ')
+                {
+                    i++;
+                }
+
+                if (i >= trimmed.Length)
+                {
+                    break;
+                }
+
+                if (trimmed[i] == '"')
+                {
+                    var end = trimmed.IndexOf('"', i + 1);
+                    if (end < 0)
+                    {
+                        break;
+                    }
+
+                    fields.Add(trimmed.Substring(i + 1, end - i - 1));
+                    i = end + 1;
+                }
+                else
+                {
+                    var end = trimmed.IndexOf(' ', i);
+                    if (end < 0)
+                    {
+                        end = trimmed.Length;
+                    }
+
+                    fields.Add(trimmed.Substring(i, end - i));
+                    i = end;
+                }
+            }
+
+            // <index> <steamid> "<name>" "<reason>" <expiry>
+            if (fields.Count == 5)
+            {
+                var expiry = fields[4];
+                yield return new BanListEntry(fields[1], fields[2], fields[3], expiry == "-1", expiry);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fetches the Stats tab's live info panel by running <c>serverinfo</c> through the same generic
+    /// command pathway the Console tab uses, then deserializing the raw JSON result - see
+    /// <see cref="ServerInfoLiveDto"/>'s remarks for why that happens here rather than through a
+    /// dedicated Api endpoint.
+    /// </summary>
+    private async Task LoadLiveServerInfoAsync()
+    {
+        loadingLiveServerInfo = true;
+        liveServerInfoError = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await RustServerClient.SendCommandAsync(Id, new SendCommandRequest { Command = "serverinfo" });
+            if (result.Success && result.Message is not null)
+            {
+                liveServerInfo = JsonSerializer.Deserialize<ServerInfoLiveDto>(result.Message);
+            }
+            else
+            {
+                liveServerInfoError = result.Error switch
+                {
+                    "NotConnected" => "This server isn't connected right now - server info is unavailable.",
+                    _ => result.Error ?? "Failed to load server info."
+                };
+            }
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
+        {
+            liveServerInfoError = "No worker responded in time - this server may not have an active connection.";
+        }
+        catch (Exception)
+        {
+            liveServerInfoError = "Something went wrong loading server info.";
+        }
+        finally
+        {
+            loadingLiveServerInfo = false;
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>Loads the last 24 hours of <see cref="ServerInfoSnapshotDto"/> history for the charts.</summary>
+    private async Task LoadServerInfoHistoryAsync()
+    {
+        loadingServerInfoHistory = true;
+        serverInfoHistoryError = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await RustServerClient.GetServerInfoHistoryAsync(Id);
+            serverInfoHistory.Clear();
+            serverInfoHistory.AddRange(result);
+        }
+        catch (Exception)
+        {
+            serverInfoHistoryError = "Failed to load history.";
+        }
+        finally
+        {
+            loadingServerInfoHistory = false;
+        }
+
+        pendingStatsChartRender = true;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Builds and renders the three Stats-tab charts via a thin Chart.js JS interop wrapper - see
+    /// wwwroot/js/statsChart.js. Passing a plain anonymous object straight to <c>InvokeVoidAsync</c>
+    /// relies on Blazor's own JSON serialization of the call arguments; there's no need to
+    /// hand-serialize it here.
+    /// </summary>
+    private async Task RenderStatsChartsAsync()
+    {
+        var labels = serverInfoHistory.Select(s => s.CapturedAtUtc.ToLocalTime().ToString("HH:mm")).ToArray();
+
+        try
+        {
+            await JS.InvokeVoidAsync("statsChart.render", "playersChart", new
+            {
+                type = "line",
+                data = new
+                {
+                    labels,
+                    datasets = new object[]
+                    {
+                        new { label = "Players", data = serverInfoHistory.Select(s => s.Players).ToArray(), borderColor = "#f97316", backgroundColor = "#f9731633", fill = true, tension = 0.25 },
+                        new { label = "Max Players", data = serverInfoHistory.Select(s => s.MaxPlayers).ToArray(), borderColor = "#6b7280", borderDash = new[] { 4, 4 }, pointRadius = 0, fill = false, tension = 0 }
+                    }
+                }
+            });
+
+            await JS.InvokeVoidAsync("statsChart.render", "networkChart", new
+            {
+                type = "line",
+                data = new
+                {
+                    labels,
+                    datasets = new object[]
+                    {
+                        new { label = "In", data = serverInfoHistory.Select(s => s.NetworkIn).ToArray(), borderColor = "#22c55e", backgroundColor = "#22c55e33", fill = false, tension = 0.25 },
+                        new { label = "Out", data = serverInfoHistory.Select(s => s.NetworkOut).ToArray(), borderColor = "#3b82f6", backgroundColor = "#3b82f633", fill = false, tension = 0.25 }
+                    }
+                }
+            });
+
+            await JS.InvokeVoidAsync("statsChart.render", "memoryChart", new
+            {
+                type = "line",
+                data = new
+                {
+                    labels,
+                    datasets = new object[]
+                    {
+                        new { label = "Memory (MB)", data = serverInfoHistory.Select(s => s.Memory).ToArray(), borderColor = "#a855f7", backgroundColor = "#a855f733", fill = true, tension = 0.25 }
+                    }
+                }
+            });
+        }
+        catch (Exception)
+        {
+            // Best-effort - a chart failing to render shouldn't take the rest of the tab down with it.
+            // The most likely cause is the canvas not being in the DOM yet on a very fast tab switch;
+            // the next SwitchTabAsync/refresh sets pendingStatsChartRender again regardless.
+        }
+    }
+
+    private static string FormatUptime(int uptimeSeconds)
+    {
+        var span = TimeSpan.FromSeconds(uptimeSeconds);
+        return span.Days > 0
+            ? $"{span.Days}d {span.Hours}h {span.Minutes}m"
+            : $"{span.Hours}h {span.Minutes}m";
+    }
+
+    /// <summary>
+    /// Runs a Control-tab command through the same generic command pathway the Console tab uses,
+    /// reporting the same NotConnected/GatewayTimeout cases it already handles.
+    /// </summary>
+    private async Task<bool> RunControlCommandAsync(string command)
+    {
+        controlBusy = true;
+        controlError = null;
+        controlSuccessMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await RustServerClient.SendCommandAsync(Id, new SendCommandRequest { Command = command });
+            if (!result.Success)
+            {
+                controlError = result.Error switch
+                {
+                    "NotConnected" => "This server isn't connected right now - the command wasn't sent.",
+                    _ => result.Error ?? "The command failed."
+                };
+                return false;
+            }
+
+            controlSuccessMessage = $"Sent: {command}";
+            return true;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
+        {
+            controlError = "No worker responded in time - this server may not have an active connection.";
+            return false;
+        }
+        catch (Exception)
+        {
+            controlError = "Something went wrong sending that command.";
+            return false;
+        }
+        finally
+        {
+            controlBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    // env.time takes a quoted value ("13", not bare 13) - confirmed by watching a real third-party
+    // RCON client's actual traffic through RustArchon.RconEmulator (see that repo's README), not just
+    // documentation. Every command on this page was corrected the same way; see this method group's
+    // remarks for what changed and why.
+    private Task SetTimeAsync() =>
+        RunControlCommandAsync($"env.time \"{controlTimeValue.ToString(System.Globalization.CultureInfo.InvariantCulture)}\"");
+
+    // "*" for auto, not -1 as originally guessed from web search - also confirmed via RustArchon.RconEmulator.
+    private Task SetWeatherAsync(string convar, string value) => RunControlCommandAsync($"{convar} {value}");
+
+    // Numeric 1/0, not the "True"/"False" strings originally guessed from web search.
+    private Task SetRadiationAsync(bool enabled) => RunControlCommandAsync($"server.radiation {(enabled ? "1" : "0")}");
+
+    // Numeric 1/0, not the true/false strings originally guessed from web search.
+    private Task SetAiConvarAsync(string convar, bool enabled) => RunControlCommandAsync($"{convar} {(enabled ? "1" : "0")}");
+
+    // These three used to be one combined spawn.fill_populations button - RustArchon.RconEmulator
+    // caught a real third-party tool sending distinct del commands against Rust's per-category
+    // autospawn prefabs instead, which is both more precise and matches what this section's buttons
+    // actually claim to do.
+    private Task ResetAnimalsAsync() => RunControlCommandAsync("del assets/bundled/prefabs/autospawn/animals");
+
+    private Task ResetResourcesAsync() => RunControlCommandAsync("del assets/bundled/prefabs/autospawn/resource");
+
+    private Task ResetCollectiblesAsync() => RunControlCommandAsync("del assets/bundled/prefabs/autospawn/collectable");
+
+    private Task SaveConfigAsync() => RunControlCommandAsync("server.writecfg");
+
+    private async Task SendNoticeAsync()
+    {
+        if (await RunControlCommandAsync($"notice.popupall \"{noticeMessage}\""))
+        {
+            noticeMessage = string.Empty;
+        }
     }
 
     private void OnPlayerConnected(PlayerSessionDto dto)
@@ -1163,7 +1817,16 @@ else
         HubClient.PlayerGeolocated -= OnPlayerGeolocated;
         HubClient.PlayerKilled -= OnPlayerKilled;
         await HubClient.DisposeAsync();
+
+        try
+        {
+            await JS.InvokeVoidAsync("statsChart.destroyAll");
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit already gone - nothing left to clean up client-side.
+        }
     }
 
-    private enum Tab { Console, Chat, Players }
+    private enum Tab { Console, Chat, Players, Stats, Control }
 }

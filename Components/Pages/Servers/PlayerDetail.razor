@@ -43,6 +43,66 @@ else
         }
     </div>
 
+    <div class="card card-body mb-4">
+        <h2 class="h6 text-muted text-uppercase mb-3">Actions</h2>
+
+        @if (actionError is not null)
+        {
+            <div class="alert alert-danger alert-dismissible py-2 px-3 small mb-3">
+                @actionError
+                <button type="button" class="btn-close" @onclick="() => actionError = null"></button>
+            </div>
+        }
+        @if (actionSuccessMessage is not null)
+        {
+            <div class="alert alert-success py-2 px-3 small mb-3">@actionSuccessMessage</div>
+        }
+
+        <div class="d-flex flex-wrap gap-4">
+            <div>
+                <label class="form-label small text-muted mb-1">Give Item</label>
+                <div class="d-flex gap-2">
+                    <input type="text" class="form-control form-control-sm" style="width:10rem" placeholder="Item shortname" @bind="giveItemShortname" />
+                    <input type="number" class="form-control form-control-sm" style="width:5rem" min="1" @bind="giveItemAmount" />
+                    <button class="btn btn-sm btn-outline-primary" @onclick="GiveItemAsync" disabled="@(actionBusy || string.IsNullOrWhiteSpace(giveItemShortname))">Give</button>
+                </div>
+            </div>
+
+            <div>
+                <label class="form-label small text-muted mb-1">Teleport To</label>
+                <div class="d-flex gap-2">
+                    <input type="number" class="form-control form-control-sm" style="width:5rem" placeholder="X" @bind="teleportX" />
+                    <input type="number" class="form-control form-control-sm" style="width:5rem" placeholder="Y" @bind="teleportY" />
+                    <input type="number" class="form-control form-control-sm" style="width:5rem" placeholder="Z" @bind="teleportZ" />
+                    <button class="btn btn-sm btn-outline-primary" @onclick="TeleportAsync" disabled="@actionBusy">Teleport</button>
+                </div>
+            </div>
+
+            <div>
+                <label class="form-label small text-muted mb-1">Kill</label>
+                <div>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="KillAsync" disabled="@actionBusy">Kill Player</button>
+                </div>
+            </div>
+
+            <div>
+                <label class="form-label small text-muted mb-1">Kick</label>
+                <div class="d-flex gap-2">
+                    <input type="text" class="form-control form-control-sm" style="width:12rem" placeholder="Reason" @bind="kickReason" />
+                    <button class="btn btn-sm btn-outline-danger" @onclick="KickAsync" disabled="@actionBusy">Kick</button>
+                </div>
+            </div>
+
+            <div>
+                <label class="form-label small text-muted mb-1">Ban</label>
+                <div class="d-flex gap-2">
+                    <input type="text" class="form-control form-control-sm" style="width:12rem" placeholder="Reason" @bind="banReason" />
+                    <button class="btn btn-sm btn-outline-danger" @onclick="BanAsync" disabled="@actionBusy">Ban + Kick</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="row g-3 mb-4">
         <div class="col-6 col-md-3">
             <div class="card card-body h-100">
@@ -198,6 +258,21 @@ else
 
     private const int PageSize = 50;
 
+    // ---- Actions ----
+    private bool actionBusy;
+    private string? actionError;
+    private string? actionSuccessMessage;
+
+    private string giveItemShortname = string.Empty;
+    private int giveItemAmount = 1;
+
+    private double teleportX;
+    private double teleportY;
+    private double teleportZ;
+
+    private string kickReason = string.Empty;
+    private string banReason = string.Empty;
+
     protected override async Task OnInitializedAsync()
     {
         try
@@ -281,6 +356,78 @@ else
         }
 
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// Runs a per-player moderation command through the same generic command pathway
+    /// ServerDetail.razor's Console/Control tabs use, with the same NotConnected/GatewayTimeout
+    /// handling. Command syntax for every action below (including the two-step ban) was confirmed by
+    /// watching a real third-party RCON client's actual traffic through RustArchon.RconEmulator, not
+    /// guessed from documentation - see that repo's commands.log/README.
+    /// </summary>
+    private async Task<bool> RunPlayerCommandAsync(string command)
+    {
+        actionBusy = true;
+        actionError = null;
+        actionSuccessMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await RustServerClient.SendCommandAsync(ServerId, new SendCommandRequest { Command = command });
+            if (!result.Success)
+            {
+                actionError = result.Error switch
+                {
+                    "NotConnected" => "This server isn't connected right now - the command wasn't sent.",
+                    _ => result.Error ?? "The command failed."
+                };
+                return false;
+            }
+
+            actionSuccessMessage = $"Sent: {command}";
+            return true;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
+        {
+            actionError = "No worker responded in time - this server may not have an active connection.";
+            return false;
+        }
+        catch (Exception)
+        {
+            actionError = "Something went wrong sending that command.";
+            return false;
+        }
+        finally
+        {
+            actionBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private Task GiveItemAsync() =>
+        RunPlayerCommandAsync($"inventory.giveto \"{SteamId}\" \"{giveItemShortname}\" \"{giveItemAmount}\"");
+
+    private Task TeleportAsync() =>
+        RunPlayerCommandAsync(
+            $"teleport.topos \"{SteamId}\" \"{teleportX.ToString(System.Globalization.CultureInfo.InvariantCulture)}\" " +
+            $"\"{teleportY.ToString(System.Globalization.CultureInfo.InvariantCulture)}\" \"{teleportZ.ToString(System.Globalization.CultureInfo.InvariantCulture)}\"");
+
+    private Task KillAsync() => RunPlayerCommandAsync($"killplayer {SteamId}");
+
+    private Task KickAsync() => RunPlayerCommandAsync($"kick \"{SteamId}\" \"{kickReason}\"");
+
+    /// <summary>
+    /// Bans, then kicks with the same reason - a ban alone doesn't disconnect an already-connected
+    /// player, and the real client observed via RustArchon.RconEmulator always followed its own ban
+    /// with a kick for exactly that reason.
+    /// </summary>
+    private async Task BanAsync()
+    {
+        if (await RunPlayerCommandAsync($"ban \"{SteamId}\" \"{banReason}\""))
+        {
+            await RunPlayerCommandAsync($"kick \"{SteamId}\" \"{banReason}\"");
+        }
     }
 
     private static bool HasAnyBan(PlayerDetailDto p) => (p.NumberOfVacBans ?? 0) > 0 || (p.NumberOfGameBans ?? 0) > 0;
