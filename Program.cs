@@ -6,6 +6,7 @@ using JumpStart.Services.Authentication;
 using JumpStart.Services.Authentication.Clients;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using RustArchon.Panel.Clients;
@@ -208,6 +209,13 @@ else
     app.UseHsts();
 }
 
+// Recovers the original scheme/host from X-Forwarded-Proto/-For - see RustArchon.Api/Program.cs's
+// matching remarks for why this is safe with KnownProxies/KnownNetworks left empty in this topology.
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
+
 // The official .NET container base images set this to "true" - skip redirecting to HTTPS when the
 // app only has an HTTP endpoint to begin with (ASPNETCORE_URLS=http://+:8080 in Dockerfile), which is
 // the case in the Docker Compose setup. A reverse proxy in front of this container is where TLS
@@ -217,7 +225,14 @@ if (!builder.Configuration.GetValue<bool>("DOTNET_RUNNING_IN_CONTAINER"))
     app.UseHttpsRedirection();
 }
 
-app.UseStaticFiles();
+// MapStaticAssets(), not UseStaticFiles() - the latter serves plain wwwroot files fine, but the
+// fingerprinted/compressed assets the @Assets[...] tag helper resolves (App.razor's script tags,
+// including the Blazor runtime itself at _framework/blazor.web.js) only exist in the endpoint map
+// MapStaticAssets() builds from the published output's staticwebassets.endpoints.json manifest.
+// Confirmed by hand: dotnet run's dev-time asset pipeline masks this - UseStaticFiles() alone works
+// fine there - but a real `dotnet publish` build (this container's own build, via the Dockerfile) 404s
+// on every @Assets[...] reference, including blazor.web.js itself, breaking all interactivity.
+app.MapStaticAssets();
 
 // Authentication & Authorization must run before UseAntiforgery, so HttpContext.User is already
 // populated when antiforgery validates the token's embedded claims - otherwise every check compares
