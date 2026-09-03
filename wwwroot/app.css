@@ -1167,3 +1167,22 @@ code, .badge {
     font-size: 0.85rem;
     white-space: nowrap;
 }
+
+/* Admin/Plans.razor - the swatch + Name in the grid's Name column. inline-flex + nowrap keeps the two
+   glued together on one line even as the table narrows, instead of the table's normal text wrapping
+   splitting them onto separate lines once the cell runs out of room. */
+.plan-name-cell {
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+.plan-color-dot {
+    display: inline-block;
+    width: 0.7rem;
+    height: 0.7rem;
+    border-radius: 50%;
+    margin-right: 0.4rem;
+    flex-shrink: 0;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+}
