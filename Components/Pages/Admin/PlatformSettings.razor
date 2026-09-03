@@ -7,6 +7,7 @@
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject IPlatformSettingsApiClient SettingsClient
+@inject IPlanApiClient PlanClient
 @rendermode RenderModes.NonPrerenderedServer
 
 <PageTitle>Platform Settings</PageTitle>
@@ -77,6 +78,35 @@ else
                                                @onchange="e => SaveBoolean(setting, (bool)e.Value!)" />
                                     </div>
                                 }
+                                else if (setting.ValueType == PlatformSettingValueType.PlanReference)
+                                {
+                                    @if (plans == null)
+                                    {
+                                        <span class="text-muted small">Loading plans...</span>
+                                    }
+                                    else if (plansLoadFailed)
+                                    {
+                                        <span class="text-muted small">
+                                            Couldn't load plans to pick from (current value: <code>@(string.IsNullOrEmpty(setting.Value) ? "unset" : setting.Value)</code>).
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <select class="form-select" style="max-width: 260px"
+                                                disabled="@savingKeys.Contains(setting.Key)"
+                                                @onchange="e => SaveValue(setting, e.Value?.ToString() ?? string.Empty)">
+                                            <option value="" selected="@(string.IsNullOrEmpty(setting.Value))">
+                                                None - use cheapest active plan
+                                            </option>
+                                            @foreach (var plan in PlanOptionsFor(setting))
+                                            {
+                                                <option value="@plan.Id" selected="@(plan.Id.ToString() == setting.Value)">
+                                                    @plan.Name@(plan.Active ? "" : " (inactive)")
+                                                </option>
+                                            }
+                                        </select>
+                                    }
+                                }
                                 else
                                 {
                                     <div class="input-group">
@@ -103,6 +133,8 @@ else
 
 @code {
     private List<PlatformSettingDto>? settings;
+    private List<PlanDto>? plans;
+    private bool plansLoadFailed;
     private bool loading = true;
     private bool? accessDenied;
     private string? errorMessage;
@@ -113,6 +145,18 @@ else
     protected override async Task OnInitializedAsync()
     {
         await LoadSettings();
+
+        // Only needed for PlanReference settings, but cheap enough (and this page small enough) not
+        // to bother deferring until one is actually seen - see PlanOptionsFor's remarks for why every
+        // historical Plan (not just active ones) has to be loaded, not fetched via the public endpoint.
+        try
+        {
+            plans = await PlanClient.GetAllPlansAsync();
+        }
+        catch (Exception)
+        {
+            plansLoadFailed = true;
+        }
     }
 
     private async Task LoadSettings()
@@ -152,6 +196,29 @@ else
     {
         var value = GetPendingValue(setting);
         await SaveInternal(setting, value);
+    }
+
+    private async Task SaveValue(PlatformSettingDto setting, string value)
+    {
+        await SaveInternal(setting, value);
+    }
+
+    // Active plans, in the same alphabetical-by-Name order the admin's used to from Admin/Plans, plus -
+    // if the setting's currently-saved value points to one that's since been deactivated (or otherwise
+    // isn't in the active set) - that specific Plan too, so the dropdown still shows what's actually
+    // configured instead of it silently vanishing the moment someone deactivates it. This is the whole
+    // reason plans here comes from the admin GetAllPlansAsync() (every historical row) rather than the
+    // public active-only endpoint.
+    private IEnumerable<PlanDto> PlanOptionsFor(PlatformSettingDto setting)
+    {
+        if (plans == null)
+        {
+            return Enumerable.Empty<PlanDto>();
+        }
+
+        return plans
+            .Where(p => p.Active || p.Id.ToString() == setting.Value)
+            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase);
     }
 
     private async Task SaveInternal(PlatformSettingDto setting, string value)

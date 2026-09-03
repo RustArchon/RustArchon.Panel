@@ -53,6 +53,13 @@
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
+                    @* Same reasoning as Invitation Codes above - gated by ManagePlans, not hidden from
+                       non-admins up front. *@
+                    <NavLink class="nav-link" href="Admin/Plans">
+                        <i class="bi bi-tags-fill" aria-hidden="true"></i> Plans
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Account/Manage">
                         <i class="bi bi-person-fill" aria-hidden="true"></i> @context.User.Identity?.Name
                     </NavLink>
