@@ -158,6 +158,12 @@ builder.Services.AddApiClient<IPlatformSettingsApiClient>($"{apiBaseUrl}/api/pla
     .AddHttpMessageHandler<JwtExchangeHandler>()
     .AddHttpMessageHandler<JwtAuthenticationHandler>();
 
+// Same handler chain again - gated by Platform.ManagePlans (see PlansController), independent of the
+// other two Site Admin permissions above.
+builder.Services.AddApiClient<IPlanApiClient>($"{apiBaseUrl}/api/plans")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
 // Deliberately no JWT handlers - Register.razor calls this before an account exists, so there's no
 // token to attach yet. See IInvitationApiClient's remarks.
 builder.Services.AddApiClient<IInvitationApiClient>($"{apiBaseUrl}/api/invitations");
