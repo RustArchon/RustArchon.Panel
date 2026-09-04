@@ -5,6 +5,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using RustArchon.Messaging.Contracts
 @using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject IRustServerApiClient RustServerClient
@@ -14,7 +15,7 @@
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1>Servers</h1>
-    <button class="btn btn-primary" @onclick="ShowAddForm">
+    <button class="btn btn-primary" @onclick="ShowAddForm" disabled="@checkingPlanLimit">
         <i class="bi bi-plus-circle"></i> Add Server
     </button>
 </div>
@@ -213,6 +214,7 @@ else if (servers != null)
     private IEnumerable<RustServerDto>? servers;
     private bool loading = true;
     private bool saving;
+    private bool checkingPlanLimit;
     private string? errorMessage;
     private string? successMessage;
     private ServerFormModel? editingServer;
@@ -235,7 +237,7 @@ else if (servers != null)
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to load servers: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "load servers");
         }
         finally
         {
@@ -243,8 +245,39 @@ else if (servers != null)
         }
     }
 
-    private void ShowAddForm()
+    /// <summary>
+    /// A heads-up, not the enforcement - checks the tenant's plan limit before opening the Add Server
+    /// form at all, so a user who's already at their limit sees that immediately instead of filling
+    /// out the whole form only to have <c>SaveServer</c> reject it. <c>CreateAsync</c> still runs the
+    /// authoritative check on submit regardless (this read can go stale between the two - another tab
+    /// adding a server in the meantime, say), so a failure here fails open: opening the form anyway
+    /// and letting that later check catch it is strictly no worse than skipping this heads-up
+    /// entirely.
+    /// </summary>
+    private async Task ShowAddForm()
     {
+        errorMessage = null;
+        checkingPlanLimit = true;
+
+        try
+        {
+            var status = await RustServerClient.GetPlanLimitAsync();
+            if (status.MaximumServers is { } max && status.CurrentServerCount >= max)
+            {
+                errorMessage = $"Your plan ({status.PlanName}) allows up to {max} server(s). Upgrade your plan to add more.";
+                return;
+            }
+        }
+        catch (Exception)
+        {
+            // Best-effort - see this method's own remarks on why a failed check here doesn't block
+            // opening the form.
+        }
+        finally
+        {
+            checkingPlanLimit = false;
+        }
+
         editingServer = new ServerFormModel { Port = 28016 };
     }
 
@@ -316,16 +349,9 @@ else if (servers != null)
             editingServer = null;
             await LoadServers();
         }
-        catch (Refit.ApiException ex)
-        {
-            // The generic "400 (Bad Request)" from ex.Message alone drops exactly the part that
-            // explains what was actually wrong - ex.Content carries the real response body (an
-            // ASP.NET Core ValidationProblemDetails, when it's a model-validation failure).
-            errorMessage = $"Failed to save server: {ex.Message}{(string.IsNullOrEmpty(ex.Content) ? "" : $" — {ex.Content}")}";
-        }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to save server: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "save server");
         }
         finally
         {
@@ -355,7 +381,7 @@ else if (servers != null)
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to {(enable ? "enable" : "disable")} server: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, enable ? "enable server" : "disable server");
         }
         finally
         {
@@ -414,7 +440,7 @@ else if (servers != null)
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to remove server: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "remove server");
         }
         finally
         {

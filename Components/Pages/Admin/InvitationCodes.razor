@@ -5,6 +5,7 @@
 @using System.Net
 @using Microsoft.AspNetCore.Authorization
 @using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject IInvitationCodeApiClient InvitationCodeClient
@@ -190,7 +191,7 @@ else
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to load invitation codes: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "load invitation codes");
         }
         finally
         {
@@ -228,7 +229,7 @@ else
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to mint code: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "mint code");
         }
         finally
         {
@@ -254,7 +255,7 @@ else
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to update code: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "update code");
         }
     }
 
@@ -285,7 +286,7 @@ else
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to delete code: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "delete code");
         }
         finally
         {

@@ -5,6 +5,7 @@
 @using System.Net
 @using Microsoft.AspNetCore.Authorization
 @using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject IPlanApiClient PlanClient
@@ -426,7 +427,7 @@ else
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to load plans: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "load plans");
         }
         finally
         {
@@ -504,13 +505,9 @@ else
             creating = false;
             await LoadPlans();
         }
-        catch (Refit.ApiException ex)
-        {
-            errorMessage = $"Failed to create plan: {ex.Message}{(string.IsNullOrEmpty(ex.Content) ? "" : $" — {ex.Content}")}";
-        }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to create plan: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "create plan");
         }
         finally
         {
@@ -590,13 +587,9 @@ else
             editingPlan = null;
             await LoadPlans();
         }
-        catch (Refit.ApiException ex)
-        {
-            errorMessage = $"Failed to update plan: {ex.Message}{(string.IsNullOrEmpty(ex.Content) ? "" : $" — {ex.Content}")}";
-        }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to update plan: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "update plan");
         }
         finally
         {
@@ -634,13 +627,9 @@ else
             editingPlan = null;
             await LoadPlans();
         }
-        catch (Refit.ApiException ex)
-        {
-            errorMessage = $"Failed to create new plan: {ex.Message}{(string.IsNullOrEmpty(ex.Content) ? "" : $" — {ex.Content}")}";
-        }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to create new plan: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "create new plan");
         }
         finally
         {
@@ -679,7 +668,7 @@ else
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to delete plan: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "delete plan");
         }
         finally
         {
