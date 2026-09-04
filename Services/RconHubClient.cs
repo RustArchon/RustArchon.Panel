@@ -28,6 +28,15 @@ public class RconHubClient : IAsyncDisposable
 
     public event Action<RconEventDto>? EventReceived;
     public event Action<Guid, RconConnectionStatus, string?>? StatusChanged;
+
+    /// <summary>
+    /// Fires for every Logs-tab entry - both a <see cref="RconConnectionStatus"/> transition (also
+    /// reported separately via <see cref="StatusChanged"/> for the live badge) and a worker-side
+    /// diagnostic that isn't one (<paramref name="status"/> <c>null</c>) - see
+    /// <c>WorkerDiagnosticLoggedConsumer</c>'s remarks for why these share one relay.
+    /// </summary>
+    public event Action<Guid, ConnectionLogLevel, string, RconConnectionStatus?, DateTimeOffset>? LogEntryReceived;
+
     public event Action<PlayerSessionDto>? PlayerConnected;
     public event Action<string>? PlayerDisconnected;
     public event Action<PlayerSessionDto>? PlayerGeolocated;
@@ -52,6 +61,9 @@ public class RconHubClient : IAsyncDisposable
         _connection.On<RconEventDto>("ReceiveEvent", dto => EventReceived?.Invoke(dto));
         _connection.On<Guid, RconConnectionStatus, string?>(
             "ReceiveStatusChanged", (id, status, detail) => StatusChanged?.Invoke(id, status, detail));
+        _connection.On<Guid, ConnectionLogLevel, string, RconConnectionStatus?, DateTimeOffset>(
+            "ReceiveLogEntry", (id, level, message, status, occurredAtUtc) =>
+                LogEntryReceived?.Invoke(id, level, message, status, occurredAtUtc));
         _connection.On<PlayerSessionDto>("ReceivePlayerConnected", dto => PlayerConnected?.Invoke(dto));
         _connection.On<string>("ReceivePlayerDisconnected", steamId => PlayerDisconnected?.Invoke(steamId));
         _connection.On<PlayerSessionDto>("ReceivePlayerGeolocated", dto => PlayerGeolocated?.Invoke(dto));

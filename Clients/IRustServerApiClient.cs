@@ -86,6 +86,16 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
         Guid id,
         [Query] DateTimeOffset? since = null,
         [Query] DateTimeOffset? until = null);
+
+    /// <summary>
+    /// The Stats tab's connection log - WebRCON connection-status transitions, newest first. Defaults
+    /// to the last 24 hours when <paramref name="since"/> is omitted - see the endpoint's own remarks.
+    /// </summary>
+    [Get("/{id}/connection-log")]
+    Task<List<ConnectionLogEntryDto>> GetConnectionLogAsync(
+        Guid id,
+        [Query] DateTimeOffset? since = null,
+        [Query] DateTimeOffset? until = null);
 }
 
 /// <summary>

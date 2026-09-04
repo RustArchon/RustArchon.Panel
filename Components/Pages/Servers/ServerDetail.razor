@@ -73,6 +73,11 @@ else
             </button>
         </li>
         <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Logs ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Logs)">
+                <i class="bi bi-journal-text"></i> Logs
+            </button>
+        </li>
+        <li class="nav-item">
             <button class="nav-link @(activeTab == Tab.Control ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Control)">
                 <i class="bi bi-sliders"></i> Control
             </button>
@@ -508,6 +513,64 @@ else
                             <h3 class="h6">Memory (MB)</h3>
                             <div class="chart-wrap"><canvas id="memoryChart"></canvas></div>
                         </div>
+                        <div class="chart-card">
+                            <h3 class="h6">Server FPS</h3>
+                            <div class="chart-wrap"><canvas id="fpsChart"></canvas></div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
+        @if (activeTab == Tab.Logs)
+        {
+            <div class="logs-pane">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h2 class="h6 text-muted text-uppercase mb-0">Connection Log</h2>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => LoadConnectionLogAsync()" disabled="@loadingConnectionLog">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                </div>
+
+                @if (connectionLogError is not null)
+                {
+                    <div class="alert alert-warning py-2 px-3 small mb-3">@connectionLogError</div>
+                }
+
+                @if (loadingConnectionLog && connectionLog.Count == 0)
+                {
+                    <p><em>Loading connection log...</em></p>
+                }
+                else if (connectionLog.Count == 0)
+                {
+                    <div class="console-empty">
+                        <i class="bi bi-plug"></i>
+                        <p>No log entries in the last 24 hours.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="connection-log">
+                        @foreach (var entry in connectionLog)
+                        {
+                            <div class="connection-log-entry">
+                                <span class="connection-log-time">@entry.OccurredAtUtc.ToLocalTime().ToString("MM/dd HH:mm:ss")</span>
+                                @if (entry.Status is { } entryStatus)
+                                {
+                                    <span class="badge status-badge @StatusBadgeClass(entryStatus)">
+                                        <i class="bi @StatusIcon(entryStatus)"></i> @StatusText(entryStatus)
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="badge status-badge @LevelBadgeClass(entry.Level)">
+                                        <i class="bi @LevelIcon(entry.Level)"></i> @LevelText(entry.Level)
+                                    </span>
+                                }
+                                <span class="connection-log-detail">@entry.Message</span>
+                            </div>
+                        }
                     </div>
                 }
             </div>
@@ -529,103 +592,106 @@ else
                     <div class="alert alert-success py-2 px-3 small mb-3">@controlSuccessMessage</div>
                 }
 
-                <div class="control-section">
-                    <h2 class="h6 text-muted text-uppercase">Time</h2>
-                    <div class="d-flex align-items-center gap-2">
-                        <input type="number" class="form-control form-control-sm" style="width:6rem" min="0" max="24" step="0.5" @bind="controlTimeValue" />
-                        <button class="btn btn-sm btn-outline-primary" @onclick="SetTimeAsync" disabled="@controlBusy">Set Time</button>
-                        <span class="text-muted small">0-24, e.g. 12 for noon</span>
-                    </div>
-                </div>
-
-                <div class="control-section">
-                    <h2 class="h6 text-muted text-uppercase">Weather</h2>
-                    <div class="control-weather-row">
-                        <span class="control-weather-label">Rain</span>
-                        <div class="btn-group" role="group">
-                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "1")' disabled="@controlBusy">On</button>
-                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "0")' disabled="@controlBusy">Off</button>
-                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "*")' disabled="@controlBusy">Auto</button>
+                <div class="control-grid">
+                    <div class="control-card">
+                        <h2 class="h6 text-muted text-uppercase">Time</h2>
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="number" class="form-control form-control-sm" style="width:5rem" min="0" max="24" step="0.5" @bind="controlTimeValue" />
+                            <button class="btn btn-sm btn-outline-primary" @onclick="SetTimeAsync" disabled="@controlBusy">Set Time</button>
                         </div>
+                        <p class="control-card-hint">0-24, e.g. 12 for noon</p>
                     </div>
-                    <div class="control-weather-row">
-                        <span class="control-weather-label">Fog</span>
-                        <div class="btn-group" role="group">
-                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "1")' disabled="@controlBusy">On</button>
-                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "0")' disabled="@controlBusy">Off</button>
-                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "*")' disabled="@controlBusy">Auto</button>
-                        </div>
-                    </div>
-                    <div class="control-weather-row">
-                        <span class="control-weather-label">Clouds</span>
-                        <div class="btn-group" role="group">
-                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "1")' disabled="@controlBusy">On</button>
-                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "0")' disabled="@controlBusy">Off</button>
-                            <button class="btn btn-sm btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "*")' disabled="@controlBusy">Auto</button>
-                        </div>
-                    </div>
-                </div>
 
-                <div class="control-section">
-                    <h2 class="h6 text-muted text-uppercase">Radiation</h2>
-                    <div class="btn-group" role="group">
-                        <button class="btn btn-sm btn-outline-success" @onclick="() => SetRadiationAsync(true)" disabled="@controlBusy">Enable</button>
-                        <button class="btn btn-sm btn-outline-danger" @onclick="() => SetRadiationAsync(false)" disabled="@controlBusy">Disable</button>
-                    </div>
-                </div>
-
-                <div class="control-section">
-                    <h2 class="h6 text-muted text-uppercase">Animals</h2>
-                    <div class="d-flex flex-column gap-2">
-                        <div>
-                            <span class="control-weather-label">Movement</span>
-                            <div class="btn-group" role="group">
-                                <button class="btn btn-sm btn-outline-success" @onclick='() => SetAiConvarAsync("ai.move", true)' disabled="@controlBusy">On</button>
-                                <button class="btn btn-sm btn-outline-danger" @onclick='() => SetAiConvarAsync("ai.move", false)' disabled="@controlBusy">Off</button>
+                    <div class="control-card">
+                        <h2 class="h6 text-muted text-uppercase">Weather</h2>
+                        <div class="control-row">
+                            <span class="control-row-label">Rain</span>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "1")' disabled="@controlBusy">On</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "0")' disabled="@controlBusy">Off</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "*")' disabled="@controlBusy">Auto</button>
                             </div>
                         </div>
-                        <div>
-                            <span class="control-weather-label">AI</span>
-                            <div class="btn-group" role="group">
-                                <button class="btn btn-sm btn-outline-success" @onclick='() => SetAiConvarAsync("ai.think", true)' disabled="@controlBusy">On</button>
-                                <button class="btn btn-sm btn-outline-danger" @onclick='() => SetAiConvarAsync("ai.think", false)' disabled="@controlBusy">Off</button>
+                        <div class="control-row">
+                            <span class="control-row-label">Fog</span>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "1")' disabled="@controlBusy">On</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "0")' disabled="@controlBusy">Off</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "*")' disabled="@controlBusy">Auto</button>
+                            </div>
+                        </div>
+                        <div class="control-row">
+                            <span class="control-row-label">Clouds</span>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "1")' disabled="@controlBusy">On</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "0")' disabled="@controlBusy">Off</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "*")' disabled="@controlBusy">Auto</button>
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <div class="control-section">
-                    <h2 class="h6 text-muted text-uppercase">World Reset</h2>
-                    <div class="d-flex flex-wrap gap-2">
-                        <button class="btn btn-sm btn-outline-warning" @onclick="ResetAnimalsAsync" disabled="@controlBusy">
-                            <i class="bi bi-arrow-repeat"></i> Reset Animals
-                        </button>
-                        <button class="btn btn-sm btn-outline-warning" @onclick="ResetResourcesAsync" disabled="@controlBusy">
-                            <i class="bi bi-arrow-repeat"></i> Reset Resources
-                        </button>
-                        <button class="btn btn-sm btn-outline-warning" @onclick="ResetCollectiblesAsync" disabled="@controlBusy">
-                            <i class="bi bi-arrow-repeat"></i> Reset Collectibles
-                        </button>
+                    @* Radiation + Animals share this card, not two separate ones - all three rows are
+                       the same "fire an on/off convar" shape as Weather's rows above, so splitting them
+                       into their own single/double-row cards just multiplied border/padding chrome
+                       without adding information density. *@
+                    <div class="control-card">
+                        <h2 class="h6 text-muted text-uppercase">World</h2>
+                        <div class="control-row">
+                            <span class="control-row-label">Radiation</span>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button class="btn btn-outline-success" @onclick="() => SetRadiationAsync(true)" disabled="@controlBusy">On</button>
+                                <button class="btn btn-outline-danger" @onclick="() => SetRadiationAsync(false)" disabled="@controlBusy">Off</button>
+                            </div>
+                        </div>
+                        <div class="control-row">
+                            <span class="control-row-label">Animal Move</span>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button class="btn btn-outline-success" @onclick='() => SetAiConvarAsync("ai.move", true)' disabled="@controlBusy">On</button>
+                                <button class="btn btn-outline-danger" @onclick='() => SetAiConvarAsync("ai.move", false)' disabled="@controlBusy">Off</button>
+                            </div>
+                        </div>
+                        <div class="control-row">
+                            <span class="control-row-label">Animal AI</span>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button class="btn btn-outline-success" @onclick='() => SetAiConvarAsync("ai.think", true)' disabled="@controlBusy">On</button>
+                                <button class="btn btn-outline-danger" @onclick='() => SetAiConvarAsync("ai.think", false)' disabled="@controlBusy">Off</button>
+                            </div>
+                        </div>
                     </div>
-                </div>
 
-                <div class="control-section">
-                    <h2 class="h6 text-muted text-uppercase">Configuration</h2>
-                    <button class="btn btn-sm btn-outline-primary" @onclick="SaveConfigAsync" disabled="@controlBusy">
-                        <i class="bi bi-save"></i> Save server.cfg
-                    </button>
-                    <p class="text-muted small mb-0 mt-1">Writes the server's current convars to <code>server.cfg</code> so they survive a restart.</p>
-                </div>
-
-                <div class="control-section">
-                    <h2 class="h6 text-muted text-uppercase">Notice</h2>
-                    <div class="d-flex gap-2">
-                        <input type="text" class="form-control form-control-sm" placeholder="Message to pop up for everyone" @bind="noticeMessage" />
-                        <button class="btn btn-sm btn-outline-primary" @onclick="SendNoticeAsync" disabled="@(controlBusy || string.IsNullOrWhiteSpace(noticeMessage))">
-                            <i class="bi bi-megaphone"></i> Send Notice
-                        </button>
+                    <div class="control-card">
+                        <h2 class="h6 text-muted text-uppercase">World Reset</h2>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button class="btn btn-sm btn-outline-warning" @onclick="ResetAnimalsAsync" disabled="@controlBusy">
+                                <i class="bi bi-arrow-repeat"></i> Animals
+                            </button>
+                            <button class="btn btn-sm btn-outline-warning" @onclick="ResetResourcesAsync" disabled="@controlBusy">
+                                <i class="bi bi-arrow-repeat"></i> Resources
+                            </button>
+                            <button class="btn btn-sm btn-outline-warning" @onclick="ResetCollectiblesAsync" disabled="@controlBusy">
+                                <i class="bi bi-arrow-repeat"></i> Collectibles
+                            </button>
+                        </div>
                     </div>
-                    <p class="text-muted small mb-0 mt-1">A server-wide popup, distinct from a plain chat message - see the Chat tab for that.</p>
+
+                    <div class="control-card">
+                        <h2 class="h6 text-muted text-uppercase">Configuration</h2>
+                        <button class="btn btn-sm btn-outline-primary align-self-start" @onclick="SaveConfigAsync" disabled="@controlBusy">
+                            <i class="bi bi-save"></i> Save server.cfg
+                        </button>
+                        <p class="control-card-hint">Writes the server's current convars to <code>server.cfg</code> so they survive a restart.</p>
+                    </div>
+
+                    <div class="control-card">
+                        <h2 class="h6 text-muted text-uppercase">Notice</h2>
+                        <div class="d-flex gap-2">
+                            <input type="text" class="form-control form-control-sm flex-grow-1" placeholder="Message to pop up for everyone" @bind="noticeMessage" />
+                            <button class="btn btn-sm btn-outline-primary text-nowrap" @onclick="SendNoticeAsync" disabled="@(controlBusy || string.IsNullOrWhiteSpace(noticeMessage))">
+                                <i class="bi bi-megaphone"></i> Send Notice
+                            </button>
+                        </div>
+                        <p class="control-card-hint">A server-wide popup, distinct from a plain chat message - see the Chat tab for that.</p>
+                    </div>
                 </div>
             </div>
         }
@@ -684,6 +750,14 @@ else
     private bool loadingServerInfoHistory = true;
     private string? serverInfoHistoryError;
 
+    // Newest first (unlike serverInfoHistory above) - a log a human scans top-down for "what just
+    // happened", not a chart. OnStatusChanged also prepends to this list live, in addition to
+    // updating the header badge, so a drop shows up here the instant it's observed rather than only
+    // after the next full page load - see that handler's remarks.
+    private readonly List<ConnectionLogEntryDto> connectionLog = new();
+    private bool loadingConnectionLog = true;
+    private string? connectionLogError;
+
     // Set whenever the chart canvases need a (re-)render - see SwitchTabAsync's remarks. Consumed in
     // OnAfterRenderAsync, same pattern as pendingConsoleScroll/pendingChatScroll.
     private bool pendingStatsChartRender;
@@ -734,6 +808,7 @@ else
             "chat" => Tab.Chat,
             "players" => Tab.Players,
             "stats" => Tab.Stats,
+            "logs" => Tab.Logs,
             "control" => Tab.Control,
             _ => Tab.Console
         };
@@ -760,6 +835,7 @@ else
             await LoadKillsAsync();
             await LoadInactivePlayersAsync();
             await LoadServerInfoHistoryAsync();
+            await LoadConnectionLogAsync();
 
             // Not awaited, same reasoning as LoadLiveServerInfoAsync below - global.banlistex is a live
             // RCON round-trip, not a local DB query like the other Players-tab loads above, so awaiting
@@ -783,6 +859,7 @@ else
 
             HubClient.EventReceived += OnEventReceived;
             HubClient.StatusChanged += OnStatusChanged;
+            HubClient.LogEntryReceived += OnLogEntryReceived;
             HubClient.PlayerConnected += OnPlayerConnected;
             HubClient.PlayerDisconnected += OnPlayerDisconnected;
             HubClient.PlayerGeolocated += OnPlayerGeolocated;
@@ -868,7 +945,7 @@ else
         // Console (the default) so the plain "/servers/{id}" URL stays the common case. This also
         // re-fires OnParametersSet with the same tab we just set directly above - a harmless,
         // idempotent confirmation, not a fight over which value wins.
-        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", Tab.Stats => "stats", Tab.Control => "control", _ => null };
+        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", Tab.Stats => "stats", Tab.Logs => "logs", Tab.Control => "control", _ => null };
         var newUri = tabQueryValue is null ? $"servers/{Id}" : $"servers/{Id}?tab={tabQueryValue}";
         NavigationManager.NavigateTo(newUri, replace: true);
 
@@ -1212,6 +1289,32 @@ else
         StateHasChanged();
     }
 
+    /// <summary>Loads the last 24 hours of <see cref="ConnectionLogEntryDto"/> history for the Stats
+    /// tab's connection log - newest first, straight from the API (no client-side re-sort needed).</summary>
+    private async Task LoadConnectionLogAsync()
+    {
+        loadingConnectionLog = true;
+        connectionLogError = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await RustServerClient.GetConnectionLogAsync(Id);
+            connectionLog.Clear();
+            connectionLog.AddRange(result);
+        }
+        catch (Exception)
+        {
+            connectionLogError = "Failed to load connection log.";
+        }
+        finally
+        {
+            loadingConnectionLog = false;
+        }
+
+        StateHasChanged();
+    }
+
     /// <summary>
     /// Builds and renders the three Stats-tab charts via a thin Chart.js JS interop wrapper - see
     /// wwwroot/js/statsChart.js. Passing a plain anonymous object straight to <c>InvokeVoidAsync</c>
@@ -1261,6 +1364,19 @@ else
                     datasets = new object[]
                     {
                         new { label = "Memory (MB)", data = serverInfoHistory.Select(s => s.Memory).ToArray(), borderColor = "#a855f7", backgroundColor = "#a855f733", fill = true, tension = 0.25 }
+                    }
+                }
+            });
+
+            await JS.InvokeVoidAsync("statsChart.render", "fpsChart", new
+            {
+                type = "line",
+                data = new
+                {
+                    labels,
+                    datasets = new object[]
+                    {
+                        new { label = "FPS", data = serverInfoHistory.Select(s => s.Framerate).ToArray(), borderColor = "#eab308", backgroundColor = "#eab30833", fill = true, tension = 0.25 }
                     }
                 }
             });
@@ -1486,9 +1602,41 @@ else
             return;
         }
 
+        // Only the live badge (header pill, ServersList's icons elsewhere) - the Logs tab's own list is
+        // handled separately by OnLogEntryReceived below, which carries the server's real Level/Message
+        // for this same transition rather than this handler re-deriving an approximation of it.
         InvokeAsync(() =>
         {
             status = newStatus;
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>
+    /// Appends a Logs-tab entry live - fires for both a connection-status transition (relayed
+    /// alongside OnStatusChanged above, from the same server-side event) and a worker-side diagnostic
+    /// that isn't one - see <see cref="RconHubClient.LogEntryReceived"/>'s remarks.
+    /// </summary>
+    private void OnLogEntryReceived(Guid serverId, ConnectionLogLevel level, string message, RconConnectionStatus? entryStatus, DateTimeOffset occurredAtUtc)
+    {
+        if (serverId != Id)
+        {
+            return;
+        }
+
+        InvokeAsync(() =>
+        {
+            // Prepended live, not just refetched on the next Logs-tab visit - the whole point of this
+            // log is answering "what just happened" while it's still fresh, same reasoning as the
+            // Console/Chat tabs' own live-append handlers.
+            connectionLog.Insert(0, new ConnectionLogEntryDto
+            {
+                Level = level,
+                Message = message,
+                Status = entryStatus,
+                OccurredAtUtc = occurredAtUtc
+            });
+
             StateHasChanged();
         });
     }
@@ -1808,10 +1956,36 @@ else
         _ => "Disconnected"
     };
 
+    // The Logs tab's badge for an entry with no RconConnectionStatus (a worker-side diagnostic, not a
+    // connection-status transition) - same badge classes as Status*, keyed by ConnectionLogLevel
+    // instead so a parse error or poll failure still reads at a glance as "something to look at"
+    // without pretending to be a connection state it isn't.
+    private static string LevelBadgeClass(ConnectionLogLevel level) => level switch
+    {
+        ConnectionLogLevel.Error => "status-disconnected",
+        ConnectionLogLevel.Warning => "status-pending",
+        _ => "status-info"
+    };
+
+    private static string LevelIcon(ConnectionLogLevel level) => level switch
+    {
+        ConnectionLogLevel.Error => "bi-exclamation-triangle-fill",
+        ConnectionLogLevel.Warning => "bi-exclamation-circle-fill",
+        _ => "bi-info-circle-fill"
+    };
+
+    private static string LevelText(ConnectionLogLevel level) => level switch
+    {
+        ConnectionLogLevel.Error => "Error",
+        ConnectionLogLevel.Warning => "Warning",
+        _ => "Info"
+    };
+
     public async ValueTask DisposeAsync()
     {
         HubClient.EventReceived -= OnEventReceived;
         HubClient.StatusChanged -= OnStatusChanged;
+        HubClient.LogEntryReceived -= OnLogEntryReceived;
         HubClient.PlayerConnected -= OnPlayerConnected;
         HubClient.PlayerDisconnected -= OnPlayerDisconnected;
         HubClient.PlayerGeolocated -= OnPlayerGeolocated;
@@ -1828,5 +2002,5 @@ else
         }
     }
 
-    private enum Tab { Console, Chat, Players, Stats, Control }
+    private enum Tab { Console, Chat, Players, Stats, Logs, Control }
 }
