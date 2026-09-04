@@ -4,6 +4,7 @@
 @using System.Net
 @using Microsoft.AspNetCore.Authorization
 @using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject IPlatformSettingsApiClient SettingsClient
@@ -174,7 +175,7 @@ else
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to load settings: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "load settings");
         }
         finally
         {
@@ -241,7 +242,7 @@ else
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to update '{setting.DisplayName}': {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, $"update '{setting.DisplayName}'");
         }
         finally
         {

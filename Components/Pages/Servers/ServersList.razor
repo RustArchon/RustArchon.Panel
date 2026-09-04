@@ -5,6 +5,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using RustArchon.Messaging.Contracts
 @using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject IRustServerApiClient RustServerClient
@@ -235,7 +236,7 @@ else if (servers != null)
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to load servers: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "load servers");
         }
         finally
         {
@@ -316,16 +317,9 @@ else if (servers != null)
             editingServer = null;
             await LoadServers();
         }
-        catch (Refit.ApiException ex)
-        {
-            // The generic "400 (Bad Request)" from ex.Message alone drops exactly the part that
-            // explains what was actually wrong - ex.Content carries the real response body (an
-            // ASP.NET Core ValidationProblemDetails, when it's a model-validation failure).
-            errorMessage = $"Failed to save server: {ex.Message}{(string.IsNullOrEmpty(ex.Content) ? "" : $" — {ex.Content}")}";
-        }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to save server: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "save server");
         }
         finally
         {
@@ -355,7 +349,7 @@ else if (servers != null)
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to {(enable ? "enable" : "disable")} server: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, enable ? "enable server" : "disable server");
         }
         finally
         {
@@ -414,7 +408,7 @@ else if (servers != null)
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to remove server: {ex.Message}";
+            errorMessage = ApiErrorMessage.For(ex, "remove server");
         }
         finally
         {
