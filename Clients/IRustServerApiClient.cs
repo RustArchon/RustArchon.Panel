@@ -96,6 +96,14 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
         Guid id,
         [Query] DateTimeOffset? since = null,
         [Query] DateTimeOffset? until = null);
+
+    /// <summary>
+    /// The calling tenant's current Plan limits and server count - lets the Servers page warn "you're
+    /// at your limit" the moment a user clicks Add Server, before filling out the form. See the
+    /// endpoint's own remarks for why this can't replace <c>CreateAsync</c>'s own rejection.
+    /// </summary>
+    [Get("/plan-limit")]
+    Task<ServerPlanLimitDto> GetPlanLimitAsync();
 }
 
 /// <summary>
