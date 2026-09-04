@@ -997,6 +997,15 @@ code, .badge {
     border: 1px solid var(--ra-red);
 }
 
+/* The Logs tab's badge for a diagnostic entry with no RconConnectionStatus (see
+   ServerDetail.razor's LevelBadgeClass) - Info level only, since Warning/Error already reuse
+   status-pending/status-disconnected above. */
+.status-info {
+    background: rgba(22, 242, 255, 0.12);
+    color: var(--ra-cyan);
+    border: 1px solid var(--ra-cyan);
+}
+
 .console-tabs {
     border-bottom-color: var(--ra-border);
 }
@@ -1206,6 +1215,48 @@ code, .badge {
     font-weight: 500;
 }
 
+/* Scrollable rather than unbounded - a flapping connection (see ConnectionLogEntry's remarks) can
+   produce dozens of transitions inside the 24-hour default window. 480px, not the tighter 260px this
+   used when it shared the Stats tab with the Trends charts - it has the whole Logs tab to itself now,
+   same ceiling as .players-kills' own .console-log variant. */
+.connection-log {
+    max-height: 480px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    border: 1px solid var(--ra-border-soft);
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    background: var(--ra-bg-card);
+}
+
+.connection-log-entry {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    padding: 0.2rem 0;
+    border-bottom: 1px solid var(--ra-border-soft);
+    font-size: 0.85rem;
+}
+
+    .connection-log-entry:last-child {
+        border-bottom: none;
+    }
+
+.connection-log-time {
+    color: var(--ra-text-dim);
+    font-family: var(--ra-font-mono);
+    font-size: 0.8rem;
+    flex-shrink: 0;
+}
+
+.connection-log-detail {
+    color: var(--ra-text-muted);
+    word-break: break-word;
+}
+
 .stats-charts {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -1229,41 +1280,81 @@ code, .badge {
     height: 220px;
 }
 
+/* ---- Logs tab ---- */
+
+.logs-pane {
+    padding: 1rem;
+}
+
 /* ---- Control tab ---- */
 
 .control-pane {
     padding: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
 }
 
-.control-section {
+/* auto-fit + align-items: start, same idea as .stats-charts - cards flow as many-per-row as the
+   viewport allows (no more single-column stack wasting the rest of the width), and each card sizes
+   to its own content height instead of stretching to match the tallest card in its row (these cards'
+   content heights vary a lot - World Reset is one row, Weather is three). A narrower 220px floor than
+   .stats-charts' 280px on purpose - these cards hold a handful of small buttons each, not a canvas,
+   so they stay useful much narrower and packing more of them per row is exactly the point (see the
+   .control-card .btn override below for why the buttons themselves can afford to shrink too). */
+.control-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.75rem;
+    align-items: start;
+}
+
+.control-card {
     background: var(--ra-bg-card);
     border: 1px solid var(--ra-border-soft);
     border-radius: 4px;
-    padding: 0.75rem 1rem;
-}
-
-.control-section h2 {
-    margin-bottom: 0.5rem;
-}
-
-.control-weather-row {
+    padding: 0.6rem 0.75rem;
     display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.4rem;
+    flex-direction: column;
+    gap: 0.45rem;
 }
 
-.control-weather-row:last-child {
+.control-card h2 {
     margin-bottom: 0;
+    font-size: 0.75rem;
 }
 
-.control-weather-label {
-    width: 4.5rem;
+.control-card-hint {
     color: var(--ra-text-muted);
-    font-size: 0.85rem;
+    font-size: 0.75rem;
+    margin: 0;
+}
+
+/* Every button/input inside a Control card, sized down from the app's normal .btn - normal size
+   makes sense for a standalone action button, but these cards are packing 2-3 tiny on/off/auto
+   toggles per row, many rows per card, many cards per screen. Scoped to .control-card rather than
+   changing .btn/.btn-sm globally, since nothing else in the app has this many controls this dense. */
+.control-card .btn {
+    padding: 0.15rem 0.5rem;
+    font-size: 0.7rem;
+}
+
+.control-card .form-control-sm {
+    padding: 0.15rem 0.5rem;
+    font-size: 0.75rem;
+}
+
+/* A label + control row, e.g. Weather's Rain/Fog/Clouds or World's Radiation/Animal Move/Animal AI.
+   Grid, not flex, so the label column is a fixed width and every row's control column starts at the
+   same x position - flex would instead size each label to its own text, leaving "Radiation" and
+   "Animal AI" left-aligned but their button groups starting at different offsets. */
+.control-row {
+    display: grid;
+    grid-template-columns: 5.5rem 1fr;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.control-row-label {
+    color: var(--ra-text-muted);
+    font-size: 0.75rem;
 }
 
 /* Admin/Plans.razor - the swatch + Name in the grid's Name column. inline-flex + nowrap keeps the two
