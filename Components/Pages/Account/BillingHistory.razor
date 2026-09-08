@@ -1,0 +1,218 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Account/BillingHistory"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Components.Shared.Reporting
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject ISubscriptionApiClient SubscriptionClient
+@rendermode RenderModes.NonPrerenderedServer
+
+@*
+    The one customer-facing report. Everything else built on these components is platform-admin and
+    lives under /Reports; this is a member looking at their own Organization, so it sits under /Account
+    alongside Subscription and is deliberately absent from the reports index.
+
+    Nothing here scopes the query to a tenant. The API resolves the tenant from the caller's token and
+    JumpStart's global filter does the rest, which is the point of proving the components on this one:
+    they behave the same inside the tenant boundary as outside it.
+*@
+<ReportPage Title="Billing History"
+            Description="Every billing period your organization has been charged for, newest first."
+            OnRun="RunAsync"
+            Loading="loading"
+            ErrorMessage="@errorMessage"
+            Result="result"
+            OnExport="ExportAsync"
+            ExportDisabled="@(entries.Count == 0)">
+    <Toolbar>
+        <a class="btn btn-outline-secondary" href="Account/Subscription">
+            <i class="bi bi-credit-card" aria-hidden="true"></i> Subscription
+        </a>
+    </Toolbar>
+    <ChildContent>
+        <ReportGrid @ref="grid"
+                    TRow="BillingHistoryEntryDto"
+                    Rows="entries"
+                    Columns="columns"
+                    FileName="billing-history"
+                    EmptyMessage="Nothing has been billed yet." />
+    </ChildContent>
+</ReportPage>
+
+@code {
+    private ReportGrid<BillingHistoryEntryDto>? grid;
+    private ReportResult<BillingHistoryEntryDto>? result;
+
+    private bool loading = true;
+    private string? errorMessage;
+
+    private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
+    private static readonly CultureInfo Dates = CultureInfo.InvariantCulture;
+
+    private IReadOnlyList<ReportColumn<BillingHistoryEntryDto>> columns = [];
+
+    private IReadOnlyList<BillingHistoryEntryDto> entries => result?.Rows ?? [];
+
+    protected override void OnInitialized() => columns = BuildColumns();
+
+    private Task ExportAsync() => grid?.ExportCsvAsync() ?? Task.CompletedTask;
+
+    /// <summary>
+    /// The endpoint predates the reporting components and returns a plain list, so the summary is built
+    /// here rather than server-side.
+    /// </summary>
+    /// <remarks>
+    /// This is the exception the rule tolerates, not a second way of doing things: the whole history is
+    /// always loaded, so there is no paging for a client-side total to disagree with. Any report that
+    /// can be truncated has to total on the server - see <see cref="ReportResultBase.Truncated"/>.
+    /// </remarks>
+    private async Task RunAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            var rows = await SubscriptionClient.GetBillingHistoryAsync();
+
+            result = new ReportResult<BillingHistoryEntryDto>
+            {
+                Rows = rows,
+                GeneratedOn = DateTimeOffset.UtcNow,
+                RowLimit = int.MaxValue,
+                Summary =
+                [
+                    new ReportSummaryValueDto
+                    {
+                        Label = "Periods billed",
+                        Value = rows.Count.ToString("N0", Money),
+                        Detail = rows.Count(r => !r.IsWholePeriod) is var partial && partial > 0
+                            ? $"{partial} prorated"
+                            : "all full periods"
+                    },
+                    new ReportSummaryValueDto
+                    {
+                        Label = "Total charged",
+                        Value = rows.Sum(r => r.Amount).ToString("C", Money),
+                        Detail = "since sign-up"
+                    },
+                    // Real now that invoices exist: what's actually still owed, not every period ever
+                    // earned. A period with no invoice - a free plan - contributes nothing.
+                    new ReportSummaryValueDto
+                    {
+                        Label = "Outstanding",
+                        Value = rows.Sum(r => r.Outstanding).ToString("C", Money),
+                        Detail = rows.Count(r => r.Outstanding > 0m) is var unpaid && unpaid > 0
+                            ? $"across {unpaid} invoice(s)"
+                            : "nothing owed"
+                    }
+                ]
+            };
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            // No subscription yet - an empty history is the right answer, not an error.
+            result = new ReportResult<BillingHistoryEntryDto> { GeneratedOn = DateTimeOffset.UtcNow };
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load your billing history");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private IReadOnlyList<ReportColumn<BillingHistoryEntryDto>> BuildColumns() =>
+    [
+        new ReportColumn<BillingHistoryEntryDto>(
+            header: "Period",
+            value: r => r.StartDate,
+            template: r =>
+                @<span>
+                    @r.StartDate.UtcDateTime.ToString("d MMM yyyy", Dates)
+                    <span class="text-muted">–</span>
+                    @r.EndDate.UtcDateTime.ToString("d MMM yyyy", Dates)
+                    @if (!r.IsWholePeriod)
+                    {
+                        @* Without this, a $1.61 line next to a $4.95 one looks like a billing error
+                           rather than the partial period a mid-period plan change creates. *@
+                        <span class="badge bg-secondary ms-1"
+                              title="A plan change part-way through this period split it in two.">
+                            Prorated
+                        </span>
+                    }
+                </span>),
+
+        new ReportColumn<BillingHistoryEntryDto>(
+            header: "Plan",
+            value: r => r.PlanName),
+
+        new ReportColumn<BillingHistoryEntryDto>(
+            header: "Term",
+            value: r => r.TermMonths,
+            display: r => BillingTerms.Describe(r.TermMonths)),
+
+        new ReportColumn<BillingHistoryEntryDto>(
+            header: "Slots",
+            value: r => r.Quantity,
+            align: ReportAlign.Right),
+
+        new ReportColumn<BillingHistoryEntryDto>(
+            header: "Amount",
+            value: r => r.Amount,
+            display: r => r.Amount.ToString("C", Money),
+            align: ReportAlign.Right),
+
+        new ReportColumn<BillingHistoryEntryDto>(
+            header: "Invoice",
+            value: r => r.InvoiceNumber),
+
+        new ReportColumn<BillingHistoryEntryDto>(
+            header: "Due",
+            value: r => r.DueOn,
+            display: r => r.DueOn is { } on ? on.UtcDateTime.ToString("d MMM yyyy", Dates) : string.Empty),
+
+        // Screen furniture - no raw value, so it stays out of the CSV. Everything it summarises is
+        // exported by the columns either side of it.
+        new ReportColumn<BillingHistoryEntryDto>(
+            header: "Status",
+            template: r =>
+                @<span>
+                    @if (r.InvoiceStatus is null)
+                    {
+                        @* A free period raises no document at all - see IInvoiceService. Saying so beats
+                           an empty cell that reads like something went missing. *@
+                        <span class="text-muted small">No charge</span>
+                    }
+                    else if (r.InvoiceStatus == RustArchon.Shared.DTOs.InvoiceStatus.Paid)
+                    {
+                        <span class="badge bg-success">
+                            <i class="bi bi-check-circle" aria-hidden="true"></i> Paid
+                        </span>
+                    }
+                    else if (r.InvoiceStatus == RustArchon.Shared.DTOs.InvoiceStatus.Open)
+                    {
+                        <span class="badge @(r.DueOn < DateTimeOffset.UtcNow ? "bg-danger" : "bg-warning text-dark")">
+                            @(r.DueOn < DateTimeOffset.UtcNow ? "Overdue" : "Due")
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-secondary">@r.InvoiceStatus</span>
+                    }
+                </span>),
+
+        new ReportColumn<BillingHistoryEntryDto>(
+            header: "Outstanding",
+            value: r => r.Outstanding,
+            display: r => r.Outstanding == 0m ? string.Empty : r.Outstanding.ToString("C", Money),
+            align: ReportAlign.Right)
+    ];
+}

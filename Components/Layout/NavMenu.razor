@@ -1,4 +1,4 @@
-﻿@implements IDisposable
+@implements IDisposable
 
 @inject NavigationManager NavigationManager
 @inject IConfiguration Configuration
@@ -17,6 +17,18 @@
 
 <input type="checkbox" title="Navigation menu" class="navbar-toggler" />
 
+@*
+    Grouped by who the section is for, which is the same split the product itself has: what a
+    subscriber does inside their own organization, and what a site admin does across all of them.
+    Before this the two were interleaved in one flat list, so a customer's four pages sat among seven
+    they will never open.
+
+    The headings are labels, not gates. Every link stays visible to any signed-in user because the
+    Panel has no way to know what someone holds - permissions live on the Api side and reach the
+    Panel only inside a JWT that is fetched lazily, on the first API call, which has not happened
+    when the nav first renders. Each page and endpoint enforces its own permission, so clicking
+    through to one you can't use says so plainly. The heading at least tells you that up front.
+*@
 <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
     <nav class="nav flex-column">
         <div class="nav-item px-3">
@@ -27,39 +39,92 @@
 
         <AuthorizeView>
             <Authorized>
+                @* The subscriber's own organization: the servers they run, the people who help run
+                   them, and what they pay for it. Servers leads because it is the product. *@
+                <h2 class="nav-group">Your organization</h2>
+
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="servers">
                         <i class="bi bi-hdd-network-fill" aria-hidden="true"></i> Servers
                     </NavLink>
                 </div>
-            </Authorized>
-        </AuthorizeView>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Organization/Members">
+                        <i class="bi bi-people-fill" aria-hidden="true"></i> Members
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Organization/Roles">
+                        <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> Roles
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    @* Their OWN plan, not the platform-wide catalog under Site administration. The
+                       two used to sit six items apart in one flat list. *@
+                    <NavLink class="nav-link" href="Account/Subscription">
+                        <i class="bi bi-credit-card-fill" aria-hidden="true"></i> Subscription
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    @* Previously reachable only from a button on the Subscription page. It is where
+                       someone goes to answer "what have I been charged?", which is a question you
+                       look for in the nav rather than remember is one click deeper. *@
+                    <NavLink class="nav-link" href="Account/BillingHistory">
+                        <i class="bi bi-receipt" aria-hidden="true"></i> Billing history
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    @* A rare action rather than a place you return to, so it sits last in the group.
+                       It lives here because the switcher above it is JumpStart's component and must
+                       not learn RustArchon's routes. *@
+                    <NavLink class="nav-link" href="Organization/New">
+                        <i class="bi bi-plus-square" aria-hidden="true"></i> New organization
+                    </NavLink>
+                </div>
 
-        <AuthorizeView>
-            <Authorized>
+                @* Everything a site admin does across all organizations, ordered the way the job
+                   runs: the customers, then how the business is doing, then what it sells, then the
+                   settings that govern the platform itself. *@
+                <h2 class="nav-group">Site administration</h2>
+
                 <div class="nav-item px-3">
-                    @* Visible to any signed-in user - the page/API itself enforces the PlatformAdmin
-                       permission, so a non-admin who clicks through just sees an access-denied
-                       message rather than the link needing to know their permissions up front. *@
-                    <NavLink class="nav-link" href="Admin/InvitationCodes">
-                        <i class="bi bi-ticket-perforated-fill" aria-hidden="true"></i> Invitation Codes
+                    <NavLink class="nav-link" href="Admin/Organizations">
+                        <i class="bi bi-buildings-fill" aria-hidden="true"></i> Organizations
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
-                    @* Same reasoning as Invitation Codes above - gated by ManagePlatformSettings, not
-                       hidden from non-admins up front. *@
-                    <NavLink class="nav-link" href="Admin/PlatformSettings">
-                        <i class="bi bi-sliders" aria-hidden="true"></i> Platform Settings
+                    <NavLink class="nav-link" href="Admin/Users">
+                        <i class="bi bi-person-vcard-fill" aria-hidden="true"></i> Users
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
-                    @* Same reasoning as Invitation Codes above - gated by ManagePlans, not hidden from
-                       non-admins up front. *@
+                    <NavLink class="nav-link" href="Reports">
+                        <i class="bi bi-bar-chart-fill" aria-hidden="true"></i> Reports
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Admin/Invoices">
+                        <i class="bi bi-receipt-cutoff" aria-hidden="true"></i> Invoices
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Admin/Plans">
                         <i class="bi bi-tags-fill" aria-hidden="true"></i> Plans
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Admin/InvitationCodes">
+                        <i class="bi bi-ticket-perforated-fill" aria-hidden="true"></i> Invitation codes
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Admin/PlatformSettings">
+                        <i class="bi bi-sliders" aria-hidden="true"></i> Platform settings
+                    </NavLink>
+                </div>
+
+                @* No heading: this is the session, not a part of the product. *@
+                <div class="nav-item nav-session px-3">
                     <NavLink class="nav-link" href="Account/Manage">
                         <i class="bi bi-person-fill" aria-hidden="true"></i> @context.User.Identity?.Name
                     </NavLink>
@@ -127,4 +192,3 @@
         NavigationManager.LocationChanged -= OnLocationChanged;
     }
 }
-

@@ -1,0 +1,598 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Account/Subscription"
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject ISubscriptionApiClient SubscriptionClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>Subscription</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0">Subscription</h1>
+    <a class="btn btn-outline-secondary" href="Account/BillingHistory">
+        <i class="bi bi-receipt" aria-hidden="true"></i> Billing History
+    </a>
+</div>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(successMessage))
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        @successMessage
+        <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+    </div>
+}
+
+@if (loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> Loading your subscription...</div>
+}
+else if (subscription is null)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle"></i>
+        We couldn't find a subscription for your organization. Please contact support.
+    </div>
+}
+else
+{
+    <div class="card mb-4">
+        <div class="card-header">Current plan</div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <div class="text-muted small">Plan</div>
+                    <div class="fs-5">
+                        <span class="plan-color-dot" style="background-color: @subscription.PlanColorCode"></span>
+                        @subscription.PlanName
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small">Billing</div>
+                    <div class="fs-5">@BillingTerms.Describe(subscription.TermMonths)</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small">Current period ends</div>
+                    <div class="fs-5">@FormatDate(subscription.PeriodEnd)</div>
+                </div>
+                <div class="col-md-3">
+                    @* Against bought capacity, not the plan's ceiling - that's what actually gates
+                       adding a server now. See SubscriptionPeriod.Quantity. *@
+                    <div class="text-muted small">Servers</div>
+                    <div class="fs-5">@subscription.CurrentServerCount of @subscription.Quantity</div>
+                    @if (subscription.MaximumServers is { } planCeiling)
+                    {
+                        <div class="text-muted small">@subscription.PlanName allows up to @planCeiling</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* Only on plans that actually sell capacity. On a flat tier the unit price is zero, so buying
+       slots would charge nothing and change nothing - the control isn't offered rather than offered
+       and quietly ignored. *@
+    @if (subscription.CanChangeQuantity)
+    {
+        <div class="card mb-4">
+            <div class="card-header">Capacity</div>
+            <div class="card-body">
+                <p class="text-muted mb-3">
+                    Each slot lets you run one server, and costs
+                    <strong>@subscription.UnitAmount.ToString("C")</strong>
+                    per @BillingTerms.Describe(subscription.TermMonths) period beyond the
+                    @subscription.IncludedUnits included with @subscription.PlanName.
+                    Buying takes effect immediately and is prorated; releasing takes effect at the end of
+                    your current period.
+                </p>
+
+                <div class="d-flex align-items-end gap-3 flex-wrap">
+                    <div>
+                        <label class="form-label" for="capacity-quantity">Server slots</label>
+                        <div class="input-group" style="width: 12rem;">
+                            <button class="btn btn-outline-secondary" type="button"
+                                    @onclick="() => AdjustQuantity(-1)"
+                                    disabled="@(working || selectedQuantity <= subscription.MinimumQuantity)">
+                                <i class="bi bi-dash"></i>
+                            </button>
+                            @* Keyed on a revision that changes whenever a typed value gets clamped.
+                               Without it Blazor diffs the new value against the previous render, sees
+                               no change, and leaves the DOM showing what the user typed - so someone
+                               who types 2 against a minimum of 4 keeps seeing 2 while the page holds
+                               4. The key forces a fresh element carrying the corrected value. *@
+                            <input @key="quantityRevision" id="capacity-quantity" type="number"
+                                   class="form-control text-center"
+                                   value="@selectedQuantity" min="@subscription.MinimumQuantity"
+                                   max="@(subscription.MaximumServers?.ToString() ?? string.Empty)"
+                                   @onchange="e => SetQuantity(e.Value?.ToString())" />
+                            <button class="btn btn-outline-secondary" type="button"
+                                    @onclick="() => AdjustQuantity(1)"
+                                    disabled="@(working || AtCapacityCeiling)">
+                                <i class="bi bi-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" @onclick="QuoteCapacity"
+                            disabled="@(working || selectedQuantity == subscription.Quantity)">
+                        Review change
+                    </button>
+                </div>
+
+                @if (selectedQuantity < subscription.MinimumQuantity)
+                {
+                    <div class="text-danger small mt-2">
+                        You're running @subscription.CurrentServerCount server(s) and @subscription.PlanName
+                        includes @subscription.IncludedUnits, so you can't go below
+                        @subscription.MinimumQuantity.
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @* A scheduled change can be months out, so it gets its own banner rather than a footnote - this is
+       the standing reminder that something the user accepted a while ago is still coming. *@
+    @if (subscription.ScheduledChange is { } scheduled)
+    {
+        <div class="alert alert-info d-flex justify-content-between align-items-start">
+            <div>
+                <i class="bi bi-calendar-event"></i>
+                <strong>Scheduled change.</strong>
+                On @FormatDate(scheduled.EffectiveDate) you'll move to
+                <strong>@scheduled.PlanName</strong>, billed @BillingTerms.Describe(scheduled.TermMonths).
+                @if (scheduled.Quantity != subscription.Quantity)
+                {
+                    @: Your capacity drops to @scheduled.Quantity slot(s) at the same time.
+                }
+                Until then you stay on @subscription.PlanName (@BillingTerms.Describe(subscription.TermMonths)).
+            </div>
+            <button class="btn btn-sm btn-outline-secondary flex-shrink-0 ms-3"
+                    @onclick="CancelScheduled" disabled="@working">
+                Cancel it
+            </button>
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-header">Change plan</div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label class="form-label">Billing term</label>
+                <div>
+                    @* Built from what the plans actually offer, not a fixed list of three. A provider
+                       selling annual-only shows one option here rather than two that can't be bought. *@
+                    @foreach (var term in AvailableTerms())
+                    {
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" id="term-@term"
+                                   checked="@(selectedTermMonths == term)"
+                                   @onchange="() => SelectTerm(term)" />
+                            <label class="form-check-label" for="term-@term">@BillingTerms.Describe(term)</label>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th>Plan</th>
+                            <th>Price</th>
+                            <th>Max servers</th>
+                            <th>Max users</th>
+                            <th>History</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var plan in planOptions)
+                        {
+                            <tr class="@(selectedPlanId == plan.Id ? "table-active" : null)">
+                                <td>
+                                    @* A plan too small for the servers they already have isn't
+                                       selectable at all - rule 1, enforced here so nobody picks one and
+                                       gets refused on submit. The API re-checks it regardless. *@
+                                    @* Also disabled when the plan isn't sold on the selected term.
+                                       A muted note alone wasn't enough - the row stayed selectable, and
+                                       picking it produced a quote for a plan/term pair with no price. *@
+                                    <input class="form-check-input" type="radio"
+                                           checked="@(selectedPlanId == plan.Id)"
+                                           disabled="@(!plan.AllowedForCurrentServerCount || !IsSoldOnSelectedTerm(plan))"
+                                           @onchange="() => SelectPlan(plan.Id)" />
+                                </td>
+                                <td>
+                                    <span class="plan-color-dot" style="background-color: @plan.ColorCode"></span>
+                                    @plan.Name
+                                    @if (plan.IsCurrent)
+                                    {
+                                        <span class="badge bg-secondary ms-2">Current</span>
+                                    }
+                                    @* Only a plan with an actual ceiling can be too small. Guarded on the
+                                       nullable rather than on AllowedForCurrentServerCount alone, so a
+                                       no-limit plan can't render "Allows  server(s)" with a blank. *@
+                                    @if (!plan.AllowedForCurrentServerCount && plan.MaximumServers is { } ceiling)
+                                    {
+                                        <div class="small text-danger">
+                                            Allows @ceiling server(s); you have @subscription.CurrentServerCount.
+                                        </div>
+                                    }
+                                    @if (!IsSoldOnSelectedTerm(plan))
+                                    {
+                                        <div class="small text-muted">
+                                            Not sold @BillingTerms.Describe(selectedTermMonths) &mdash;
+                                            @if (plan.Prices.Any())
+                                            {
+                                                <text>only @string.Join(" or ", plan.Prices.OrderBy(p => p.TermMonths).Select(p => BillingTerms.Describe(p.TermMonths))).</text>
+                                            }
+                                            else
+                                            {
+                                                <text>no pricing set up yet.</text>
+                                            }
+                                        </div>
+                                    }
+                                </td>
+                                <td>@PriceLabel(plan)</td>
+                                <td>@(plan.MaximumServers?.ToString() ?? "No limit")</td>
+                                <td>@plan.MaximumUsers</td>
+                                <td>@plan.RetentionHistory days</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (quoteLoading)
+            {
+                <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> Working out what this would do...</div>
+            }
+            else if (quote is not null)
+            {
+                @if (!quote.Allowed)
+                {
+                    <div class="alert alert-danger">
+                        <i class="bi bi-x-circle"></i> @quote.BlockedReason
+                    </div>
+                }
+                else if (quote.IsNoOp)
+                {
+                    <div class="alert alert-secondary">
+                        <i class="bi bi-info-circle"></i> @quote.Effects.FirstOrDefault()
+                    </div>
+                }
+                else
+                {
+                    @* The whole point of the preview. Because plan and term move independently, part of
+                       what someone accepts here can land months from now - so every consequence is
+                       listed, in order, each carrying its own explicit date. *@
+                    <div class="card border-primary mb-3">
+                        <div class="card-header bg-primary text-white">
+                            <i class="bi bi-clipboard-check"></i> Before you confirm - here's exactly what happens
+                        </div>
+                        <div class="card-body">
+                            <ul class="mb-3">
+                                @foreach (var effect in quote.Effects)
+                                {
+                                    <li class="mb-1">@effect</li>
+                                }
+                            </ul>
+
+                            @if (quote.AmountDueNow > 0)
+                            {
+                                <div class="d-flex justify-content-between border-top pt-2">
+                                    <strong>Due today (prorated)</strong>
+                                    <strong>@quote.AmountDueNow.ToString("C")</strong>
+                                </div>
+                                @* An invoice is now issued for this, but nothing collects payment yet.
+                                   Both halves matter: saying "nothing will be charged" alone would be a
+                                   surprise when the invoice turns up, and saying "you'll be invoiced"
+                                   alone reads like a card is about to be debited. *@
+                                <div class="small text-muted mt-1">
+                                    You'll be invoiced for this straight away. Card payment isn't set up yet, so
+                                    nothing is collected automatically.
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    @* Deliberately its own warning rather than another line in the Effects list: this
+                       one is not about money or dates, it discards something the customer built, and
+                       everyone in the organization gains full control as a result. The numbers are a
+                       forecast - the change lands at the end of the period and the membership is
+                       re-read then - so the wording says "about" rather than promising a count. *@
+                    @if (quote.WillCompressRoles)
+                    {
+                        <div class="alert alert-warning">
+                            <div class="fw-semibold mb-1">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                This removes your roles
+                            </div>
+                            The plan you're moving to doesn't include role separation, so when this
+                            takes effect your
+                            @(quote.RolesToRemove == 1 ? "role is" : $"{quote.RolesToRemove} roles are")
+                            removed and everyone in your organization becomes an owner
+                            @if (quote.MembersToPromote > 0)
+                            {
+                                <text>
+                                    - about @quote.MembersToPromote
+                                    @(quote.MembersToPromote == 1 ? "person" : "people")
+                                    @(quote.MembersToPromote == 1 ? "gains" : "gain") that today
+                                </text>
+                            }
+                            . Owners can manage servers, members and billing, including changing this
+                            plan again.
+                        </div>
+                    }
+
+                    <button class="btn btn-primary" @onclick="ConfirmChange" disabled="@working">
+                        @if (working)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Confirm this change
+                    </button>
+                }
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private SubscriptionDto? subscription;
+    private List<PlanOptionDto> planOptions = [];
+    private PlanChangeQuoteDto? quote;
+
+    private Guid selectedPlanId;
+    private int selectedTermMonths;
+    private int selectedQuantity;
+
+    /// <summary>Bumped whenever a typed quantity is corrected - see the capacity input's own remarks.</summary>
+    private int quantityRevision;
+
+    private bool loading = true;
+    private bool quoteLoading;
+    private bool working;
+    private string? errorMessage;
+    private string? successMessage;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            subscription = await SubscriptionClient.GetAsync();
+            planOptions = await SubscriptionClient.GetPlanOptionsAsync();
+
+            // Start on what they already have, so the screen opens describing the status quo rather
+            // than an arbitrary change nobody asked for.
+            selectedPlanId = subscription.PlanId;
+            selectedTermMonths = subscription.TermMonths;
+            selectedQuantity = subscription.Quantity;
+            quote = null;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load your subscription");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task SelectPlan(Guid planId)
+    {
+        selectedPlanId = planId;
+        await RefreshQuoteAsync();
+    }
+
+    private async Task SelectTerm(int termMonths)
+    {
+        selectedTermMonths = termMonths;
+        await RefreshQuoteAsync();
+    }
+
+    /// <summary>True when the selected capacity is already at whatever ceiling the plan imposes.</summary>
+    private bool AtCapacityCeiling =>
+        subscription?.MaximumServers is { } ceiling && selectedQuantity >= ceiling;
+
+    /// <summary>
+    /// The capacity to ask for, or <c>null</c> to let the API derive it.
+    /// </summary>
+    /// <remarks>
+    /// Only sent when the user is staying on their current plan - i.e. capacity is what they're
+    /// changing. Pinning it across a plan change would carry the old plan's slot count onto a plan that
+    /// bundles a different number, which is exactly the case the API's own rule
+    /// (<c>max(servers, included units)</c>) exists to handle.
+    /// </remarks>
+    private int? RequestedQuantity =>
+        subscription is not null && selectedPlanId == subscription.PlanId ? selectedQuantity : null;
+
+    private async Task AdjustQuantity(int delta)
+    {
+        selectedQuantity += delta;
+        ClampQuantity();
+        await RefreshQuoteAsync();
+    }
+
+    private async Task SetQuantity(string? raw)
+    {
+        if (int.TryParse(raw, out var value))
+        {
+            selectedQuantity = value;
+            ClampQuantity();
+            await RefreshQuoteAsync();
+        }
+    }
+
+    /// <summary>
+    /// Keeps the control inside the range the API would accept anyway - the server re-derives and
+    /// re-checks all of this, so this is only about not offering a number that will be refused.
+    /// </summary>
+    private void ClampQuantity()
+    {
+        if (subscription is null)
+        {
+            return;
+        }
+
+        var requested = selectedQuantity;
+        selectedQuantity = Math.Max(selectedQuantity, subscription.MinimumQuantity);
+
+        if (subscription.MaximumServers is { } ceiling)
+        {
+            selectedQuantity = Math.Min(selectedQuantity, ceiling);
+        }
+
+        if (selectedQuantity != requested)
+        {
+            quantityRevision++;
+        }
+    }
+
+    private Task QuoteCapacity() => RefreshQuoteAsync();
+
+    /// <summary>Whether this plan is actually sold on the term currently selected.</summary>
+    private bool IsSoldOnSelectedTerm(PlanOptionDto plan) =>
+        plan.Prices.Any(p => p.TermMonths == selectedTermMonths);
+
+    /// <summary>
+    /// The terms any offered plan is actually sold on, shortest first - the union across plans rather
+    /// than a fixed three, so a catalog of annual-only plans shows one option and not three.
+    /// </summary>
+    private List<int> AvailableTerms() =>
+        planOptions
+            .SelectMany(p => p.Prices)
+            .Select(p => p.TermMonths)
+            .Distinct()
+            .OrderBy(t => t)
+            .ToList();
+
+    /// <summary>
+    /// Re-quotes on every selection change. The server decides what a change means - this page never
+    /// works any of it out for itself, so what's displayed can't disagree with what confirming does.
+    /// </summary>
+    private async Task RefreshQuoteAsync()
+    {
+        if (subscription is null)
+        {
+            return;
+        }
+
+        quoteLoading = true;
+        try
+        {
+            quote = await SubscriptionClient.QuoteAsync(new ChangePlanRequestDto
+            {
+                PlanId = selectedPlanId,
+                TermMonths = selectedTermMonths,
+                Quantity = RequestedQuantity
+            });
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "preview this change");
+            quote = null;
+        }
+        finally
+        {
+            quoteLoading = false;
+        }
+    }
+
+    private async Task ConfirmChange()
+    {
+        working = true;
+        try
+        {
+            var applied = await SubscriptionClient.ChangeAsync(new ChangePlanRequestDto
+            {
+                PlanId = selectedPlanId,
+                TermMonths = selectedTermMonths,
+                Quantity = RequestedQuantity
+            });
+
+            successMessage = string.Join(" ", applied.Effects);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "change your plan");
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    private async Task CancelScheduled()
+    {
+        working = true;
+        try
+        {
+            await SubscriptionClient.CancelScheduledChangeAsync();
+            successMessage = "The scheduled change has been cancelled. Your current plan continues as it is.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "cancel the scheduled change");
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    /// <summary>
+    /// What one period of the selected term costs on this plan, or a dash when the plan isn't sold on
+    /// that term at all - which is a real state now, not a zero price.
+    /// </summary>
+    /// <remarks>
+    /// A per-unit plan shows its rate per server rather than a flat figure, because a single number
+    /// would be a lie: the price depends on how much capacity is bought. Quantity-aware totals arrive
+    /// with the entitlement purchase flow.
+    /// </remarks>
+    private string PriceLabel(PlanOptionDto plan)
+    {
+        var price = plan.Prices.FirstOrDefault(p => p.TermMonths == selectedTermMonths);
+        if (price is null)
+        {
+            return "—";
+        }
+
+        return plan.PricingModel == PricingModel.PerUnit && price.UnitAmount > 0
+            ? $"{price.UnitAmount.ToString("C")} per server"
+            : price.BaseAmount.ToString("C");
+    }
+
+    /// <summary>
+    /// Billing dates are rendered in UTC, not local time - deliberately, and unlike most dates in this
+    /// app.
+    /// </summary>
+    /// <remarks>
+    /// A billing period is anchored to a UTC instant, and the server bakes these same dates into the
+    /// quote's plain-English effect lines (which it has no viewer timezone to work from). Rendering the
+    /// structured fields in local time made the identical date appear twice on one screen a day apart -
+    /// a quote saying "period ending September 4, 2027" directly above a banner saying "September 3,
+    /// 2027" - because the anchor sits at 04:15 UTC and this viewer is behind UTC. Formatting both the
+    /// same way is what keeps the page self-consistent; the alternative, teaching the server each
+    /// viewer's timezone, buys a few hours of precision on a date nobody reads to the hour.
+    /// </remarks>
+    private static string FormatDate(DateTimeOffset value) => value.UtcDateTime.ToString("MMMM d, yyyy");
+
+}

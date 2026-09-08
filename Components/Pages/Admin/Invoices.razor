@@ -1,0 +1,460 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/Invoices"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IBillingApiClient BillingClient
+@rendermode RenderModes.NonPrerenderedServer
+
+@*
+    Deliberately not built on the reporting components. Those are for pages whose whole purpose is one
+    result set; this one has actions on every row, which is exactly the mixed-content case they were
+    scoped to exclude. Receivables is the read-only view of the same money.
+*@
+<PageTitle>Invoices</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0">Invoices</h1>
+    <a class="btn btn-outline-secondary" href="Reports/Receivables">
+        <i class="bi bi-cash-stack" aria-hidden="true"></i> Receivables report
+    </a>
+</div>
+
+@if (accessDenied)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> You don't have access to manage billing.
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    <div class="mb-3">
+        <div class="btn-group" role="group">
+            @foreach (var option in StatusFilters)
+            {
+                <button type="button"
+                        class="btn btn-sm @(statusFilter == option.Value ? "btn-primary" : "btn-outline-secondary")"
+                        @onclick="() => SetFilter(option.Value)">
+                    @option.Label
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (loading)
+    {
+        <p><em>Loading invoices...</em></p>
+    }
+    else if (invoices.Count == 0)
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> No invoices match this filter.
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Invoice</th>
+                        <th>Organization</th>
+                        <th>Issued</th>
+                        <th>Due</th>
+                        <th class="text-end">Total</th>
+                        <th class="text-end">Paid</th>
+                        <th class="text-end">Credited</th>
+                        <th class="text-end">Outstanding</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var invoice in invoices)
+                    {
+                        <tr>
+                            <td><code>@invoice.Number</code></td>
+                            <td>@invoice.OrganizationName</td>
+                            <td>@Date(invoice.IssuedOn)</td>
+                            <td>@Date(invoice.DueOn)</td>
+                            <td class="text-end">@invoice.Total.ToString("C", Money)</td>
+                            <td class="text-end">@Blank(invoice.AmountPaid)</td>
+                            <td class="text-end">@Blank(invoice.AmountCredited)</td>
+                            <td class="text-end fw-semibold">@Blank(invoice.Outstanding)</td>
+                            <td>
+                                <span class="badge @StatusClass(invoice)">@StatusText(invoice)</span>
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-secondary"
+                                        @onclick="() => Toggle(invoice.Id)">
+                                    @(expandedId == invoice.Id ? "Hide" : "Details")
+                                </button>
+                            </td>
+                        </tr>
+
+                        @if (expandedId == invoice.Id)
+                        {
+                            <tr class="table-light">
+                                <td colspan="10">
+                                    <div class="row g-4">
+                                        <div class="col-md-6">
+                                            <h6 class="text-muted text-uppercase small">Lines</h6>
+                                            <table class="table table-sm mb-0">
+                                                <tbody>
+                                                    @foreach (var line in invoice.Lines)
+                                                    {
+                                                        <tr>
+                                                            <td>
+                                                                @line.Description
+                                                                <div class="text-muted small">
+                                                                    @Date(line.ServiceStart) – @Date(line.ServiceEnd)
+                                                                    @if (line.Quantity > 1)
+                                                                    {
+                                                                        <span>· @line.Quantity slots</span>
+                                                                    }
+                                                                </div>
+                                                            </td>
+                                                            <td class="text-end">@line.Amount.ToString("C", Money)</td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+
+                                            @if (invoice.Settlements.Count > 0)
+                                            {
+                                                <h6 class="text-muted text-uppercase small mt-3">Settlements</h6>
+                                                <table class="table table-sm mb-0">
+                                                    <tbody>
+                                                        @foreach (var settlement in invoice.Settlements)
+                                                        {
+                                                            <tr class="@(settlement.ReversedOn is not null ? "text-muted" : null)">
+                                                                <td>
+                                                                    @settlement.Kind
+                                                                    @if (settlement.Method is { } method)
+                                                                    {
+                                                                        <span class="text-muted small">· @method</span>
+                                                                    }
+                                                                    @if (settlement.ReversedOn is not null)
+                                                                    {
+                                                                        <span class="badge bg-secondary ms-1">Reversed</span>
+                                                                    }
+                                                                    @if (!string.IsNullOrWhiteSpace(settlement.Reference))
+                                                                    {
+                                                                        <div class="small">@settlement.Reference</div>
+                                                                    }
+                                                                </td>
+                                                                <td class="text-end">
+                                                                    <span class="@(settlement.ReversedOn is not null ? "text-decoration-line-through" : null)">
+                                                                        @settlement.Amount.ToString("C", Money)
+                                                                    </span>
+                                                                    <div class="text-muted small">@Date(settlement.AppliedOn)</div>
+                                                                </td>
+                                                                <td class="text-end">
+                                                                    @if (settlement.Kind == "Payment" && settlement.ReversedOn is null)
+                                                                    {
+                                                                        <button class="btn btn-sm btn-outline-danger"
+                                                                                disabled="@working"
+                                                                                @onclick="() => Reverse(settlement.Id, PaymentStatus.Refunded)">
+                                                                            Refund
+                                                                        </button>
+                                                                    }
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            }
+                                        </div>
+
+                                        <div class="col-md-6">
+                                            @if (invoice.Status == InvoiceStatus.Open)
+                                            {
+                                                <h6 class="text-muted text-uppercase small">Record a payment</h6>
+                                                <div class="row g-2 align-items-end mb-3">
+                                                    <div class="col-4">
+                                                        <label class="form-label small">Amount</label>
+                                                        <div class="input-group input-group-sm">
+                                                            <span class="input-group-text">$</span>
+                                                            <input type="number" step="0.01" min="0.01" class="form-control"
+                                                                   value="@paymentAmount.ToString(CultureInfo.InvariantCulture)"
+                                                                   @onchange="e => SetAmount(e.Value?.ToString())" />
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <label class="form-label small">Method</label>
+                                                        <select class="form-select form-select-sm"
+                                                                @onchange="e => paymentMethod = Enum.Parse<PaymentMethod>(e.Value?.ToString() ?? nameof(PaymentMethod.Manual))">
+                                                            @foreach (var method in Enum.GetValues<PaymentMethod>())
+                                                            {
+                                                                <option value="@method" selected="@(paymentMethod == method)">@method</option>
+                                                            }
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <label class="form-label small">Reference</label>
+                                                        <input class="form-control form-control-sm"
+                                                               value="@paymentReference"
+                                                               @onchange="e => paymentReference = e.Value?.ToString()" />
+                                                    </div>
+                                                </div>
+                                                <button class="btn btn-primary btn-sm" disabled="@working"
+                                                        @onclick="() => RecordPayment(invoice)">
+                                                    Record payment
+                                                </button>
+
+                                                <hr class="my-3" />
+
+                                                <h6 class="text-muted text-uppercase small">Close without payment</h6>
+                                                <div class="mb-2">
+                                                    <input class="form-control form-control-sm" placeholder="Reason"
+                                                           value="@closeReason"
+                                                           @onchange="e => closeReason = e.Value?.ToString()" />
+                                                </div>
+                                                <div class="d-flex gap-2 flex-wrap">
+                                                    <button class="btn btn-sm btn-outline-secondary" disabled="@working"
+                                                            @onclick="() => Credit(invoice)">
+                                                        Credit @invoice.Outstanding.ToString("C", Money)
+                                                    </button>
+                                                    <button class="btn btn-sm btn-outline-warning" disabled="@working"
+                                                            @onclick="() => WriteOff(invoice)"
+                                                            title="The debt was real and you're giving up on it. Stays in the books as bad debt.">
+                                                        Write off
+                                                    </button>
+                                                    <button class="btn btn-sm btn-outline-danger" disabled="@working"
+                                                            @onclick="() => Void(invoice)"
+                                                            title="This invoice should never have existed. Removed from receivables entirely.">
+                                                        Void
+                                                    </button>
+                                                </div>
+                                                <div class="form-text">
+                                                    Writing off keeps the debt in the books as an expense; voiding says it was
+                                                    never owed. They are not interchangeable.
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="text-muted">
+                                                    This invoice is @StatusText(invoice).@(invoice.Status == InvoiceStatus.Paid
+                                                        ? " Refund a payment above to reopen it."
+                                                        : string.Empty)
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private List<InvoiceDto> invoices = [];
+    private InvoiceStatus? statusFilter = InvoiceStatus.Open;
+    private Guid? expandedId;
+
+    private bool loading = true;
+    private bool working;
+    private bool accessDenied;
+    private string? errorMessage;
+    private string? successMessage;
+
+    private decimal paymentAmount;
+    private PaymentMethod paymentMethod = PaymentMethod.Manual;
+    private string? paymentReference;
+    private string? closeReason;
+
+    private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
+    private static readonly CultureInfo Dates = CultureInfo.InvariantCulture;
+
+    private static readonly (string Label, InvoiceStatus? Value)[] StatusFilters =
+    [
+        ("Open", InvoiceStatus.Open),
+        ("Paid", InvoiceStatus.Paid),
+        ("Written off", InvoiceStatus.Uncollectible),
+        ("Void", InvoiceStatus.Void),
+        ("All", null)
+    ];
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task SetFilter(InvoiceStatus? status)
+    {
+        statusFilter = status;
+        expandedId = null;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            invoices = await BillingClient.GetInvoicesAsync(statusFilter);
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load invoices");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    /// <summary>
+    /// Opening a row pre-fills the payment box with the whole balance - the overwhelmingly common case
+    /// is somebody paying what they owe, and a partial payment is then an edit rather than a full entry.
+    /// </summary>
+    private void Toggle(Guid invoiceId)
+    {
+        if (expandedId == invoiceId)
+        {
+            expandedId = null;
+            return;
+        }
+
+        expandedId = invoiceId;
+        paymentAmount = invoices.FirstOrDefault(i => i.Id == invoiceId)?.Outstanding ?? 0m;
+        paymentReference = null;
+        closeReason = null;
+    }
+
+    private void SetAmount(string? raw)
+    {
+        if (decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out var value))
+        {
+            paymentAmount = Math.Max(0m, value);
+        }
+    }
+
+    private Task RecordPayment(InvoiceDto invoice) =>
+        RunAsync(
+            () => BillingClient.RecordPaymentAsync(new RecordPaymentRequestDto
+            {
+                InvoiceId = invoice.Id,
+                Amount = paymentAmount,
+                Method = paymentMethod,
+                Reference = paymentReference
+            }),
+            $"Recorded {paymentAmount.ToString("C", Money)} against {invoice.Number}.",
+            "record that payment");
+
+    private Task Credit(InvoiceDto invoice) =>
+        RunAsync(
+            () => BillingClient.IssueCreditNoteAsync(new IssueCreditNoteRequestDto
+            {
+                InvoiceId = invoice.Id,
+                Amount = invoice.Outstanding,
+                Reason = string.IsNullOrWhiteSpace(closeReason) ? "Credit issued by an administrator" : closeReason!
+            }),
+            $"Credited {invoice.Outstanding.ToString("C", Money)} against {invoice.Number}.",
+            "issue that credit note");
+
+    private Task WriteOff(InvoiceDto invoice) =>
+        RunAsync(
+            () => BillingClient.WriteOffInvoiceAsync(new CloseInvoiceRequestDto
+            {
+                InvoiceId = invoice.Id,
+                Reason = closeReason
+            }),
+            $"Wrote off {invoice.Number}.",
+            "write off that invoice");
+
+    private Task Void(InvoiceDto invoice) =>
+        RunAsync(
+            () => BillingClient.VoidInvoiceAsync(new CloseInvoiceRequestDto
+            {
+                InvoiceId = invoice.Id,
+                Reason = closeReason
+            }),
+            $"Voided {invoice.Number}.",
+            "void that invoice");
+
+    private Task Reverse(Guid paymentId, PaymentStatus status) =>
+        RunAsync(
+            () => BillingClient.ReversePaymentAsync(paymentId, status),
+            "Payment reversed. Anything it settled is owed again.",
+            "reverse that payment");
+
+    /// <summary>
+    /// Runs one billing action, then reloads from the server rather than patching the row in place -
+    /// an operation can touch several invoices (a payment spilling onto older ones), so what changed
+    /// isn't knowable from the response alone.
+    /// </summary>
+    private async Task RunAsync(Func<Task> action, string success, string what)
+    {
+        working = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            await action();
+            successMessage = success;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, what);
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    private static string Date(DateTimeOffset? value) =>
+        value is { } v ? v.UtcDateTime.ToString("d MMM yyyy", Dates) : string.Empty;
+
+    private static string Blank(decimal amount) =>
+        amount == 0m ? string.Empty : amount.ToString("C", Money);
+
+    private static string StatusText(InvoiceDto invoice) => invoice.Status switch
+    {
+        InvoiceStatus.Open when invoice.DaysOverdue > 0 => $"{invoice.DaysOverdue}d overdue",
+        InvoiceStatus.Open when invoice.AmountPaid > 0m => "Part paid",
+        InvoiceStatus.Uncollectible => "Written off",
+        _ => invoice.Status.ToString()
+    };
+
+    private static string StatusClass(InvoiceDto invoice) => invoice.Status switch
+    {
+        InvoiceStatus.Paid => "bg-success",
+        InvoiceStatus.Open when invoice.DaysOverdue > 0 => "bg-danger",
+        InvoiceStatus.Open => "bg-warning text-dark",
+        InvoiceStatus.Uncollectible => "bg-dark",
+        _ => "bg-secondary"
+    };
+}

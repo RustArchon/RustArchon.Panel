@@ -1,0 +1,174 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Reports/PlanChanges"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Components.Shared.Reporting
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IReportApiClient ReportClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<ReportPage Title="Plan Changes"
+            Description="Every move from one plan to another in the selected window. A drop to a free plan is what churn looks like here - an organization always has a plan, so it never stops having one."
+            Parameters="parameters"
+            OnRun="RunAsync"
+            Loading="loading"
+            ErrorMessage="@errorMessage"
+            AccessDenied="accessDenied"
+            Result="result"
+            OnExport="ExportAsync"
+            ExportDisabled="@(result is null || result.Rows.Count == 0)">
+    <ReportGrid @ref="grid"
+                TRow="PlanChangeRowDto"
+                Rows="rows"
+                Columns="columns"
+                FileName="plan-changes"
+                EmptyMessage="No organization changed plan in this window." />
+</ReportPage>
+
+@code {
+    private ReportGrid<PlanChangeRowDto>? grid;
+    private ReportResult<PlanChangeRowDto>? result;
+
+    private bool loading = true;
+    private bool accessDenied;
+    private string? errorMessage;
+
+    private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
+    private static readonly CultureInfo Dates = CultureInfo.InvariantCulture;
+
+    private readonly DateRangeParameter window = new(
+        key: "changed",
+        label: "Changed",
+        from: DateRangeParameter.Today.AddDays(-90),
+        to: DateRangeParameter.Today,
+        presets:
+        [
+            new DateRangePreset("Last 30 days", -30, 0),
+            new DateRangePreset("Last 90 days", -90, 0),
+            new DateRangePreset("Last year", -365, 0)
+        ]);
+
+    /// <summary>Matches a move with this plan on <em>either</em> side - onto it or off it.</summary>
+    private readonly SelectParameter planFilter = new("planId", "Plan", allLabel: "Any plan");
+
+    private IReadOnlyList<ReportParameter> parameters => [window, planFilter];
+
+    private IReadOnlyList<ReportColumn<PlanChangeRowDto>> columns = [];
+
+    private IReadOnlyList<PlanChangeRowDto> rows => result?.Rows ?? [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        columns = BuildColumns();
+
+        try
+        {
+            planFilter.Options = await ReportClient.GetPlanOptionsAsync();
+        }
+        catch
+        {
+            // See Subscriptions.razor - an empty dropdown still leaves the report usable.
+        }
+    }
+
+    private Task ExportAsync() => grid?.ExportCsvAsync() ?? Task.CompletedTask;
+
+    private async Task RunAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            result = await ReportClient.GetPlanChangesAsync(
+                window.From, window.To, Guid.TryParse(planFilter.Value, out var id) ? id : null);
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "run the plan changes report");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private IReadOnlyList<ReportColumn<PlanChangeRowDto>> BuildColumns() =>
+    [
+        new ReportColumn<PlanChangeRowDto>(
+            header: "Organization",
+            value: r => r.OrganizationName),
+
+        new ReportColumn<PlanChangeRowDto>(
+            header: "Changed",
+            value: r => r.ChangedOn,
+            display: r => r.ChangedOn.UtcDateTime.ToString("d MMM yyyy", Dates)),
+
+        new ReportColumn<PlanChangeRowDto>(
+            header: "From",
+            value: r => r.FromPlanName,
+            template: r =>
+                @<span class="badge" style="background-color:@r.FromPlanColorCode">@r.FromPlanName</span>),
+
+        new ReportColumn<PlanChangeRowDto>(
+            header: "To",
+            value: r => r.ToPlanName,
+            template: r =>
+                @<span class="badge" style="background-color:@r.ToPlanColorCode">@r.ToPlanName</span>),
+
+        new ReportColumn<PlanChangeRowDto>(
+            header: "Direction",
+            value: r => r.Direction.ToString(),
+            template: r =>
+                @<span class="badge @DirectionClass(r)">
+                    <i class="bi @DirectionIcon(r.Direction)" aria-hidden="true"></i> @DirectionText(r)
+                </span>),
+
+        new ReportColumn<PlanChangeRowDto>(
+            header: "Monthly Δ",
+            value: r => r.MonthlyDelta,
+            align: ReportAlign.Right,
+            template: r =>
+                @<span class="@(r.MonthlyDelta < 0 ? "text-danger" : r.MonthlyDelta > 0 ? "text-success" : null)">
+                    @(r.MonthlyDelta > 0 ? "+" : null)@r.MonthlyDelta.ToString("C", Money)
+                </span>)
+    ];
+
+    /// <summary>
+    /// "Churned" and "Converted" are the two transitions worth naming separately - crossing the paid
+    /// boundary matters more than the size of the step either side of it.
+    /// </summary>
+    private static string DirectionText(PlanChangeRowDto row) => row switch
+    {
+        { ToIsFree: true, FromIsFree: false } => "Churned",
+        { FromIsFree: true, ToIsFree: false } => "Converted",
+        _ => row.Direction.ToString()
+    };
+
+    private static string DirectionClass(PlanChangeRowDto row) => row switch
+    {
+        { ToIsFree: true, FromIsFree: false } => "bg-danger",
+        { FromIsFree: true, ToIsFree: false } => "bg-success",
+        { Direction: PlanChangeDirection.Upgrade } => "bg-success",
+        { Direction: PlanChangeDirection.Downgrade } => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+
+    private static string DirectionIcon(PlanChangeDirection direction) => direction switch
+    {
+        PlanChangeDirection.Upgrade => "bi-arrow-up-right",
+        PlanChangeDirection.Downgrade => "bi-arrow-down-right",
+        PlanChangeDirection.Lateral => "bi-arrow-right",
+        _ => "bi-question"
+    };
+}

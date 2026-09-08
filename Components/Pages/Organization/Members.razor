@@ -1,0 +1,367 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Organization/Members"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Data
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IOrganizationMemberApiClient MemberClient
+@inject IOrganizationRoleApiClient RoleClient
+@inject IOrganizationInvitationApiClient InvitationClient
+@inject UserManager<ApplicationUser> UserManager
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>Members</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0">Members</h1>
+    <a class="btn btn-outline-secondary" href="Organization/Roles">
+        <i class="bi bi-shield-lock" aria-hidden="true"></i> Roles
+    </a>
+</div>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(successMessage))
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        @successMessage
+        <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+    </div>
+}
+
+@if (loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> Loading your members...</div>
+}
+
+@if (!loading && members is null)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle"></i>
+        You don't have permission to manage this organization's members.
+    </div>
+}
+
+@if (!loading && members is not null)
+{
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead>
+                <tr><th>Person</th><th>Roles</th><th>Joined</th><th>Access</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var member in members)
+                {
+                    <tr>
+                        <td>
+                            @if (names.TryGetValue(member.UserId, out var name))
+                            {
+                                <span>@name</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted font-monospace small">@member.UserId</span>
+                            }
+                        </td>
+                        <td class="small">
+                            @if (member.Roles.Count == 0)
+                            {
+                                <span class="text-muted">No roles</span>
+                            }
+                            else
+                            {
+                                @string.Join(", ", member.Roles)
+                            }
+                        </td>
+                        <td class="small">@member.JoinedOn.ToLocalTime().ToString("d MMM yyyy")</td>
+                        <td>
+                            @if (member.IsActive)
+                            {
+                                <span class="badge bg-success">Active</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-secondary">Suspended</span>
+                            }
+                        </td>
+                        <td class="text-end text-nowrap">
+                            <button class="btn btn-sm btn-outline-secondary" disabled="@busy"
+                                    @onclick="() => Toggle(member.UserId)">Roles</button>
+                            @if (member.IsActive)
+                            {
+                                <button class="btn btn-sm btn-outline-warning" disabled="@busy"
+                                        @onclick="() => SetActiveAsync(member, false)">Suspend</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-success" disabled="@busy"
+                                        @onclick="() => SetActiveAsync(member, true)">Restore</button>
+                            }
+                            <button class="btn btn-sm btn-outline-danger" disabled="@busy"
+                                    @onclick="() => RemoveAsync(member)">Remove</button>
+                        </td>
+                    </tr>
+
+                    @if (expanded == member.UserId)
+                    {
+                        <tr class="table-light">
+                            <td colspan="5">
+                                <span class="small text-muted me-2">Click a role to give or take it:</span>
+                                @foreach (var role in roles)
+                                {
+                                    var held = member.RoleIds.Contains(role.Id);
+                                    <button class="btn btn-sm me-1 @(held ? "btn-primary" : "btn-outline-secondary")"
+                                            disabled="@busy"
+                                            @onclick="() => ToggleRoleAsync(member, role, held)">
+                                        @role.Name
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <p class="text-muted small">
+        A row showing an id instead of a name is an account this panel has no record of.
+    </p>
+}
+
+@if (!loading && members is not null)
+{
+    <div class="card mb-3">
+        <div class="card-header">Invite someone</div>
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label small text-muted mb-1" for="invite-email">Email address</label>
+                    <input id="invite-email" type="email" class="form-control form-control-sm"
+                           placeholder="them@example.com" value="@inviteEmail"
+                           @oninput="e => inviteEmail = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small text-muted mb-1" for="invite-role">Joining as</label>
+                    <select id="invite-role" class="form-select form-select-sm" value="@inviteRoleId"
+                            @onchange="e => inviteRoleId = e.Value?.ToString() ?? string.Empty">
+                        <option value="">No role</option>
+                        @foreach (var role in roles)
+                        {
+                            <option value="@role.Id">@role.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-sm btn-primary w-100" disabled="@busy" @onclick="InviteAsync">
+                        <i class="bi bi-envelope-plus" aria-hidden="true"></i> Invite
+                    </button>
+                </div>
+            </div>
+            <div class="form-text">
+                @* Both halves matter: they don't need an account yet, and the invitation is tied to
+                   this address - signing in with a different one won't accept it. *@
+                They'll get a link by email. They don't need a RustArchon account yet, but they'll
+                have to use this address when they make one - the invitation only works for it.
+            </div>
+        </div>
+    </div>
+}
+
+@if (!loading && invitations.Count > 0)
+{
+    <h2 class="h5">Invited, not joined yet</h2>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead>
+                <tr><th>Email</th><th>Joining as</th><th>Invited</th><th>Link expires</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var invitation in invitations)
+                {
+                    <tr>
+                        <td>@invitation.Email</td>
+                        <td class="small">@(invitation.RoleName ?? "No role")</td>
+                        <td class="small">@invitation.InvitedOn.ToLocalTime().ToString("d MMM yyyy")</td>
+                        <td class="small">@invitation.ExpiresOn.ToLocalTime().ToString("d MMM yyyy")</td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-danger" disabled="@busy"
+                                    @onclick="() => RevokeAsync(invitation)">Withdraw</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<OrganizationMemberDto>? members;
+    private List<OrganizationRoleDto> roles = [];
+    private List<OrganizationInvitationDto> invitations = [];
+    private readonly Dictionary<Guid, string> names = [];
+
+    private string inviteEmail = string.Empty;
+    private string inviteRoleId = string.Empty;
+
+    /// <summary>Whose role buttons are open, if anyone's.</summary>
+    private Guid? expanded;
+
+    private string? errorMessage;
+    private string? successMessage;
+    private bool loading = true;
+    private bool busy;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            members = await MemberClient.ListAsync();
+
+            // The roles list comes from the other endpoint rather than being duplicated onto the
+            // member DTO: it is the same list the Roles screen renders, and one source for it means
+            // a role renamed there cannot show a stale name here.
+            roles = (await RoleClient.ListAsync()).Roles;
+            invitations = await InvitationClient.ListAsync();
+
+            await ResolveNamesAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load your members");
+            members = null;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    /// <summary>
+    /// Joins user ids to names out of the Panel's own Identity store.
+    /// </summary>
+    /// <remarks>
+    /// The Api answers in ids because identity lives here and membership lives there, in two
+    /// databases - the Panel is the only component that can see both.
+    /// </remarks>
+    private async Task ResolveNamesAsync()
+    {
+        names.Clear();
+
+        foreach (var member in members ?? [])
+        {
+            var user = await UserManager.FindByIdAsync(member.UserId.ToString());
+
+            if (user?.Email is { Length: > 0 } email)
+            {
+                names[member.UserId] = email;
+            }
+        }
+    }
+
+    private void Toggle(Guid userId) => expanded = expanded == userId ? null : userId;
+
+    private async Task InviteAsync()
+    {
+        var email = inviteEmail.Trim();
+
+        if (email.Length == 0)
+        {
+            errorMessage = "Enter the email address to invite.";
+            return;
+        }
+
+        var request = new InviteMemberRequestDto
+        {
+            Email = email,
+            RoleId = Guid.TryParse(inviteRoleId, out var roleId) ? roleId : null
+        };
+
+        busy = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            await InvitationClient.InviteAsync(request);
+
+            successMessage = $"Invitation sent to {email}.";
+            inviteEmail = string.Empty;
+            inviteRoleId = string.Empty;
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "send this invitation");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private Task RevokeAsync(OrganizationInvitationDto invitation) =>
+        RunAsync(
+            () => InvitationClient.RevokeAsync(invitation.Id),
+            $"withdraw the invitation to {invitation.Email}");
+
+    private async Task ToggleRoleAsync(OrganizationMemberDto member, OrganizationRoleDto role, bool held)
+    {
+        await RunAsync(
+            held
+                ? () => MemberClient.UnassignRoleAsync(member.UserId, role.Id)
+                : () => MemberClient.AssignRoleAsync(member.UserId, role.Id),
+            held ? $"take back '{role.Name}'" : $"grant '{role.Name}'");
+    }
+
+    private Task SetActiveAsync(OrganizationMemberDto member, bool active) =>
+        RunAsync(
+            () => MemberClient.SetActiveAsync(member.UserId, active),
+            active ? "restore this person's access" : "suspend this person");
+
+    private Task RemoveAsync(OrganizationMemberDto member) =>
+        RunAsync(() => MemberClient.RemoveAsync(member.UserId), "remove this person");
+
+    /// <summary>
+    /// Runs one change and reloads, so what the screen shows is what the Api actually did.
+    /// </summary>
+    /// <remarks>
+    /// A refusal here is normal, not exceptional - the Api declines to leave an organization without
+    /// an owner, and declines a grant the caller could not make themselves. Reloading afterwards
+    /// matters for exactly that reason: the optimistic local edit would otherwise show a change that
+    /// never happened.
+    /// </remarks>
+    private async Task RunAsync(Func<Task> operation, string description)
+    {
+        busy = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            await operation();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, description);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

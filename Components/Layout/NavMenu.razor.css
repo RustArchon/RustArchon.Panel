@@ -71,6 +71,40 @@
     padding-bottom: 0.5rem;
 }
 
+.nav-group {
+    /* Section labels for the two audiences the nav serves - see NavMenu.razor. Deliberately quieter
+       than the links they head: dimmer, smaller and not interactive, so they read as signposts
+       rather than as another row you could click. An <h2> rather than a <div> on purpose - it gives
+       screen readers the same structure sighted users get from the rule above it, and it keeps the
+       .nav-item:first-of-type/:last-of-type padding rules below working, since those match by tag
+       and a heading div would have quietly stolen "first div". */
+    font-family: var(--ra-font-display);
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ra-text-muted);
+    opacity: 0.75;
+    margin: 0.5rem 0 0.25rem;
+    padding: 0.75rem 1rem 0;
+    border-top: 1px solid var(--ra-border);
+}
+
+    /* The first group heading sits right under Home, which already has the list's top padding - a
+       second rule above it there would read as a stray line rather than a divider. */
+    .nav-group:first-of-type {
+        border-top: none;
+        padding-top: 0;
+    }
+
+.nav-session {
+    /* Account and Logout are the session, not a section of the product, so they get a rule but no
+       heading - the same treatment .nav-source below gets, and for the same reason. */
+    border-top: 1px solid var(--ra-border);
+    margin-top: 0.5rem;
+    padding-top: 0.75rem;
+}
+
 .nav-source {
     /* Separated visually from the app's own nav items - it's a licensing link (AGPL-3.0 source
        offer, see NOTICE.md), not part of the product's navigation, and shows regardless of

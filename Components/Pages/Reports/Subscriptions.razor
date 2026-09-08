@@ -1,0 +1,196 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Reports/Subscriptions"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Components.Shared.Reporting
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IReportApiClient ReportClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<ReportPage Title="Subscriptions"
+            Description="Every organization currently on a plan, with what it's worth per month. The register the plan mix and MRR come out of."
+            Parameters="parameters"
+            OnRun="RunAsync"
+            Loading="loading"
+            ErrorMessage="@errorMessage"
+            AccessDenied="accessDenied"
+            Result="result"
+            OnExport="ExportAsync"
+            ExportDisabled="@(result is null || result.Rows.Count == 0)">
+    <ReportGrid @ref="grid"
+                TRow="SubscriptionRegisterRowDto"
+                Rows="rows"
+                Columns="columns"
+                FileName="subscriptions"
+                EmptyMessage="No subscriptions match this filter." />
+</ReportPage>
+
+@code {
+    private ReportGrid<SubscriptionRegisterRowDto>? grid;
+    private ReportResult<SubscriptionRegisterRowDto>? result;
+
+    private bool loading = true;
+    private bool accessDenied;
+    private string? errorMessage;
+
+    private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
+    private static readonly CultureInfo Dates = CultureInfo.InvariantCulture;
+
+    /// <summary>
+    /// No date window: this is a snapshot of what is true now, and a range would only raise the
+    /// question of what a subscription "in" a window would mean.
+    /// </summary>
+    private readonly SelectParameter planFilter = new("planId", "Plan", allLabel: "All plans");
+
+    private IReadOnlyList<ReportParameter> parameters => [planFilter];
+
+    private IReadOnlyList<ReportColumn<SubscriptionRegisterRowDto>> columns = [];
+
+    private IReadOnlyList<SubscriptionRegisterRowDto> rows => result?.Rows ?? [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        columns = BuildColumns();
+
+        try
+        {
+            planFilter.Options = await ReportClient.GetPlanOptionsAsync();
+        }
+        catch
+        {
+            // An empty dropdown is a survivable degradation - the report itself still runs unfiltered,
+            // and if the cause was a permissions failure the report call reports it properly.
+        }
+    }
+
+    private Task ExportAsync() => grid?.ExportCsvAsync() ?? Task.CompletedTask;
+
+    private async Task RunAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            result = await ReportClient.GetSubscriptionsAsync(ParsePlanId());
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "run the subscriptions report");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    // A hand-edited URL can carry anything. Treating an unparseable id as "no filter" is better than
+    // a 400 on a link somebody pasted in slightly wrong.
+    private Guid? ParsePlanId() => Guid.TryParse(planFilter.Value, out var id) ? id : null;
+
+    private IReadOnlyList<ReportColumn<SubscriptionRegisterRowDto>> BuildColumns() =>
+    [
+        new ReportColumn<SubscriptionRegisterRowDto>(
+            header: "Organization",
+            value: r => r.OrganizationName,
+            template: r =>
+                @<span>
+                    @r.OrganizationName
+                    @if (!r.IsActive)
+                    {
+                        <span class="badge bg-secondary ms-1">Deactivated</span>
+                    }
+                </span>),
+
+        // The one real drill-down so far: a plan here goes to that plan's upcoming renewals. Both are
+        // reports, so it is just another report URL - which is the whole reason parameters live in the
+        // query string.
+        new ReportColumn<SubscriptionRegisterRowDto>(
+            header: "Plan",
+            value: r => r.PlanName,
+            drillTo: r => $"/Reports/UpcomingRenewals?planId={r.PlanId}"
+                          + $"&renewsFrom={DateRangeParameter.Format(DateRangeParameter.Today)}"
+                          + $"&renewsTo={DateRangeParameter.Format(DateRangeParameter.Today.AddDays(90))}",
+            template: r =>
+                @<span>
+                    <span class="badge" style="background-color:@r.PlanColorCode">@r.PlanName</span>
+                    @if (r.HasScheduledChange)
+                    {
+                        <i class="bi bi-clock-history text-muted ms-1"
+                           title="A plan or term change is already queued for this organization."
+                           aria-hidden="true"></i>
+                    }
+                </span>),
+
+        new ReportColumn<SubscriptionRegisterRowDto>(
+            header: "Term",
+            value: r => r.TermMonths,
+            display: r => BillingTerms.Describe(r.TermMonths)),
+
+        // Servers against bought capacity, not against the plan's ceiling - slots are what gate adding
+        // one, and on a per-unit plan a tenant can hold more than they're using.
+        new ReportColumn<SubscriptionRegisterRowDto>(
+            header: "Servers",
+            value: r => r.ServerCount,
+            align: ReportAlign.Right,
+            template: r =>
+                @<span class="@(r.ServerCount >= r.Quantity ? "fw-semibold" : null)">
+                    @r.ServerCount / @r.Quantity
+                </span>),
+
+        new ReportColumn<SubscriptionRegisterRowDto>(
+            header: "Slots",
+            value: r => r.Quantity,
+            align: ReportAlign.Right),
+
+        new ReportColumn<SubscriptionRegisterRowDto>(
+            header: "On plan",
+            value: r => r.DaysOnPlan,
+            display: r => $"{r.DaysOnPlan}d",
+            align: ReportAlign.Right),
+
+        new ReportColumn<SubscriptionRegisterRowDto>(
+            header: "Renews",
+            value: r => r.PeriodEnd,
+            display: r => r.PeriodEnd == default
+                ? string.Empty
+                : r.PeriodEnd.UtcDateTime.ToString("d MMM yyyy", Dates)),
+
+        new ReportColumn<SubscriptionRegisterRowDto>(
+            header: "Period",
+            value: r => r.PeriodAmount,
+            display: r => r.PeriodAmount.ToString("C", Money),
+            align: ReportAlign.Right),
+
+        // Null rather than zero when the plan carries no price for the term, matching the MRR total
+        // in the summary, which leaves those rows out rather than counting them as free.
+        new ReportColumn<SubscriptionRegisterRowDto>(
+            header: "Monthly",
+            value: r => r.MonthlyValueUnknown ? null : r.MonthlyValue,
+            align: ReportAlign.Right,
+            template: r =>
+                @<span>
+                    @if (r.MonthlyValueUnknown)
+                    {
+                        <span class="badge bg-danger"
+                              title="This plan has no price for the term this organization is billed on.">
+                            No price
+                        </span>
+                    }
+                    else
+                    {
+                        @r.MonthlyValue.ToString("C", Money)
+                    }
+                </span>)
+    ];
+}

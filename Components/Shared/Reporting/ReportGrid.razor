@@ -1,0 +1,192 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@typeparam TRow
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@if (Columns is { Count: > 0 })
+{
+    <div class="table-responsive">
+        <table class="table table-sm table-striped table-hover align-middle">
+            <thead>
+                <tr>
+                    @foreach (var column in Columns)
+                    {
+                        <th scope="col" class="@column.AlignClass" style="@WidthStyle(column)">
+                            @if (column.Sortable)
+                            {
+                                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none text-reset fw-bold"
+                                        @onclick="() => SortBy(column)"
+                                        aria-label="@($"Sort by {column.Header}")">
+                                    @column.Header
+                                    @if (ReferenceEquals(sortColumn, column))
+                                    {
+                                        <i class="bi @(sortDescending ? "bi-caret-down-fill" : "bi-caret-up-fill")"
+                                           aria-hidden="true"></i>
+                                    }
+                                </button>
+                            }
+                            else
+                            {
+                                @column.Header
+                            }
+                        </th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in SortedRows)
+                {
+                    <tr>
+                        @foreach (var column in Columns)
+                        {
+                            <td class="@column.AlignClass">
+                                @if (column.DrillTo?.Invoke(row) is { Length: > 0 } href)
+                                {
+                                    <a href="@href">@CellContent(column, row)</a>
+                                }
+                                else
+                                {
+                                    @CellContent(column, row)
+                                }
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (Rows is { Count: 0 })
+{
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle" aria-hidden="true"></i> @EmptyMessage
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// The report's rows, as returned. The grid loads and holds all of them - see
+    /// <see cref="ReportResultBase.Truncated"/> for the ceiling on that and what happens at it.
+    /// </summary>
+    [Parameter, EditorRequired] public IReadOnlyList<TRow> Rows { get; set; } = [];
+
+    [Parameter, EditorRequired] public IReadOnlyList<ReportColumn<TRow>> Columns { get; set; } = [];
+
+    /// <summary>What to say when the report ran fine and matched nothing.</summary>
+    [Parameter] public string EmptyMessage { get; set; } = "Nothing matched this report's parameters.";
+
+    /// <summary>
+    /// Base name of the exported file; the run date is appended. Only used by
+    /// <see cref="ExportCsvAsync"/>.
+    /// </summary>
+    [Parameter] public string FileName { get; set; } = "report";
+
+    private ReportColumn<TRow>? sortColumn;
+    private bool sortDescending;
+    private IJSObjectReference? exportModule;
+
+    /// <summary>Rows in the order the reader is looking at them - which is also the order they export in.</summary>
+    private IReadOnlyList<TRow> SortedRows
+    {
+        get
+        {
+            if (sortColumn?.Value is not { } selector)
+            {
+                return Rows;
+            }
+
+            var sorted = Rows.ToList();
+            sorted.Sort((a, b) =>
+            {
+                var comparison = Compare(selector(a), selector(b));
+                return sortDescending ? -comparison : comparison;
+            });
+            return sorted;
+        }
+    }
+
+    /// <summary>
+    /// Writes the current rows to a CSV file and hands it to the browser.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Public so the page's toolbar button can call it - see <c>ReportPage.OnExport</c>. It lives here
+    /// rather than on the host because this is where the rows and columns are, and it exports what the
+    /// reader is actually looking at: the full result set, in the order they sorted it.
+    /// </para>
+    /// <para>
+    /// The download itself needs the DOM, so it goes through a JS module imported on first use. That
+    /// import is deliberately dynamic rather than a script tag: it keeps the report components
+    /// self-contained, and it stays a one-way C#-to-JS call, with none of the object-reference lifetime
+    /// hazards a JS-to-C# callback would bring.
+    /// </para>
+    /// </remarks>
+    public async Task ExportCsvAsync()
+    {
+        var csv = ReportCsv.Build(SortedRows, Columns);
+        exportModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/reportExport.js");
+
+        var name = $"{FileName}-{DateTime.UtcNow:yyyy-MM-dd}.csv";
+        await exportModule.InvokeVoidAsync("download", name, csv);
+    }
+
+    private void SortBy(ReportColumn<TRow> column)
+    {
+        if (!column.Sortable)
+        {
+            return;
+        }
+
+        if (ReferenceEquals(sortColumn, column))
+        {
+            sortDescending = !sortDescending;
+        }
+        else
+        {
+            sortColumn = column;
+            sortDescending = false;
+        }
+    }
+
+    private static RenderFragment CellContent(ReportColumn<TRow> column, TRow row) =>
+        column.Template is not null
+            ? column.Template(row)
+            : builder => builder.AddContent(0, column.ScreenText(row));
+
+    private static string? WidthStyle(ReportColumn<TRow> column) =>
+        column.Width is null ? null : $"width:{column.Width}";
+
+    /// <summary>
+    /// Orders two raw column values. Nulls sort first, strings compare case-insensitively, and anything
+    /// comparable uses its own ordering - so a money column sorts numerically rather than by the way it
+    /// happens to be formatted on screen.
+    /// </summary>
+    private static int Compare(object? left, object? right) => (left, right) switch
+    {
+        (null, null) => 0,
+        (null, _) => -1,
+        (_, null) => 1,
+        (string a, string b) => string.Compare(a, b, StringComparison.OrdinalIgnoreCase),
+        (IComparable a, _) when a.GetType() == right.GetType() => a.CompareTo(right),
+        _ => string.Compare(left.ToString(), right.ToString(), StringComparison.OrdinalIgnoreCase)
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (exportModule is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await exportModule.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is already gone - there is no module left to dispose on the other side.
+        }
+    }
+}

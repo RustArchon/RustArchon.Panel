@@ -1,0 +1,429 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@using System.Globalization
+@using Microsoft.AspNetCore.WebUtilities
+@using RustArchon.Shared.DTOs
+@implements IDisposable
+@inject NavigationManager Navigation
+
+<PageTitle>@Title</PageTitle>
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+    <div>
+        <h1 class="mb-1">@Title</h1>
+        @if (!string.IsNullOrWhiteSpace(Description))
+        {
+            <p class="text-muted mb-0">@Description</p>
+        }
+    </div>
+
+    @if (!AccessDenied)
+    {
+        <div class="d-flex align-items-center gap-2">
+            @Toolbar
+            @if (OnExport is not null)
+            {
+                <button type="button" class="btn btn-outline-secondary" disabled="@(Loading || ExportDisabled)"
+                        @onclick="ExportAsync">
+                    <i class="bi bi-download" aria-hidden="true"></i> Export CSV
+                </button>
+            }
+            <button type="button" class="btn btn-outline-secondary" disabled="@Loading" @onclick="RefreshAsync"
+                    title="Run this report again">
+                <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh
+            </button>
+        </div>
+    }
+</div>
+
+@if (AccessDenied)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock" aria-hidden="true"></i> You don't have access to reports.
+    </div>
+}
+else
+{
+    @if (Parameters is { Count: > 0 })
+    {
+        <div class="card mb-3">
+            <div class="card-body py-3">
+                <div class="d-flex flex-wrap align-items-end gap-3">
+                    @foreach (var parameter in Parameters)
+                    {
+                        @* One branch per parameter kind. See ReportParameter's remarks - this switch is
+                           the extension point, and it is deliberately a switch rather than a component
+                           per kind while there is only one kind. *@
+                        @if (parameter is DateRangeParameter range)
+                        {
+                            @if (range.Presets.Count > 0)
+                            {
+                                <div>
+                                    <label class="form-label small text-muted mb-1">Quick range</label>
+                                    <div class="btn-group d-block" role="group">
+                                        @foreach (var preset in range.Presets)
+                                        {
+                                            <button type="button"
+                                                    class="btn btn-sm @(range.IsActive(preset) ? "btn-primary" : "btn-outline-secondary")"
+                                                    @onclick="() => ApplyPresetAsync(range, preset)">
+                                                @preset.Label
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            }
+
+                            <div>
+                                <label class="form-label small text-muted mb-1" for="@($"{range.FromKey}-input")">
+                                    @range.Label from
+                                </label>
+                                <input id="@($"{range.FromKey}-input")" type="date" class="form-control form-control-sm"
+                                       value="@DateRangeParameter.Format(range.From)"
+                                       @onchange="e => SetFrom(range, e.Value?.ToString())" />
+                            </div>
+
+                            <div>
+                                <label class="form-label small text-muted mb-1" for="@($"{range.ToKey}-input")">
+                                    to
+                                </label>
+                                <input id="@($"{range.ToKey}-input")" type="date" class="form-control form-control-sm"
+                                       value="@DateRangeParameter.Format(range.To)"
+                                       @onchange="e => SetTo(range, e.Value?.ToString())" />
+                            </div>
+                        }
+                        else if (parameter is DecimalParameter number)
+                        {
+                            <div>
+                                <label class="form-label small text-muted mb-1" for="@($"{number.Key}-input")">
+                                    @number.Label
+                                </label>
+                                <div class="input-group input-group-sm" style="width: 9rem;">
+                                    @if (number.Prefix is { Length: > 0 } prefix)
+                                    {
+                                        <span class="input-group-text">@prefix</span>
+                                    }
+                                    <input id="@($"{number.Key}-input")" type="number" step="any" min="0"
+                                           class="form-control"
+                                           value="@number.Value.ToString(CultureInfo.InvariantCulture)"
+                                           @onchange="e => SetNumber(number, e.Value?.ToString())" />
+                                </div>
+                            </div>
+                        }
+                        else if (parameter is SelectParameter select)
+                        {
+                            <div>
+                                <label class="form-label small text-muted mb-1" for="@($"{select.Key}-input")">
+                                    @select.Label
+                                </label>
+                                <select id="@($"{select.Key}-input")" class="form-select form-select-sm"
+                                        value="@select.Value"
+                                        @onchange="e => SetSelected(select, e.Value?.ToString())">
+                                    <option value="" selected="@(select.Value is null)">@select.AllLabel</option>
+                                    @foreach (var optionGroup in select.Options.GroupBy(o => o.Group))
+                                    {
+                                        @* Only wrap in an optgroup when the options actually carry
+                                           groups - an unlabelled group renders as an empty heading. *@
+                                        @if (optionGroup.Key is { Length: > 0 } groupName)
+                                        {
+                                            <optgroup label="@groupName">
+                                                @foreach (var option in optionGroup)
+                                                {
+                                                    <option value="@option.Value" selected="@(select.Value == option.Value)">
+                                                        @option.Label
+                                                    </option>
+                                                }
+                                            </optgroup>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var option in optionGroup)
+                                            {
+                                                <option value="@option.Value" selected="@(select.Value == option.Value)">
+                                                    @option.Label
+                                                </option>
+                                            }
+                                        }
+                                    }
+                                </select>
+                            </div>
+                        }
+                    }
+
+                    <div>
+                        <button type="button" class="btn btn-primary btn-sm" disabled="@Loading" @onclick="Apply">
+                            Apply
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@ErrorMessage</div>
+    }
+
+    @if (Result is { Truncated: true })
+    {
+        <div class="alert alert-warning" role="alert">
+            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+            This report stopped at @Result.RowLimit.ToString("N0") rows and there are more. Narrow the
+            range - the totals and the export cover only what's shown.
+        </div>
+    }
+
+    @if (Result is { Summary.Count: > 0 })
+    {
+        <div class="row g-3 mb-3">
+            @foreach (var value in Result.Summary)
+            {
+                <div class="col-6 col-md-3">
+                    <div class="border rounded p-3 h-100">
+                        <div class="text-muted text-uppercase small">@value.Label</div>
+                        <div class="fs-4 fw-semibold">@value.Value</div>
+                        @if (!string.IsNullOrWhiteSpace(value.Detail))
+                        {
+                            <div class="text-muted small">@value.Detail</div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @if (Loading)
+    {
+        <p><em>Running report...</em></p>
+    }
+    else
+    {
+        @ChildContent
+
+        @if (Result is not null)
+        {
+            @* UTC and labelled as such. Report parameters are UTC dates, and "local" here would mean
+               the server's timezone rather than the reader's - so a local timestamp would be neither
+               the reader's time nor the one the window was filtered against. *@
+            <p class="text-muted small mt-3 mb-0">
+                Generated @Result.GeneratedOn.UtcDateTime.ToString("dddd, d MMMM yyyy HH:mm", CultureInfo.InvariantCulture) UTC
+            </p>
+        }
+    }
+}
+
+@code {
+    /// <summary>Report name. Also the browser tab title.</summary>
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+
+    /// <summary>One line under the title saying what question this report answers.</summary>
+    [Parameter] public string? Description { get; set; }
+
+    /// <summary>
+    /// The controls in the parameter bar. This component hydrates them from the query string and writes
+    /// them back to it - see <see cref="ReportParameter"/>.
+    /// </summary>
+    [Parameter] public IReadOnlyList<ReportParameter>? Parameters { get; set; }
+
+    /// <summary>
+    /// Runs the report. Invoked once on load, whenever the URL's parameters change, and on Refresh. The
+    /// page reads the current parameter values off the objects it passed in.
+    /// </summary>
+    [Parameter, EditorRequired] public EventCallback OnRun { get; set; }
+
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public string? ErrorMessage { get; set; }
+    [Parameter] public bool AccessDenied { get; set; }
+
+    /// <summary>
+    /// The last result, for the summary strip, the truncation warning and the generated-at line. Taken
+    /// as the non-generic base because this host never touches the rows - which is what lets one host
+    /// frame a grid report and, later, a chart one.
+    /// </summary>
+    [Parameter] public ReportResultBase? Result { get; set; }
+
+    /// <summary>Wired to the body's own export - usually <c>() => grid!.ExportCsvAsync()</c>. The
+    /// Export button only appears when this is set.</summary>
+    [Parameter] public Func<Task>? OnExport { get; set; }
+
+    [Parameter] public bool ExportDisabled { get; set; }
+
+    /// <summary>Extra buttons to the left of Export and Refresh.</summary>
+    [Parameter] public RenderFragment? Toolbar { get; set; }
+
+    /// <summary>The report body - a grid, and later a chart.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private bool disposed;
+
+    // The query string this component last ran against. Applying parameters navigates, and the
+    // navigation is what triggers the run - so this is how the run that follows a URL we wrote
+    // ourselves is told apart from one the user caused by editing the address or pressing Back.
+    private string? lastRanQuery;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        Hydrate();
+        await RunAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || Parameters is not { Count: > 0 })
+        {
+            return;
+        }
+
+        // Put the defaults in the address bar so the very first view of a report is already a
+        // shareable link, rather than one whose window is implied by whatever the page happened to
+        // default to on the day it was opened. The run this navigation would otherwise trigger is
+        // suppressed by the lastRanQuery check, since these are the values we just ran.
+        var url = BuildUrl();
+        if (!string.Equals(url, Navigation.Uri, StringComparison.Ordinal))
+        {
+            Navigation.NavigateTo(url, forceLoad: false, replace: true);
+        }
+
+        await Task.CompletedTask;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        if (disposed)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            if (disposed)
+            {
+                return;
+            }
+
+            Hydrate();
+
+            if (!string.Equals(CurrentQuery(), lastRanQuery, StringComparison.Ordinal))
+            {
+                await RunAsync();
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Pushes the current parameter values into the URL; the navigation runs the report.</summary>
+    private async Task Apply()
+    {
+        if (Parameters is not { Count: > 0 })
+        {
+            await RunAsync();
+            return;
+        }
+
+        var url = BuildUrl();
+        if (string.Equals(url, Navigation.Uri, StringComparison.Ordinal))
+        {
+            // Nothing changed, so no LocationChanged is coming. Honour the click anyway - someone who
+            // presses Apply expects the report to run.
+            await RunAsync();
+            return;
+        }
+
+        Navigation.NavigateTo(url, forceLoad: false, replace: false);
+    }
+
+    private async Task ApplyPresetAsync(DateRangeParameter range, DateRangePreset preset)
+    {
+        range.Apply(preset);
+        await Apply();
+    }
+
+    private Task RefreshAsync() => RunAsync();
+
+    private async Task RunAsync()
+    {
+        lastRanQuery = CurrentQuery();
+        await OnRun.InvokeAsync();
+    }
+
+    private async Task ExportAsync()
+    {
+        if (OnExport is not null)
+        {
+            await OnExport();
+        }
+    }
+
+    private static void SetFrom(DateRangeParameter range, string? raw)
+    {
+        if (DateRangeParameter.TryParse(raw, out var value))
+        {
+            range.From = value;
+        }
+    }
+
+    private static void SetTo(DateRangeParameter range, string? raw)
+    {
+        if (DateRangeParameter.TryParse(raw, out var value))
+        {
+            range.To = value;
+        }
+    }
+
+    /// <summary>
+    /// A threshold is typed rather than chosen, so it waits for Apply like a date does - re-running the
+    /// report on every keystroke's worth of a half-typed number would be both slow and confusing.
+    /// </summary>
+    private static void SetNumber(DecimalParameter parameter, string? raw)
+    {
+        if (decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out var value))
+        {
+            parameter.Value = Math.Max(0m, value);
+        }
+    }
+
+    /// <summary>
+    /// Changing a dropdown applies straight away rather than waiting for Apply. A date range is two
+    /// half-finished edits until both ends are set, which is why that one still needs the button; a
+    /// single choice is complete the moment it's made.
+    /// </summary>
+    private Task SetSelected(SelectParameter select, string? raw)
+    {
+        select.Value = string.IsNullOrEmpty(raw) ? null : raw;
+        return Apply();
+    }
+
+    private void Hydrate()
+    {
+        if (Parameters is not { Count: > 0 })
+        {
+            return;
+        }
+
+        var query = QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query)
+            .ToDictionary(kv => kv.Key, kv => kv.Value.ToString(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var parameter in Parameters)
+        {
+            parameter.ReadFrom(query);
+        }
+    }
+
+    private string BuildUrl() =>
+        Navigation.GetUriWithQueryParameters(
+            Parameters!.SelectMany(p => p.ToQuery()).ToDictionary(kv => kv.Key, kv => kv.Value));
+
+    /// <summary>The parameter half of the current URL, as a stable string to compare runs by.</summary>
+    private string CurrentQuery() =>
+        Parameters is { Count: > 0 }
+            ? string.Join('&', Parameters.SelectMany(p => p.ToQuery()).Select(kv => $"{kv.Key}={kv.Value}"))
+            : string.Empty;
+
+    public void Dispose()
+    {
+        disposed = true;
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+}

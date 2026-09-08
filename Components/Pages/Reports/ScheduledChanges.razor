@@ -1,0 +1,149 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Reports/ScheduledChanges"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Components.Shared.Reporting
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IReportApiClient ReportClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<ReportPage Title="Scheduled Changes"
+            Description="Plan and term changes organizations have already accepted that haven't taken effect yet. Nothing about a current subscription reflects one of these until the day it lands."
+            Parameters="parameters"
+            OnRun="RunAsync"
+            Loading="loading"
+            ErrorMessage="@errorMessage"
+            AccessDenied="accessDenied"
+            Result="result"
+            OnExport="ExportAsync"
+            ExportDisabled="@(result is null || result.Rows.Count == 0)">
+    <ReportGrid @ref="grid"
+                TRow="ScheduledChangeRowDto"
+                Rows="rows"
+                Columns="columns"
+                FileName="scheduled-changes"
+                EmptyMessage="No changes are queued to take effect in this window." />
+</ReportPage>
+
+@code {
+    private ReportGrid<ScheduledChangeRowDto>? grid;
+    private ReportResult<ScheduledChangeRowDto>? result;
+
+    private bool loading = true;
+    private bool accessDenied;
+    private string? errorMessage;
+
+    private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
+    private static readonly CultureInfo Dates = CultureInfo.InvariantCulture;
+
+    /// <summary>
+    /// A full year ahead by default. A deferred change can be accepted eleven months before it lands -
+    /// extending an annual term pushes a downgrade out with it - so a 30-day default would hide most
+    /// of what this report exists to show. "Overdue" catches any the scheduler has failed to apply.
+    /// </summary>
+    private readonly IReadOnlyList<ReportParameter> parameters =
+    [
+        new DateRangeParameter(
+            key: "effective",
+            label: "Takes effect",
+            from: DateRangeParameter.Today,
+            to: DateRangeParameter.Today.AddDays(365),
+            presets:
+            [
+                new DateRangePreset("Next 30 days", 0, 30),
+                new DateRangePreset("Next 90 days", 0, 90),
+                new DateRangePreset("Next year", 0, 365),
+                new DateRangePreset("Overdue", -365, -1)
+            ])
+    ];
+
+    private IReadOnlyList<ReportColumn<ScheduledChangeRowDto>> columns = [];
+
+    private DateRangeParameter Window => (DateRangeParameter)parameters[0];
+
+    private IReadOnlyList<ScheduledChangeRowDto> rows => result?.Rows ?? [];
+
+    protected override void OnInitialized() => columns = BuildColumns();
+
+    private Task ExportAsync() => grid?.ExportCsvAsync() ?? Task.CompletedTask;
+
+    private async Task RunAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            result = await ReportClient.GetScheduledChangesAsync(Window.From, Window.To);
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "run the scheduled changes report");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private IReadOnlyList<ReportColumn<ScheduledChangeRowDto>> BuildColumns() =>
+    [
+        new ReportColumn<ScheduledChangeRowDto>(
+            header: "Organization",
+            value: r => r.OrganizationName),
+
+        new ReportColumn<ScheduledChangeRowDto>(
+            header: "Change",
+            value: r => $"{r.CurrentPlanName} {BillingTerms.Describe(r.CurrentTermMonths)} → {r.ScheduledPlanName} {BillingTerms.Describe(r.ScheduledTermMonths)}",
+            template: r =>
+                @<span>
+                    <span class="badge" style="background-color:@r.CurrentPlanColorCode">@r.CurrentPlanName</span>
+                    <span class="text-muted small">@BillingTerms.Describe(r.CurrentTermMonths)</span>
+                    <i class="bi bi-arrow-right text-muted mx-1" aria-hidden="true"></i>
+                    <span class="badge" style="background-color:@r.ScheduledPlanColorCode">@r.ScheduledPlanName</span>
+                    <span class="text-muted small">@BillingTerms.Describe(r.ScheduledTermMonths)</span>
+                </span>),
+
+        new ReportColumn<ScheduledChangeRowDto>(
+            header: "Accepted",
+            value: r => r.AcceptedOn,
+            display: r => r.AcceptedOn.UtcDateTime.ToString("d MMM yyyy", Dates)),
+
+        new ReportColumn<ScheduledChangeRowDto>(
+            header: "Takes effect",
+            value: r => r.EffectiveDate,
+            display: r => r.EffectiveDate.UtcDateTime.ToString("d MMM yyyy", Dates)),
+
+        new ReportColumn<ScheduledChangeRowDto>(
+            header: "In",
+            value: r => r.DaysUntilEffective,
+            align: ReportAlign.Right,
+            template: r =>
+                @<span class="@(r.DaysUntilEffective < 0 ? "text-danger fw-semibold" : r.DaysUntilEffective <= 30 ? "fw-semibold" : null)">
+                    @(r.DaysUntilEffective < 0 ? $"{-r.DaysUntilEffective}d overdue" : $"{r.DaysUntilEffective}d")
+                </span>),
+
+        new ReportColumn<ScheduledChangeRowDto>(
+            header: "Monthly Δ",
+            value: r => r.MonthlyDelta,
+            align: ReportAlign.Right,
+            template: r =>
+                @<span class="@(r.MonthlyDelta < 0 ? "text-danger" : r.MonthlyDelta > 0 ? "text-success" : null)">
+                    @(r.MonthlyDelta > 0 ? "+" : null)@r.MonthlyDelta.ToString("C", Money)
+                    @if (r.ScheduledIsFree)
+                    {
+                        <span class="badge bg-danger ms-1">To free</span>
+                    }
+                </span>)
+    ];
+}

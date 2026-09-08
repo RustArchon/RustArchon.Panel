@@ -1,0 +1,96 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Reports"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>Reports</PageTitle>
+
+<div class="mb-4">
+    <h1 class="mb-1">Reports</h1>
+    <p class="text-muted mb-0">Platform-wide operational reports. Each one opens on its own page, with
+        its parameters in the address bar - so a report narrowed down to what you care about is a link
+        you can bookmark or send to someone.</p>
+</div>
+
+<div class="row g-3">
+    @foreach (var group in Reports.GroupBy(r => r.Group))
+    {
+        <div class="col-12">
+            <h6 class="text-muted text-uppercase small mb-2">@group.Key</h6>
+            <div class="list-group">
+                @foreach (var report in group)
+                {
+                    <a class="list-group-item list-group-item-action" href="@report.Route">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi @report.Icon" aria-hidden="true"></i>
+                            <span class="fw-semibold">@report.Title</span>
+                        </div>
+                        <div class="text-muted small">@report.Description</div>
+                    </a>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>
+    /// One report, as it appears on this index.
+    /// </summary>
+    /// <remarks>
+    /// A flat list of descriptors, not a registry - it renders a menu and nothing else. A report itself
+    /// is still a route, an endpoint and a row type; nothing here defines, parameterises or runs one.
+    /// The moment this starts carrying anything a report page reads back, it has turned into the report
+    /// DSL we deliberately didn't build.
+    /// </remarks>
+    private sealed record ReportLink(string Group, string Title, string Description, string Route, string Icon);
+
+    // Only reports that exist. The payment register is still absent for that reason - nothing records
+    // payments yet - and listing it would turn this page into a roadmap.
+    private static readonly ReportLink[] Reports =
+    [
+        new("Collections",
+            "Delinquent Accounts",
+            "Who owes money and how long they've owed it, aged, with what each is worth per month if they stay.",
+            "/Reports/DelinquentAccounts",
+            "bi-exclamation-triangle-fill"),
+
+        new("Collections",
+            "Receivables",
+            "Every open invoice with a balance, oldest due first - the register the chase list is grouped from.",
+            "/Reports/Receivables",
+            "bi-cash-stack"),
+
+        new("Subscription lifecycle",
+            "Upcoming Renewals",
+            "What bills in the next N days, for how much, and which organizations have a plan change landing at renewal.",
+            "/Reports/UpcomingRenewals",
+            "bi-calendar-check"),
+
+        new("Subscription lifecycle",
+            "Subscriptions",
+            "Every organization currently on a plan, with its monthly value. The plan mix and MRR come out of this one.",
+            "/Reports/Subscriptions",
+            "bi-people-fill"),
+
+        new("Subscription lifecycle",
+            "Plan Changes",
+            "Upgrades, downgrades and drops to a free plan over a window - including what each one did to monthly revenue.",
+            "/Reports/PlanChanges",
+            "bi-arrow-left-right"),
+
+        new("Subscription lifecycle",
+            "Scheduled Changes",
+            "Changes already accepted but not yet in force. Revenue that is going to move on a date nothing else shows you.",
+            "/Reports/ScheduledChanges",
+            "bi-clock-history"),
+
+        new("Growth",
+            "New Signups",
+            "Who registered over a window, and whether they ever provisioned a server. Signups that never activate were never customers.",
+            "/Reports/NewSignups",
+            "bi-person-plus-fill")
+    ];
+}
