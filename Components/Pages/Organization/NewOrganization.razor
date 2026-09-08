@@ -1,0 +1,207 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Organization/New"
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IOrganizationCreationApiClient CreationClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>New organization</PageTitle>
+
+<h1>New organization</h1>
+<p class="text-muted">
+    A separate organization with its own servers, members, plan and billing. Nothing is shared with
+    the ones you already belong to.
+</p>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@if (created is not null)
+{
+    <div class="alert alert-success">
+        <strong>@created.Name</strong> is ready.
+    </div>
+    @* A real navigation, not an enhanced one: their organization list just changed, and the
+       switcher reads it when the circuit starts. *@
+    <a class="btn btn-primary" href="servers" data-enhance="false">Go to your servers</a>
+}
+
+@if (loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> Loading plans...</div>
+}
+
+@if (!loading && created is null)
+{
+    <div class="card mb-4">
+        <div class="card-body">
+            <label class="form-label" for="org-name">Name</label>
+            <input id="org-name" class="form-control" placeholder="e.g. Rusty Ravens"
+                   value="@name" @oninput="e => name = e.Value?.ToString() ?? string.Empty" />
+        </div>
+    </div>
+
+    <h2 class="h5">Plan</h2>
+    <div class="row g-3 mb-4">
+        @foreach (var plan in plans)
+        {
+            <div class="col-md-3">
+                <div class="card h-100 @(selectedPlanId == plan.Id ? "border-primary" : "")">
+                    <div class="card-body">
+                        <div class="fs-5">
+                            <span class="plan-color-dot" style="background-color: @plan.ColorCode"></span>
+                            @plan.Name
+                        </div>
+                        <div class="text-muted small mb-2">
+                            @MonthlyPrice(plan)
+                        </div>
+                        <ul class="list-unstyled small text-muted mb-3">
+                            <li>@(plan.MaximumServers?.ToString() ?? "Unlimited") server(s)</li>
+                            <li>@plan.MaximumUsers member(s)</li>
+                            @if (plan.HasRoles)
+                            {
+                                <li>Role separation</li>
+                            }
+                        </ul>
+
+                        @if (plan.AlreadyUsed)
+                        {
+                            @* Shown disabled with the reason rather than hidden - somebody looking
+                               for the free tier and not finding it assumes the page is broken. *@
+                            <button class="btn btn-sm btn-outline-secondary w-100" disabled>
+                                Already used
+                            </button>
+                            <div class="form-text">
+                                Only one organization per account can be on @plan.Name, and one of
+                                yours already is.
+                            </div>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm w-100 @(selectedPlanId == plan.Id ? "btn-primary" : "btn-outline-primary")"
+                                    @onclick="() => selectedPlanId = plan.Id">
+                                @(selectedPlanId == plan.Id ? "Selected" : "Choose")
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <button class="btn btn-primary" disabled="@(busy || selectedPlanId is null)" @onclick="CreateAsync">
+        @if (busy)
+        {
+            <span class="spinner-border spinner-border-sm me-1"></span>
+        }
+        Create organization
+    </button>
+    <a class="btn btn-outline-secondary" href="servers">Cancel</a>
+}
+
+@if (!loading && founded.Count > 0 && created is null)
+{
+    <h2 class="h5 mt-4">Organizations you've created</h2>
+    <ul class="list-unstyled text-muted small">
+        @foreach (var organization in founded)
+        {
+            <li>
+                @organization.Name
+                @if (organization.PlanName is { Length: > 0 } planName)
+                {
+                    <span>— @planName</span>
+                }
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    private List<NewOrganizationPlanDto> plans = [];
+    private List<FoundedOrganizationDto> founded = [];
+    private CreatedOrganizationDto? created;
+
+    private string name = string.Empty;
+    private Guid? selectedPlanId;
+
+    private string? errorMessage;
+    private bool loading = true;
+    private bool busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            plans = await CreationClient.PlanOptionsAsync();
+            founded = await CreationClient.FoundedAsync();
+
+            // Pre-select the cheapest one they can actually have, so the common case is one click.
+            selectedPlanId = plans
+                .Where(p => !p.AlreadyUsed)
+                .OrderBy(MonthlyAmount)
+                .Select(p => (Guid?)p.Id)
+                .FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load the available plans");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            errorMessage = "Give the organization a name.";
+            return;
+        }
+
+        busy = true;
+        errorMessage = null;
+
+        try
+        {
+            created = await CreationClient.CreateAsync(new CreateOrganizationRequestDto
+            {
+                Name = name.Trim(),
+                PlanId = selectedPlanId
+            });
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "create this organization");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private static decimal MonthlyAmount(NewOrganizationPlanDto plan) =>
+        plan.Prices.FirstOrDefault(p => p.TermMonths == 1)?.BaseAmount ?? decimal.MaxValue;
+
+    private static string MonthlyPrice(NewOrganizationPlanDto plan)
+    {
+        var monthly = plan.Prices.FirstOrDefault(p => p.TermMonths == 1);
+
+        if (monthly is null)
+        {
+            return "Not sold monthly";
+        }
+
+        return monthly.BaseAmount == 0 ? "Free" : $"{monthly.BaseAmount:C} / month";
+    }
+}

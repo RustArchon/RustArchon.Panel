@@ -1,0 +1,303 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@using RustArchon.Shared.DTOs
+
+@*
+    Edits the set of terms a plan is sold on, and what each costs.
+
+    Replaces the three fixed Monthly/Quarterly/Annual inputs the plan forms used to carry. A plan now
+    offers exactly the terms it has rows for, so the editor has to let an admin add and remove them -
+    an annual-only plan is one row, and a six-month term is data rather than a code change.
+
+    Shared by the create, edit and supersede forms rather than repeated three times, which is also what
+    keeps the per-unit fields from appearing on one form and not another.
+*@
+
+@*
+    Two radio cards rather than a segmented button pair. The first version put the choice in a small
+    btn-group at the far right of this section's header, where the unselected half rendered as
+    low-contrast grey - it read as a status badge rather than a control, and the per-server option was
+    missed entirely. A labelled fieldset with real radios and each option's consequence spelled out is
+    both discoverable and keyboard-navigable.
+*@
+<fieldset class="mb-3">
+    <legend class="form-label">Pricing model</legend>
+    <div class="row g-2">
+        @foreach (var option in PricingOptions)
+        {
+            <div class="col-md-6">
+                <label class="pricing-model-option @(Model == option.Value ? "selected" : null)">
+                    <span class="d-flex align-items-center gap-2">
+                        <input type="radio" class="form-check-input mt-0"
+                               name="pricing-model-@_id"
+                               checked="@(Model == option.Value)"
+                               @onchange="() => SetModel(option.Value)" />
+                        <strong>@option.Title</strong>
+                    </span>
+                    <span class="d-block small text-muted mt-1">@option.Description</span>
+                </label>
+            </div>
+        }
+    </div>
+</fieldset>
+
+<style>
+    .pricing-model-option {
+        display: block;
+        width: 100%;
+        cursor: pointer;
+        padding: 0.7rem 0.85rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.375rem;
+        margin: 0;
+    }
+    .pricing-model-option.selected {
+        border-color: var(--bs-primary);
+        box-shadow: inset 0 0 0 1px var(--bs-primary);
+    }
+    .pricing-model-option:hover { border-color: var(--bs-primary); }
+</style>
+
+<label class="form-label">Prices</label>
+
+@if (Prices.Count == 0)
+{
+    <div class="alert alert-warning py-2">
+        <i class="bi bi-exclamation-triangle"></i>
+        A plan must be sold on at least one term. Add one below.
+    </div>
+}
+
+<div class="table-responsive">
+    <table class="table table-sm align-middle">
+        <thead>
+            <tr>
+                <th style="width: 10rem;">Term</th>
+                <th>Base price</th>
+                @if (Model == PricingModel.PerUnit)
+                {
+                    <th>Included servers</th>
+                    <th>Per extra server</th>
+                }
+                <th>Per month</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var price in Prices.OrderBy(p => p.TermMonths).ToList())
+            {
+                <tr>
+                    <td>
+                        <div class="input-group input-group-sm">
+                            <input type="number" min="1" max="120" class="form-control"
+                                   value="@price.TermMonths"
+                                   @onchange="e => SetTerm(price, e.Value?.ToString())"
+                                   aria-label="Term length in months" />
+                            <span class="input-group-text">mo</span>
+                        </div>
+                        <div class="form-text">@BillingTerms.Describe(price.TermMonths)</div>
+                    </td>
+                    <td>
+                        <input type="number" step="0.01" min="0" class="form-control form-control-sm"
+                               value="@price.BaseAmount"
+                               @onchange="e => SetDecimal(v => price.BaseAmount = v, e.Value?.ToString())"
+                               aria-label="Base price" />
+                    </td>
+                    @if (Model == PricingModel.PerUnit)
+                    {
+                        <td>
+                            <input type="number" min="0" class="form-control form-control-sm"
+                                   value="@price.IncludedUnits"
+                                   @onchange="e => SetInt(v => price.IncludedUnits = v, e.Value?.ToString())"
+                                   aria-label="Included servers" />
+                        </td>
+                        <td>
+                            <input type="number" step="0.01" min="0" class="form-control form-control-sm"
+                                   value="@price.UnitAmount"
+                                   @onchange="e => SetDecimal(v => price.UnitAmount = v, e.Value?.ToString())"
+                                   aria-label="Price per extra server" />
+                        </td>
+                    }
+                    @* The comparison figure an admin actually reasons about when setting a longer term:
+                       whether the discount for committing is the one they intended. *@
+                    <td class="text-muted small">
+                        @(price.TermMonths > 0 ? (price.BaseAmount / price.TermMonths).ToString("C") : "—")
+                    </td>
+                    <td class="text-end">
+                        <button type="button" class="btn btn-sm btn-outline-danger"
+                                @onclick="() => Remove(price)" aria-label="Remove this term">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+<div class="d-flex gap-2 flex-wrap">
+    @foreach (var (months, label) in SuggestedTerms)
+    {
+        @if (!Prices.Any(p => p.TermMonths == months))
+        {
+            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => Add(months)">
+                <i class="bi bi-plus-lg"></i> @label
+            </button>
+        }
+    }
+    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => Add(NextFreeTerm())">
+        <i class="bi bi-plus-lg"></i> Other term
+    </button>
+</div>
+
+@foreach (var warning in Warnings())
+{
+    <div class="alert alert-warning py-2 mt-3 mb-0">
+        <i class="bi bi-exclamation-triangle"></i> @warning
+    </div>
+}
+
+@code {
+    /// <summary>The price rows being edited. Mutated in place - the parent owns the list.</summary>
+    [Parameter, EditorRequired]
+    public List<PlanPriceDto> Prices { get; set; } = [];
+
+    [Parameter]
+    public PricingModel Model { get; set; }
+
+    [Parameter]
+    public EventCallback<PricingModel> ModelChanged { get; set; }
+
+    // Unique per instance so the create and edit forms don't share a radio group name when both are
+    // somehow on the page at once.
+    private readonly string _id = Guid.NewGuid().ToString("N")[..8];
+
+    private static readonly (PricingModel Value, string Title, string Description)[] PricingOptions =
+    [
+        (PricingModel.Flat, "Flat tier",
+            "One price per period, capped by Maximum Servers below."),
+        (PricingModel.PerUnit, "Per server",
+            "Base price covers the included servers; each one beyond that costs the per-server amount. Leave Maximum Servers blank.")
+    ];
+
+    private static readonly (int Months, string Label)[] SuggestedTerms =
+    [
+        (BillingTerms.Monthly, "Monthly"),
+        (BillingTerms.Quarterly, "Quarterly"),
+        (6, "Semi-annual"),
+        (BillingTerms.Annual, "Annual")
+    ];
+
+    private async Task SetModel(PricingModel model)
+    {
+        Model = model;
+
+        // Switching back to a flat tier zeroes the per-unit fields rather than leaving them set but
+        // hidden, which would silently keep charging per server on a plan presented as flat.
+        if (model == PricingModel.Flat)
+        {
+            foreach (var price in Prices)
+            {
+                price.UnitAmount = 0m;
+                price.IncludedUnits = 0;
+            }
+        }
+
+        await ModelChanged.InvokeAsync(model);
+    }
+
+    private void Add(int termMonths)
+    {
+        if (termMonths <= 0 || Prices.Any(p => p.TermMonths == termMonths))
+        {
+            return;
+        }
+
+        // Seeded from the monthly row where there is one, so adding a longer term starts at the
+        // undiscounted equivalent rather than zero - an admin discounts down from there.
+        var monthly = Prices.FirstOrDefault(p => p.TermMonths == BillingTerms.Monthly);
+
+        Prices.Add(new PlanPriceDto
+        {
+            TermMonths = termMonths,
+            BaseAmount = monthly is null ? 0m : Math.Round(monthly.BaseAmount * termMonths, 2),
+            IncludedUnits = monthly?.IncludedUnits ?? 0,
+            UnitAmount = monthly is null ? 0m : monthly.UnitAmount,
+            Currency = monthly?.Currency ?? "USD"
+        });
+    }
+
+    private void Remove(PlanPriceDto price) => Prices.Remove(price);
+
+    private int NextFreeTerm()
+    {
+        for (var months = 1; months <= 120; months++)
+        {
+            if (!Prices.Any(p => p.TermMonths == months))
+            {
+                return months;
+            }
+        }
+
+        return 0;
+    }
+
+    private void SetTerm(PlanPriceDto price, string? raw)
+    {
+        if (!int.TryParse(raw, out var months) || !BillingTerms.IsValid(months))
+        {
+            return;
+        }
+
+        // Refuse rather than merge: two rows on one term violates the unique index, and silently
+        // dropping the row the admin was editing would be worse than ignoring the keystroke.
+        if (Prices.Any(p => p != price && p.TermMonths == months))
+        {
+            return;
+        }
+
+        price.TermMonths = months;
+    }
+
+    private static void SetDecimal(Action<decimal> set, string? raw)
+    {
+        if (decimal.TryParse(raw, out var value) && value >= 0)
+        {
+            set(value);
+        }
+    }
+
+    private static void SetInt(Action<int> set, string? raw)
+    {
+        if (int.TryParse(raw, out var value) && value >= 0)
+        {
+            set(value);
+        }
+    }
+
+    /// <summary>
+    /// Flags pricing that would cost a subscriber more than simply paying on a shorter term - almost
+    /// always a typo rather than an intent, and invisible until someone does the division.
+    /// </summary>
+    private List<string> Warnings()
+    {
+        var warnings = new List<string>();
+        var monthly = Prices.FirstOrDefault(p => p.TermMonths == BillingTerms.Monthly);
+        if (monthly is null || monthly.BaseAmount <= 0)
+        {
+            return warnings;
+        }
+
+        foreach (var price in Prices.Where(p => p.TermMonths > BillingTerms.Monthly))
+        {
+            if (price.BaseAmount > monthly.BaseAmount * price.TermMonths)
+            {
+                warnings.Add(
+                    $"The {BillingTerms.Describe(price.TermMonths)} price is more than {price.TermMonths}× the monthly price - "
+                    + "a subscriber would pay less just paying monthly.");
+            }
+        }
+
+        return warnings;
+    }
+}

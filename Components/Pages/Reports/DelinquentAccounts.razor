@@ -1,0 +1,180 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Reports/DelinquentAccounts"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Components.Shared.Reporting
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IReportApiClient ReportClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<ReportPage Title="Delinquent Accounts"
+            Description="Organizations owing money, oldest debt first - with the aged breakdown and what each is worth per month if they stay."
+            Parameters="parameters"
+            OnRun="RunAsync"
+            Loading="loading"
+            ErrorMessage="@errorMessage"
+            AccessDenied="accessDenied"
+            Result="result"
+            OnExport="ExportAsync"
+            ExportDisabled="@(result is null || result.Rows.Count == 0)">
+    <ReportGrid @ref="grid"
+                TRow="DelinquentAccountRowDto"
+                Rows="rows"
+                Columns="columns"
+                FileName="delinquent-accounts"
+                EmptyMessage="Nobody is overdue. Nothing to chase." />
+</ReportPage>
+
+@code {
+    private ReportGrid<DelinquentAccountRowDto>? grid;
+    private ReportResult<DelinquentAccountRowDto>? result;
+
+    private bool loading = true;
+    private bool accessDenied;
+    private string? errorMessage;
+
+    private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
+
+    private readonly DecimalParameter minOutstanding = new("minOutstanding", "Owing over", prefix: "$");
+
+    /// <summary>
+    /// Overdue-only by default, and the option to widen it is second - this is the chase list, and
+    /// somebody whose only invoice is due next week does not belong on it.
+    /// </summary>
+    private readonly SelectParameter scope = new("overdueOnly", "Show", allLabel: "Overdue only")
+    {
+        Options =
+        [
+            new ReportFilterOptionDto { Value = "false", Label = "Anything outstanding" }
+        ]
+    };
+
+    private IReadOnlyList<ReportParameter> parameters => [minOutstanding, scope];
+
+    private IReadOnlyList<ReportColumn<DelinquentAccountRowDto>> columns = [];
+
+    private IReadOnlyList<DelinquentAccountRowDto> rows => result?.Rows ?? [];
+
+    protected override void OnInitialized() => columns = BuildColumns();
+
+    private Task ExportAsync() => grid?.ExportCsvAsync() ?? Task.CompletedTask;
+
+    private async Task RunAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            // The dropdown's "all" is overdue-only here, so an absent value means true - the inverse of
+            // how the receivables report reads the same key, because the two have opposite defaults.
+            result = await ReportClient.GetDelinquentAccountsAsync(
+                minOutstanding.Value, scope.Value != "false");
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "run the delinquent accounts report");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private IReadOnlyList<ReportColumn<DelinquentAccountRowDto>> BuildColumns() =>
+    [
+        new ReportColumn<DelinquentAccountRowDto>(
+            header: "Organization",
+            value: r => r.OrganizationName,
+            template: r =>
+                @<span>
+                    @r.OrganizationName
+                    @if (!r.IsActive)
+                    {
+                        <span class="badge bg-secondary ms-1">Deactivated</span>
+                    }
+                </span>),
+
+        new ReportColumn<DelinquentAccountRowDto>(
+            header: "Contact",
+            value: r => r.ContactEmail,
+            template: r => @<span class="text-muted small">@r.ContactEmail</span>),
+
+        new ReportColumn<DelinquentAccountRowDto>(
+            header: "Plan",
+            value: r => r.PlanName,
+            template: r =>
+                @<span class="badge" style="background-color:@r.PlanColorCode">@r.PlanName</span>),
+
+        new ReportColumn<DelinquentAccountRowDto>(
+            header: "Invoices",
+            value: r => r.OpenInvoices,
+            align: ReportAlign.Right),
+
+        new ReportColumn<DelinquentAccountRowDto>(
+            header: "Oldest",
+            value: r => r.OldestOverdueDays,
+            align: ReportAlign.Right,
+            template: r =>
+                @<span class="badge @BucketClass(r.WorstBucket)">
+                    @(r.OldestOverdueDays > 0 ? $"{r.OldestOverdueDays}d" : "not due")
+                </span>),
+
+        // The aged columns, in the order an accountant reads them. Blank rather than $0.00 where a
+        // bucket is empty - a page of zeroes hides the two numbers that matter.
+        new ReportColumn<DelinquentAccountRowDto>(
+            header: "Current", value: r => r.CurrentAmount,
+            display: r => Blank(r.CurrentAmount), align: ReportAlign.Right),
+
+        new ReportColumn<DelinquentAccountRowDto>(
+            header: "1-30", value: r => r.Days1To30,
+            display: r => Blank(r.Days1To30), align: ReportAlign.Right),
+
+        new ReportColumn<DelinquentAccountRowDto>(
+            header: "31-60", value: r => r.Days31To60,
+            display: r => Blank(r.Days31To60), align: ReportAlign.Right),
+
+        new ReportColumn<DelinquentAccountRowDto>(
+            header: "61-90", value: r => r.Days61To90,
+            display: r => Blank(r.Days61To90), align: ReportAlign.Right),
+
+        new ReportColumn<DelinquentAccountRowDto>(
+            header: "90+", value: r => r.Over90,
+            align: ReportAlign.Right,
+            template: r => @<span class="@(r.Over90 > 0 ? "text-danger fw-semibold" : null)">@Blank(r.Over90)</span>),
+
+        new ReportColumn<DelinquentAccountRowDto>(
+            header: "Outstanding",
+            value: r => r.TotalOutstanding,
+            align: ReportAlign.Right,
+            template: r => @<strong>@r.TotalOutstanding.ToString("C", Money)</strong>),
+
+        // The other half of the collections decision: what you lose by pushing too hard.
+        new ReportColumn<DelinquentAccountRowDto>(
+            header: "Monthly",
+            value: r => r.MonthlyValue,
+            display: r => r.MonthlyValue.ToString("C", Money),
+            align: ReportAlign.Right)
+    ];
+
+    private static string Blank(decimal amount) => amount == 0m ? string.Empty : amount.ToString("C", Money);
+
+    private static string BucketClass(AgingBucket bucket) => bucket switch
+    {
+        AgingBucket.Current => "bg-secondary",
+        AgingBucket.Days1To30 => "bg-warning text-dark",
+        AgingBucket.Days31To60 => "bg-warning text-dark",
+        AgingBucket.Days61To90 => "bg-danger",
+        _ => "bg-dark"
+    };
+}

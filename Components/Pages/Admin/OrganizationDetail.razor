@@ -1,0 +1,1052 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/Organizations/{TenantId:guid}"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using RustArchon.Messaging.Contracts
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Data
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IOrganizationApiClient OrganizationClient
+@inject UserManager<ApplicationUser> UserManager
+@rendermode RenderModes.NonPrerenderedServer
+
+@*
+    One customer, whole. The Api half of this deliberately crosses the tenant boundary (see
+    IOrganizationAdminService); this half is the only place in the Panel that shows an Organization other
+    than the signed-in user's own.
+
+    Tabs are standalone @if blocks rather than an if/else-if chain. That is not stylistic: chaining a new
+    branch onto a deeply-nested one in this Razor version compiles the transition itself as literal
+    markup text, which is how ServerDetail's Players tab once swallowed every tab added after it.
+*@
+<PageTitle>@(detail?.Summary.Name ?? "Organization")</PageTitle>
+
+@if (accessDenied)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> You don't have access to manage organizations.
+    </div>
+}
+else if (loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> Loading organization...</div>
+}
+else if (detail is null)
+{
+    <div class="alert alert-danger">No such organization.</div>
+    <a class="btn btn-outline-secondary" href="Admin/Organizations">Back to organizations</a>
+}
+else
+{
+    var summary = detail.Summary;
+
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb small">
+            <li class="breadcrumb-item"><a href="Admin/Organizations">Organizations</a></li>
+            <li class="breadcrumb-item active" aria-current="page">@summary.Name</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+            <h1 class="mb-1">
+                @summary.Name
+                @if (summary.CancelledOn is { } cancelled)
+                {
+                    <span class="badge bg-secondary align-middle ms-2">Cancelled @Date(cancelled)</span>
+                }
+            </h1>
+            <div class="text-muted small">
+                <span class="badge me-2" style="background-color:@summary.PlanColorCode">@summary.PlanName</span>
+                @BillingTerms.Describe(summary.TermMonths)
+                · signed up @Date(summary.CreatedOn)
+                @if (summary.CancelledOn is null)
+                {
+                    <text>· on this plan since @Date(summary.OnPlanSince)</text>
+                }
+                @if (!string.IsNullOrWhiteSpace(summary.ContactEmail))
+                {
+                    <text>· @summary.ContactEmail</text>
+                }
+            </div>
+        </div>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="LoadAsync" disabled="@refreshing">
+            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="card h-100"><div class="card-body py-2">
+                <div class="small text-muted">Monthly</div>
+                <div class="fs-5">@Money(summary.MonthlyValue)</div>
+                <div class="small text-muted">at list prices</div>
+            </div></div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card h-100"><div class="card-body py-2">
+                <div class="small text-muted">Outstanding</div>
+                <div class="fs-5 @(summary.Outstanding > 0 ? "text-danger" : null)">@Money(summary.Outstanding)</div>
+                <div class="small text-muted">@summary.OpenInvoiceCount open invoice(s)</div>
+            </div></div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card h-100"><div class="card-body py-2">
+                <div class="small text-muted">Servers</div>
+                <div class="fs-5">@summary.ServerCount <span class="text-muted fs-6">/ @summary.Quantity</span></div>
+                <div class="small text-muted">running / slots bought</div>
+            </div></div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card h-100"><div class="card-body py-2">
+                <div class="small text-muted">Renews</div>
+                <div class="fs-5">@(summary.RenewsOn is { } on ? Date(on) : "—")</div>
+                <div class="small text-muted">@summary.MemberCount member(s)</div>
+            </div></div>
+        </div>
+    </div>
+
+    @*
+        The sharp end of this page. Suspending stops the customer's RCON connections, so the status is
+        stated plainly, the reason it was last changed is shown beside it, and suspending requires typing
+        one - the Api refuses without it.
+    *@
+    <div class="card mb-4 @(summary.Status == SubscriptionStatus.Active ? null : "border-warning")">
+        <div class="card-body py-3">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <span class="me-2">Status:</span>
+                    <span class="badge @StatusBadge(summary.Status)">@summary.Status</span>
+                    @if (summary.CancelledOn is not null)
+                    {
+                        <span class="text-muted small ms-2">This organization has been cancelled.</span>
+                    }
+                </div>
+
+                <div class="d-flex gap-1 flex-wrap">
+                    @if (summary.CancelledOn is null)
+                    {
+                        @if (summary.Status != SubscriptionStatus.Active)
+                        {
+                            <button class="btn btn-sm btn-outline-success" disabled="@busy"
+                                    @onclick="() => SetStatusAsync(SubscriptionStatus.Active)">
+                                Mark active
+                            </button>
+                        }
+                        @if (summary.Status != SubscriptionStatus.PastDue)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" disabled="@busy"
+                                    @onclick="() => SetStatusAsync(SubscriptionStatus.PastDue)">
+                                Mark past due
+                            </button>
+                        }
+                        @if (summary.Status != SubscriptionStatus.Suspended)
+                        {
+                            <button class="btn btn-sm btn-outline-warning" disabled="@busy"
+                                    @onclick="() => SetStatusAsync(SubscriptionStatus.Suspended)">
+                                Suspend
+                            </button>
+                        }
+                        <button class="btn btn-sm btn-outline-danger" disabled="@busy" @onclick="BeginCancel">
+                            Cancel account
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-sm btn-outline-success" disabled="@busy" @onclick="BeginReopen">
+                            Reopen
+                        </button>
+                    }
+                </div>
+            </div>
+
+            @if (pendingAction is not null)
+            {
+                <div class="mt-3 border-top pt-3">
+                    <label class="form-label small text-muted mb-1">@pendingPrompt</label>
+                    <div class="input-group input-group-sm">
+                        <input class="form-control" placeholder="Why?"
+                               value="@actionReason" @oninput="e => actionReason = e.Value?.ToString()" />
+                        @if (pendingAction == "reopen")
+                        {
+                            <select class="form-select" style="max-width:12rem"
+                                    value="@reopenPlanId" @onchange="e => reopenPlanId = e.Value?.ToString() ?? string.Empty">
+                                <option value="">Choose a plan...</option>
+                                @foreach (var option in planOptions)
+                                {
+                                    <option value="@option.Value">@option.Label</option>
+                                }
+                            </select>
+                        }
+                        <button class="btn btn-primary" disabled="@busy" @onclick="ConfirmActionAsync">Confirm</button>
+                        <button class="btn btn-outline-secondary" @onclick="() => pendingAction = null">Cancel</button>
+                    </div>
+                </div>
+            }
+
+            @if (summary.CancelledOn is null && !string.IsNullOrWhiteSpace(statusReason))
+            {
+                <div class="mt-2 small text-muted">
+                    Last changed @(statusChangedOn is { } changed ? Date(changed) : "at an unrecorded time"):
+                    &ldquo;@statusReason&rdquo;
+                </div>
+            }
+        </div>
+    </div>
+
+    <ul class="nav nav-tabs mb-3">
+        @foreach (var name in TabNames)
+        {
+            <li class="nav-item">
+                <button class="nav-link @(tab == name ? "active" : null)" @onclick="() => tab = name">
+                    @name
+                    @if (name == "Servers" && detail.Servers.Count > 0)
+                    {
+                        <span class="badge bg-secondary ms-1">@detail.Servers.Count</span>
+                    }
+                    @if (name == "Invoices" && detail.Invoices.Count > 0)
+                    {
+                        <span class="badge bg-secondary ms-1">@detail.Invoices.Count</span>
+                    }
+                </button>
+            </li>
+        }
+    </ul>
+
+    @if (tab == "Overview")
+    {
+        @if (detail.PendingChange is { } pending)
+        {
+            <div class="alert alert-info">
+                <i class="bi bi-clock-history"></i>
+                Scheduled change to <strong>@pending.PlanName</strong>
+                (@BillingTerms.Describe(pending.TermMonths), @pending.Quantity slot(s))
+                takes effect <strong>@Date(pending.EffectiveDate)</strong>,
+                requested @Date(pending.CreatedOn).
+            </div>
+        }
+
+        <h2 class="h5">Plan history</h2>
+        <div class="table-responsive mb-4">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr><th>Plan</th><th>From</th><th>To</th><th>Status</th><th class="text-end">Periods</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var interval in detail.History)
+                    {
+                        <tr>
+                            <td><span class="badge" style="background-color:@interval.PlanColorCode">@interval.PlanName</span></td>
+                            <td class="small">@Date(interval.StartDate)</td>
+                            <td class="small">@(interval.EndDate is { } end ? Date(end) : "current")</td>
+                            <td class="small">@interval.Status</td>
+                            <td class="text-end">@interval.PeriodCount</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <h2 class="h5">Billing periods</h2>
+        <p class="text-muted small">
+            What was earned, over which dates. A period split by a mid-period change shows as two spans
+            sharing one period - see the invoice each was billed on.
+        </p>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Plan</th><th>Term</th><th class="text-end">Slots</th>
+                        <th>Span</th><th>Period</th><th class="text-end">Earned</th><th>Invoice</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var period in detail.Periods)
+                    {
+                        <tr>
+                            <td class="small">@period.PlanName</td>
+                            <td class="small">@BillingTerms.Describe(period.TermMonths)</td>
+                            <td class="text-end">@period.Quantity</td>
+                            <td class="small">
+                                @Date(period.StartDate) – @Date(period.EndDate)
+                                @if (!period.IsWholePeriod)
+                                {
+                                    <span class="badge bg-warning text-dark ms-1">part</span>
+                                }
+                            </td>
+                            <td class="small text-muted">@Date(period.PeriodStart) – @Date(period.PeriodEnd)</td>
+                            <td class="text-end">@Money(period.EarnedAmount)</td>
+                            <td class="small">
+                                @if (period.InvoiceNumber is { } number)
+                                {
+                                    <span class="font-monospace">@number</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">not billed</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @if (tab == "Servers")
+    {
+        @if (detail.Servers.Count == 0)
+        {
+            <div class="alert alert-info">This organization has no servers.</div>
+        }
+        else
+        {
+            <p class="text-muted small">
+                Actions here are taken as you, not as the customer, and publish exactly the same messages
+                their own screens would - a worker cannot tell the difference, and shouldn't.
+            </p>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th>Server</th><th>Address</th><th>Status</th>
+                            <th>Worker</th><th>Heartbeat</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var server in detail.Servers)
+                        {
+                            <tr @key="server.Id">
+                                <td>
+                                    <div class="fw-semibold">@server.Name</div>
+                                    @if (!server.IsEnabled)
+                                    {
+                                        <span class="badge bg-secondary">Disabled</span>
+                                    }
+                                </td>
+                                <td class="small font-monospace">@server.Host:@server.Port</td>
+                                <td class="small">
+                                    <span class="@StatusClass(server)">@server.ConnectionStatus</span>
+                                    @if (!string.IsNullOrWhiteSpace(server.ConnectionStatusDetail))
+                                    {
+                                        <div class="text-muted">@server.ConnectionStatusDetail</div>
+                                    }
+                                </td>
+                                <td class="small text-muted">@(server.AssignedWorkerId?.ToString()[..8] ?? "—")</td>
+                                <td class="small text-muted">@Ago(server.LastHeartbeatUtc)</td>
+                                <td class="text-end text-nowrap">
+                                    @* Opens the customer's own server page, as them. data-enhance="false"
+                                       forces a real navigation: the tenant is resolved once when a
+                                       circuit starts, so an enhanced navigation would keep the current
+                                       one and load their server under the wrong Organization. *@
+                                    <a class="btn btn-sm btn-outline-primary"
+                                       href="servers/@server.Id?tenantId=@TenantId" data-enhance="false">
+                                        Open
+                                    </a>
+                                    @if (server.IsEnabled)
+                                    {
+                                        <button class="btn btn-sm btn-outline-warning" disabled="@busy"
+                                                @onclick="() => DisableServerAsync(server)">Disable</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-outline-success" disabled="@busy"
+                                                @onclick="() => EnableServerAsync(server)">Enable</button>
+                                    }
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleConnection(server)">
+                                        Connection
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleCommand(server)">
+                                        Command
+                                    </button>
+                                </td>
+                            </tr>
+
+                            @if (connectionFor == server.Id)
+                            {
+                                <tr class="table-light">
+                                    <td colspan="6">
+                                        <div class="row g-2 align-items-end">
+                                            <div class="col-md-4">
+                                                <label class="form-label small text-muted mb-1">Host</label>
+                                                <input class="form-control form-control-sm" @bind="editHost" />
+                                            </div>
+                                            <div class="col-md-2">
+                                                <label class="form-label small text-muted mb-1">Port</label>
+                                                <input type="number" class="form-control form-control-sm" @bind="editPort" />
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label small text-muted mb-1">RCON password</label>
+                                                <input type="password" class="form-control form-control-sm"
+                                                       placeholder="Leave blank to keep the current one"
+                                                       @bind="editPassword" />
+                                            </div>
+                                            <div class="col-md-2">
+                                                <button class="btn btn-sm btn-primary" disabled="@busy"
+                                                        @onclick="() => SaveConnectionAsync(server)">Save</button>
+                                                <button class="btn btn-sm btn-link" @onclick="() => connectionFor = null">Cancel</button>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+
+                            @if (commandFor == server.Id)
+                            {
+                                <tr class="table-light">
+                                    <td colspan="6">
+                                        <div class="input-group input-group-sm mb-2">
+                                            <span class="input-group-text">RCON</span>
+                                            <input class="form-control font-monospace" placeholder="serverinfo"
+                                                   @bind="commandText" @bind:event="oninput" />
+                                            <button class="btn btn-primary" disabled="@busy"
+                                                    @onclick="() => SendCommandAsync(server)">Send</button>
+                                            <button class="btn btn-outline-secondary" @onclick="() => commandFor = null">Close</button>
+                                        </div>
+                                        @if (commandResult is { } result)
+                                        {
+                                            <pre class="bg-dark text-light p-2 rounded small mb-0" style="white-space:pre-wrap">@FormatResult(result)</pre>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+
+    @if (tab == "Invoices")
+    {
+        @if (detail.Invoices.Count == 0)
+        {
+            <div class="alert alert-info">
+                No invoices. A free plan produces none - nothing owed is not an invoice.
+            </div>
+        }
+        else
+        {
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-muted small">Newest first.</span>
+                <a class="btn btn-sm btn-outline-secondary" href="Admin/Invoices">
+                    <i class="bi bi-receipt-cutoff" aria-hidden="true"></i> Settle invoices
+                </a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th>Invoice</th><th>Issued</th><th>Due</th>
+                            <th class="text-end">Total</th><th class="text-end">Paid</th>
+                            <th class="text-end">Credited</th><th class="text-end">Outstanding</th><th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var invoice in detail.Invoices)
+                        {
+                            <tr>
+                                <td class="font-monospace small">@invoice.Number</td>
+                                <td class="small">@(invoice.IssuedOn is { } issued ? Date(issued) : "—")</td>
+                                <td class="small">@(invoice.DueOn is { } due ? Date(due) : "—")</td>
+                                <td class="text-end">@Money(invoice.Total)</td>
+                                <td class="text-end">@(invoice.AmountPaid > 0 ? Money(invoice.AmountPaid) : "—")</td>
+                                <td class="text-end">@(invoice.AmountCredited > 0 ? Money(invoice.AmountCredited) : "—")</td>
+                                <td class="text-end @(invoice.Outstanding > 0 ? "text-danger fw-semibold" : "text-muted")">
+                                    @(invoice.Outstanding > 0 ? Money(invoice.Outstanding) : "—")
+                                </td>
+                                <td><span class="badge @InvoiceBadge(invoice.Status)">@invoice.Status</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+
+    @if (tab == "Members")
+    {
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-6">
+                        <label class="form-label small text-muted mb-1" for="add-member">Add a member</label>
+                        <input id="add-member" class="form-control form-control-sm"
+                               placeholder="Their email address on this panel"
+                               value="@addMemberEmail" @oninput="e => addMemberEmail = e.Value?.ToString()" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small text-muted mb-1" for="add-member-role">With role</label>
+                        <select id="add-member-role" class="form-select form-select-sm"
+                                value="@addMemberRoleId" @onchange="e => addMemberRoleId = e.Value?.ToString() ?? string.Empty">
+                            <option value="">No role</option>
+                            @foreach (var role in detail.Roles)
+                            {
+                                <option value="@role.Id">@role.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-sm btn-primary" disabled="@busy" @onclick="AddMemberAsync">
+                            <i class="bi bi-person-plus" aria-hidden="true"></i> Add
+                        </button>
+                    </div>
+                </div>
+                <div class="form-text">
+                    The account has to exist on this panel already - adding somebody here grants access to
+                    an organization, it doesn't create a login.
+                </div>
+            </div>
+        </div>
+
+        @if (detail.Members.Count == 0)
+        {
+            <div class="alert alert-info">Nobody belongs to this organization.</div>
+        }
+        else
+        {
+            <p class="text-muted small">
+                Identity lives in the Panel's own store and membership lives in the Api's - two databases,
+                joined here because the Panel is the only component that can see both. A blank name means
+                the membership refers to a user this Panel has no account for.
+            </p>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr><th>User</th><th>Roles</th><th>Joined</th><th>Active</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var member in detail.Members)
+                        {
+                            <tr>
+                                <td>
+                                    @if (memberNames.TryGetValue(member.UserId, out var name))
+                                    {
+                                        <span>@name</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted font-monospace small">@member.UserId</span>
+                                    }
+                                </td>
+                                <td class="small">
+                                    @if (member.Roles.Count == 0)
+                                    {
+                                        <span class="text-muted">—</span>
+                                    }
+                                    else
+                                    {
+                                        @string.Join(", ", member.Roles)
+                                    }
+                                </td>
+                                <td class="small">@Date(member.JoinedOn)</td>
+                                <td>
+                                    @if (member.IsActive)
+                                    {
+                                        <span class="badge bg-success">Yes</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">No</span>
+                                    }
+                                </td>
+                                <td class="text-end text-nowrap">
+                                    <button class="btn btn-sm btn-outline-secondary"
+                                            @onclick="() => ToggleRoles(member)">Roles</button>
+                                    @if (member.IsActive)
+                                    {
+                                        <button class="btn btn-sm btn-outline-warning" disabled="@busy"
+                                                @onclick="() => SetMemberActiveAsync(member, false)">Suspend</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-outline-success" disabled="@busy"
+                                                @onclick="() => SetMemberActiveAsync(member, true)">Restore</button>
+                                    }
+                                    <button class="btn btn-sm btn-outline-danger" disabled="@busy"
+                                            @onclick="() => RemoveMemberAsync(member)">Remove</button>
+                                </td>
+                            </tr>
+
+                            @if (rolesFor == member.UserId)
+                            {
+                                <tr class="table-light">
+                                    <td colspan="5">
+                                        @if (detail.Roles.Count == 0)
+                                        {
+                                            <span class="text-muted small">
+                                                This organization has no roles of its own yet.
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="small text-muted me-2">Roles in this organization:</span>
+                                            @foreach (var role in detail.Roles)
+                                            {
+                                                var held = member.RoleIds.Contains(role.Id);
+                                                <button class="btn btn-sm me-1 @(held ? "btn-primary" : "btn-outline-secondary")"
+                                                        disabled="@busy"
+                                                        @onclick="() => ToggleRoleAsync(member, role, held)">
+                                                    @role.Name
+                                                </button>
+                                            }
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+}
+
+@code {
+    [Parameter]
+    public Guid TenantId { get; set; }
+
+    private static readonly string[] TabNames = ["Overview", "Servers", "Invoices", "Members"];
+    private static readonly CultureInfo Us = CultureInfo.GetCultureInfo("en-US");
+
+    private OrganizationDetailDto? detail;
+    private readonly Dictionary<Guid, string> memberNames = [];
+
+    private string tab = "Overview";
+    private bool loading = true;
+    private bool refreshing;
+    private bool busy;
+    private bool accessDenied;
+    private string? errorMessage;
+    private string? successMessage;
+
+    private Guid? connectionFor;
+    private string editHost = string.Empty;
+    private int editPort = 28016;
+    private string editPassword = string.Empty;
+
+    private Guid? commandFor;
+    private string commandText = string.Empty;
+    private RconCommandResult? commandResult;
+
+    private Guid? rolesFor;
+    private string? addMemberEmail;
+    private string addMemberRoleId = string.Empty;
+
+    private List<ReportFilterOptionDto> planOptions = [];
+    private string? pendingAction;
+    private string pendingPrompt = string.Empty;
+    private string? actionReason;
+    private string reopenPlanId = string.Empty;
+    private SubscriptionStatus pendingStatus;
+
+    private string? statusReason => detail?.Summary.StatusReason;
+    private DateTimeOffset? statusChangedOn => detail?.Summary.StatusChangedOn;
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        refreshing = true;
+        errorMessage = null;
+
+        try
+        {
+            detail = await OrganizationClient.GetAsync(TenantId);
+            await ResolveMemberNamesAsync();
+
+            if (planOptions.Count == 0)
+            {
+                planOptions = await OrganizationClient.GetPlanOptionsAsync();
+            }
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+        {
+            accessDenied = true;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            detail = null;
+        }
+        catch (Refit.ApiException ex)
+        {
+            errorMessage = $"Couldn't load this organization: {ex.StatusCode}";
+        }
+        finally
+        {
+            loading = false;
+            refreshing = false;
+        }
+    }
+
+    /// <summary>
+    /// Puts names to the member ids. The Api cannot do this - it has no users table - so the join
+    /// happens here, one lookup per member, which is fine for the handful an Organization has.
+    /// </summary>
+    private async Task ResolveMemberNamesAsync()
+    {
+        memberNames.Clear();
+
+        if (detail is null)
+        {
+            return;
+        }
+
+        foreach (var member in detail.Members)
+        {
+            var user = await UserManager.FindByIdAsync(member.UserId.ToString());
+            if (user is not null)
+            {
+                memberNames[member.UserId] = user.Email ?? user.UserName ?? member.UserId.ToString();
+            }
+        }
+    }
+
+    private async Task EnableServerAsync(OrganizationServerDto server) =>
+        await ServerActionAsync(
+            () => OrganizationClient.EnableServerAsync(TenantId, server.Id),
+            $"Enabled {server.Name}. A worker will pick it up shortly.");
+
+    private async Task DisableServerAsync(OrganizationServerDto server) =>
+        await ServerActionAsync(
+            () => OrganizationClient.DisableServerAsync(TenantId, server.Id),
+            $"Disabled {server.Name}; its connection has been torn down.");
+
+    private async Task SaveConnectionAsync(OrganizationServerDto server)
+    {
+        if (string.IsNullOrWhiteSpace(editHost) || editPort is < 1 or > 65535)
+        {
+            errorMessage = "A host and a port between 1 and 65535 are required.";
+            return;
+        }
+
+        var changedPassword = !string.IsNullOrWhiteSpace(editPassword);
+
+        await ServerActionAsync(
+            () => OrganizationClient.UpdateServerConnectionAsync(
+                TenantId, server.Id,
+                new UpdateServerConnectionRequestDto
+                {
+                    Host = editHost.Trim(),
+                    Port = editPort,
+                    RconPassword = changedPassword ? editPassword : null
+                }),
+            $"Updated {server.Name}"
+                + (changedPassword ? " and replaced its RCON password." : "."));
+
+        connectionFor = null;
+        editPassword = string.Empty;
+    }
+
+    private async Task SendCommandAsync(OrganizationServerDto server)
+    {
+        if (string.IsNullOrWhiteSpace(commandText))
+        {
+            return;
+        }
+
+        busy = true;
+        errorMessage = null;
+        commandResult = null;
+
+        try
+        {
+            commandResult = await OrganizationClient.SendServerCommandAsync(
+                TenantId, server.Id, new SendServerCommandRequestDto { Command = commandText.Trim() });
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
+        {
+            // The Api answers 409 for a server nobody is currently connected to - a real answer, not a
+            // failure, so it is shown in the output pane rather than as a page-level error.
+            commandResult = new RconCommandResult(false, null, null, null, "NotConnected");
+        }
+        catch (Refit.ApiException ex)
+        {
+            errorMessage = $"Command failed: {ex.StatusCode}";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task ServerActionAsync(Func<Task> action, string success)
+    {
+        busy = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            await action();
+            successMessage = success;
+            await LoadAsync();
+        }
+        catch (Refit.ApiException ex)
+        {
+            errorMessage = $"That didn't work: {ex.StatusCode}";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void ToggleConnection(OrganizationServerDto server)
+    {
+        commandFor = null;
+
+        if (connectionFor == server.Id)
+        {
+            connectionFor = null;
+            return;
+        }
+
+        connectionFor = server.Id;
+        editHost = server.Host;
+        editPort = server.Port;
+        editPassword = string.Empty;
+    }
+
+    private void ToggleCommand(OrganizationServerDto server)
+    {
+        connectionFor = null;
+        commandResult = null;
+        commandText = string.Empty;
+        commandFor = commandFor == server.Id ? null : server.Id;
+    }
+
+    private static string FormatResult(RconCommandResult result) =>
+        result.Success
+            ? string.IsNullOrWhiteSpace(result.Message) ? "(no output)" : result.Message
+            : result.Error == "NotConnected"
+                ? "Not connected - this server has no live RCON connection right now."
+                : $"Failed: {result.Error ?? "unknown error"}";
+
+    private static string StatusClass(OrganizationServerDto server) => server.ConnectionStatus switch
+    {
+        RconConnectionStatus.Connected => "text-success",
+        RconConnectionStatus.Error => "text-danger",
+        RconConnectionStatus.Connecting or RconConnectionStatus.Reconnecting => "text-warning",
+        _ => "text-muted"
+    };
+
+    private void ToggleRoles(OrganizationMemberDto member) =>
+        rolesFor = rolesFor == member.UserId ? null : member.UserId;
+
+    /// <summary>
+    /// Adds a member by their email address, which the Panel has to resolve to an id first - the Api has
+    /// no users table to look them up in.
+    /// </summary>
+    private async Task AddMemberAsync()
+    {
+        if (string.IsNullOrWhiteSpace(addMemberEmail))
+        {
+            errorMessage = "Enter the email address of an account on this panel.";
+            return;
+        }
+
+        var user = await UserManager.FindByEmailAsync(addMemberEmail.Trim());
+        if (user is null)
+        {
+            errorMessage = $"No account on this panel uses {addMemberEmail.Trim()}.";
+            return;
+        }
+
+        var roleId = Guid.TryParse(addMemberRoleId, out var parsed) ? parsed : (Guid?)null;
+
+        await ActAsync(
+            () => OrganizationClient.AddMemberAsync(
+                TenantId, new AddMemberRequestDto { UserId = user.Id, RoleId = roleId }),
+            $"Added {user.Email} to this organization.");
+
+        addMemberEmail = null;
+        addMemberRoleId = string.Empty;
+    }
+
+    private async Task RemoveMemberAsync(OrganizationMemberDto member) =>
+        await ActAsync(
+            () => OrganizationClient.RemoveMemberAsync(TenantId, member.UserId),
+            $"Removed {MemberLabel(member)} from this organization.");
+
+    private async Task SetMemberActiveAsync(OrganizationMemberDto member, bool active) =>
+        await ActAsync(
+            () => OrganizationClient.SetMemberActiveAsync(TenantId, member.UserId, active),
+            active
+                ? $"Restored access for {MemberLabel(member)}."
+                : $"Suspended access for {MemberLabel(member)}.");
+
+    private async Task ToggleRoleAsync(OrganizationMemberDto member, OrganizationRoleDto role, bool held) =>
+        await ActAsync(
+            () => held
+                ? OrganizationClient.UnassignRoleAsync(TenantId, member.UserId, role.Id)
+                : OrganizationClient.AssignRoleAsync(TenantId, member.UserId, role.Id),
+            held
+                ? $"Took {role.Name} back from {MemberLabel(member)}."
+                : $"Granted {role.Name} to {MemberLabel(member)}.");
+
+    private string MemberLabel(OrganizationMemberDto member) =>
+        memberNames.GetValueOrDefault(member.UserId, member.UserId.ToString());
+
+    /// <summary>
+    /// Status changes go through a confirmation step that asks for a reason, rather than firing on the
+    /// first click. Suspending takes a customer's servers offline; it should take a sentence of thought.
+    /// </summary>
+    private void SetStatusAsync(SubscriptionStatus status)
+    {
+        pendingStatus = status;
+        pendingAction = "status";
+        actionReason = null;
+        pendingPrompt = status switch
+        {
+            SubscriptionStatus.Suspended =>
+                "Suspending stops every one of this organization's server connections. Why?",
+            SubscriptionStatus.PastDue =>
+                "Marking past due leaves their servers running. Why?",
+            _ => "Why is this account being made active again?"
+        };
+    }
+
+    private void BeginCancel()
+    {
+        pendingAction = "cancel";
+        actionReason = null;
+        pendingPrompt = "Cancelling closes the subscription, stops their servers and retires the account. Why?";
+    }
+
+    private void BeginReopen()
+    {
+        pendingAction = "reopen";
+        actionReason = null;
+        reopenPlanId = string.Empty;
+        pendingPrompt = "Reopening puts them back on a plan. It does not raise an invoice.";
+    }
+
+    private async Task ConfirmActionAsync()
+    {
+        switch (pendingAction)
+        {
+            case "status":
+                if (pendingStatus == SubscriptionStatus.Suspended && string.IsNullOrWhiteSpace(actionReason))
+                {
+                    errorMessage = "A reason is required when suspending an organization.";
+                    return;
+                }
+
+                await ActAsync(
+                    () => OrganizationClient.SetStatusAsync(
+                        TenantId,
+                        new SetOrganizationStatusRequestDto { Status = pendingStatus, Reason = actionReason }),
+                    $"This organization is now {pendingStatus}.");
+                break;
+
+            case "cancel":
+                await ActAsync(
+                    () => OrganizationClient.CancelAsync(
+                        TenantId, new CancelOrganizationRequestDto { Reason = actionReason }),
+                    "This organization has been cancelled and its servers stopped.");
+                break;
+
+            case "reopen":
+                if (!Guid.TryParse(reopenPlanId, out var planId))
+                {
+                    errorMessage = "Choose a plan to reopen them on.";
+                    return;
+                }
+
+                await ActAsync(
+                    () => OrganizationClient.ReopenAsync(
+                        TenantId, new ReopenOrganizationRequestDto { PlanId = planId }),
+                    "This organization has been reopened.");
+                break;
+        }
+
+        pendingAction = null;
+        actionReason = null;
+    }
+
+    private async Task ActAsync(Func<Task> action, string success)
+    {
+        busy = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            await action();
+            successMessage = success;
+            await LoadAsync();
+        }
+        catch (Refit.ApiException ex) when (
+            ex.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Conflict)
+        {
+            // The Api's own wording - it explains the refusal better than a status code would.
+            errorMessage = ex.Content?.Trim('"') ?? "That change was refused.";
+        }
+        catch (Refit.ApiException ex)
+        {
+            errorMessage = $"That didn't work: {ex.StatusCode}";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private static string StatusBadge(SubscriptionStatus status) => status switch
+    {
+        SubscriptionStatus.Active => "bg-success",
+        SubscriptionStatus.PastDue => "bg-warning text-dark",
+        SubscriptionStatus.Suspended => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private static string InvoiceBadge(InvoiceStatus status) => status switch
+    {
+        InvoiceStatus.Paid => "bg-success",
+        InvoiceStatus.Open => "bg-warning text-dark",
+        InvoiceStatus.Void => "bg-secondary",
+        InvoiceStatus.Uncollectible => "bg-danger",
+        _ => "bg-light text-dark"
+    };
+
+    private static string Ago(DateTimeOffset? at)
+    {
+        if (at is not { } value)
+        {
+            return "never";
+        }
+
+        var span = DateTimeOffset.UtcNow - value;
+
+        return span.TotalMinutes < 2 ? "just now"
+            : span.TotalHours < 1 ? $"{(int)span.TotalMinutes}m ago"
+            : span.TotalDays < 1 ? $"{(int)span.TotalHours}h ago"
+            : $"{(int)span.TotalDays}d ago";
+    }
+
+    // UTC throughout, like the reports - see Organizations.razor.
+    private static string Date(DateTimeOffset value) => value.UtcDateTime.ToString("d MMM yyyy", Us);
+
+    private static string Money(decimal value) => value.ToString("C", Us);
+}

@@ -1,0 +1,275 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/Organizations"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IOrganizationApiClient OrganizationClient
+@inject NavigationManager Navigation
+@rendermode RenderModes.NonPrerenderedServer
+
+@*
+    Deliberately not built on the reporting components, for the same reason Invoices isn't: those are for
+    pages whose whole purpose is one result set, and this is a search-and-open screen whose rows are
+    links into a detail page rather than an answer in themselves.
+
+    The reports slice across the whole customer base - what renews soon, who owes money. This answers the
+    question none of them could: "this customer emailed, what is going on with them?"
+*@
+<PageTitle>Organizations</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0">Organizations</h1>
+    <a class="btn btn-outline-secondary" href="Reports/Subscriptions">
+        <i class="bi bi-card-list" aria-hidden="true"></i> Subscriptions report
+    </a>
+</div>
+
+@if (accessDenied)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> You don't have access to manage organizations.
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @* Deliberately not a <form>. One was tried, and a real <form> here submits natively: this page is
+       interactively rendered but statically routed, so Blazor never bound @onsubmit:preventDefault and
+       pressing Enter POSTed the page - which bounced the admin to the login screen and lost their
+       filters. Enter is handled on the box itself instead, and the button is the primary path. *@
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label small text-muted mb-1" for="org-search">Search</label>
+                    @* An explicit @oninput handler rather than @bind:event="oninput". They should be
+                       equivalent and were not: with @bind the box's text never reached the field, so
+                       every search ran against a null term and quietly returned all 206 rows. The
+                       server log gave it away - the request went out and came back 200, just without
+                       the filter. *@
+                    <input id="org-search" class="form-control" placeholder="Name or contact email"
+                           value="@search" @oninput="OnSearchInput" @onkeyup="OnSearchKeyUp" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted mb-1" for="org-plan">Plan</label>
+                    <select id="org-plan" class="form-select" value="@planFilter" @onchange="OnPlanChanged">
+                        <option value="">All plans</option>
+                        @foreach (var option in planOptions)
+                        {
+                            <option value="@option.Value">@option.Label</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small text-muted mb-1" for="org-owing">Owing over</label>
+                    <div class="input-group">
+                        <span class="input-group-text">$</span>
+                        <input id="org-owing" type="number" min="0" step="1" class="form-control"
+                               value="@minimumOutstanding" @onchange="OnOwingChanged" />
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="org-cancelled"
+                               checked="@includeCancelled" @onchange="OnIncludeCancelledChanged" />
+                        <label class="form-check-label" for="org-cancelled">
+                            Include cancelled
+                        </label>
+                    </div>
+                    <button type="button" class="btn btn-primary btn-sm mt-2"
+                            @onclick="LoadAsync" disabled="@loading">
+                        <i class="bi bi-search" aria-hidden="true"></i> Search
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (loading)
+    {
+        <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> Loading organizations...</div>
+    }
+    else if (rows.Count == 0)
+    {
+        <div class="alert alert-info">No organizations match that.</div>
+    }
+    else
+    {
+        <div class="d-flex gap-4 mb-3 small text-muted">
+            <span><strong class="text-body">@rows.Count</strong> organizations</span>
+            <span><strong class="text-body">@Money(rows.Sum(r => r.MonthlyValue))</strong> monthly</span>
+            <span><strong class="text-body">@Money(rows.Sum(r => r.Outstanding))</strong> outstanding</span>
+            <span><strong class="text-body">@rows.Sum(r => r.ServerCount)</strong> servers</span>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Organization</th>
+                        <th>Plan</th>
+                        <th>Term</th>
+                        <th class="text-end">Servers</th>
+                        <th>Signed up</th>
+                        <th>Renews</th>
+                        <th class="text-end">Monthly</th>
+                        <th class="text-end">Owing</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in rows)
+                    {
+                        <tr class="@(row.CancelledOn is null ? null : "opacity-50")">
+                            <td>
+                                <a href="Admin/Organizations/@row.Id" class="fw-semibold text-decoration-none">@row.Name</a>
+                                @if (row.CancelledOn is not null)
+                                {
+                                    <span class="badge bg-secondary ms-1">Cancelled</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(row.ContactEmail))
+                                {
+                                    <div class="small text-muted">@row.ContactEmail</div>
+                                }
+                            </td>
+                            <td>
+                                <span class="badge" style="background-color:@row.PlanColorCode">@row.PlanName</span>
+                            </td>
+                            <td class="small">@BillingTerms.Describe(row.TermMonths)</td>
+                            <td class="text-end">
+                                @row.ServerCount<span class="text-muted"> / @row.Quantity</span>
+                            </td>
+                            <td class="small">@Date(row.CreatedOn)</td>
+                            <td class="small">@(row.RenewsOn is { } on ? Date(on) : "—")</td>
+                            <td class="text-end">@Money(row.MonthlyValue)</td>
+                            <td class="text-end @(row.Outstanding > 0 ? "text-danger fw-semibold" : "text-muted")">
+                                @(row.Outstanding > 0 ? Money(row.Outstanding) : "—")
+                            </td>
+                            <td class="text-end">
+                                <a class="btn btn-sm btn-outline-secondary" href="Admin/Organizations/@row.Id">Open</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private readonly List<OrganizationSummaryDto> rows = [];
+    private List<ReportFilterOptionDto> planOptions = [];
+
+    private string? search;
+    private string planFilter = string.Empty;
+    private decimal minimumOutstanding;
+    private bool includeCancelled;
+
+    private bool loading = true;
+    private bool accessDenied;
+    private string? errorMessage;
+
+    private static readonly CultureInfo Money_ = CultureInfo.GetCultureInfo("en-US");
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            planOptions = await OrganizationClient.GetPlanOptionsAsync();
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+        {
+            accessDenied = true;
+            loading = false;
+            return;
+        }
+        catch (Refit.ApiException)
+        {
+            // A missing filter list is not worth failing the page over - the table below is the point.
+            planOptions = [];
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var results = await OrganizationClient.ListAsync(
+                search: string.IsNullOrWhiteSpace(search) ? null : search.Trim(),
+                planId: Guid.TryParse(planFilter, out var planId) ? planId : null,
+                status: null,
+                includeCancelled: includeCancelled,
+                minimumOutstanding: minimumOutstanding);
+
+            rows.Clear();
+            rows.AddRange(results);
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+        {
+            accessDenied = true;
+        }
+        catch (Refit.ApiException ex)
+        {
+            errorMessage = $"Couldn't load organizations: {ex.StatusCode}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private void OnSearchInput(ChangeEventArgs e) => search = e.Value?.ToString();
+
+    private async Task OnSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task OnPlanChanged(ChangeEventArgs e)
+    {
+        planFilter = e.Value?.ToString() ?? string.Empty;
+        await LoadAsync();
+    }
+
+    private async Task OnOwingChanged(ChangeEventArgs e)
+    {
+        minimumOutstanding = decimal.TryParse(
+            e.Value?.ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var value) && value > 0
+            ? value
+            : 0m;
+
+        await LoadAsync();
+    }
+
+    private async Task OnIncludeCancelledChanged(ChangeEventArgs e)
+    {
+        includeCancelled = e.Value is true;
+        await LoadAsync();
+    }
+
+    // UTC throughout, like the reports - a renewal on the 4th showing as the 3rd because the browser is
+    // west of Greenwich is the bug those pages already had once.
+    private static string Date(DateTimeOffset value) => value.UtcDateTime.ToString("d MMM yyyy", Money_);
+
+    private static string Money(decimal value) => value.ToString("C", Money_);
+}

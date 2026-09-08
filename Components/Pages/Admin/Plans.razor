@@ -69,31 +69,13 @@ else
 
                     <hr class="my-3" />
 
-                    <div class="row g-3 align-items-end">
-                        <div class="col-md-4">
-                            <label class="form-label" for="create-monthly">Monthly Price</label>
-                            <InputNumber id="create-monthly" class="form-control" @bind-Value="createForm.MonthlyPrice" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label" for="create-quarterly">Quarterly Price</label>
-                            <InputNumber id="create-quarterly" class="form-control" @bind-Value="createForm.QuarterlyPrice" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label" for="create-annual">Annual Price</label>
-                            <InputNumber id="create-annual" class="form-control" @bind-Value="createForm.AnnualPrice" />
-                        </div>
-                        <div class="col-12">
-                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => RecalculatePrices(createForm)">
-                                <i class="bi bi-arrow-repeat"></i> Recalculate Quarterly/Annual from Monthly (×2.75 / ×10)
-                            </button>
-                        </div>
-                        @foreach (var warning in GetPriceWarnings(createForm.MonthlyPrice, createForm.QuarterlyPrice, createForm.AnnualPrice))
-                        {
-                            <div class="col-12">
-                                <div class="alert alert-warning py-2 mb-0"><i class="bi bi-exclamation-triangle"></i> @warning</div>
-                            </div>
-                        }
-                    </div>
+                    @* Fully qualified, same as ConfirmationModal below. _Imports now carries
+                       Components.Shared so this no longer has to be, but leaving it qualified is
+                       harmless and these call sites predate that entry. *@
+                    <RustArchon.Panel.Components.Shared.PlanPriceEditor
+                        Prices="createForm.Prices"
+                        Model="createForm.PricingModel"
+                        ModelChanged="m => createForm.PricingModel = m" />
 
                     <hr class="my-3" />
 
@@ -104,7 +86,8 @@ else
                         </div>
                         <div class="col-md-4">
                             <label class="form-label" for="create-servers">Maximum Servers</label>
-                            <InputNumber id="create-servers" class="form-control" @bind-Value="createForm.MaximumServers" />
+                            <InputNumber id="create-servers" class="form-control" @bind-Value="createForm.MaximumServers" placeholder="No limit" />
+                            <div class="form-text">Leave blank for no ceiling (per-server plans).</div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label" for="create-users">Maximum Users</label>
@@ -114,6 +97,16 @@ else
                             <div class="form-check">
                                 <InputCheckbox id="create-roles" class="form-check-input" @bind-Value="createForm.HasRoles" />
                                 <label class="form-check-label" for="create-roles">Role separation</label>
+                            </div>
+                            <div class="form-check">
+                                <InputCheckbox id="create-one-per-owner" class="form-check-input" @bind-Value="createForm.OnePerOwner" />
+                                <label class="form-check-label" for="create-one-per-owner">
+                                    One organization per owner
+                                </label>
+                                <div class="form-text">
+                                    Someone may only ever create one organization on this plan. Set it
+                                    on a free or trial tier, so it isn't an unlimited supply of servers.
+                                </div>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -156,10 +149,10 @@ else
                 @if (editingPlan.SubscriberCount > 0)
                 {
                     <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> @editingPlan.SubscriberCount organization(s) are on
-                        this plan. Saving changes here will create a new "@editingPlan.Name" plan with these
+                        <i class="bi bi-info-circle"></i> @editingPlan.SubscriberCount organization(s) have been
+                        on this plan. Saving changes here will create a new "@editingPlan.Name" plan with these
                         terms and deactivate the current one - existing subscribers stay on their current
-                        terms.
+                        terms, and past subscribers keep the terms they were billed under.
                     </div>
                 }
 
@@ -176,31 +169,10 @@ else
 
                     <hr class="my-3" />
 
-                    <div class="row g-3 align-items-end">
-                        <div class="col-md-4">
-                            <label class="form-label" for="edit-monthly">Monthly Price</label>
-                            <InputNumber id="edit-monthly" class="form-control" @bind-Value="editForm.MonthlyPrice" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label" for="edit-quarterly">Quarterly Price</label>
-                            <InputNumber id="edit-quarterly" class="form-control" @bind-Value="editForm.QuarterlyPrice" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label" for="edit-annual">Annual Price</label>
-                            <InputNumber id="edit-annual" class="form-control" @bind-Value="editForm.AnnualPrice" />
-                        </div>
-                        <div class="col-12">
-                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => RecalculatePrices(editForm)">
-                                <i class="bi bi-arrow-repeat"></i> Recalculate Quarterly/Annual from Monthly (×2.75 / ×10)
-                            </button>
-                        </div>
-                        @foreach (var warning in GetPriceWarnings(editForm.MonthlyPrice, editForm.QuarterlyPrice, editForm.AnnualPrice))
-                        {
-                            <div class="col-12">
-                                <div class="alert alert-warning py-2 mb-0"><i class="bi bi-exclamation-triangle"></i> @warning</div>
-                            </div>
-                        }
-                    </div>
+                    <RustArchon.Panel.Components.Shared.PlanPriceEditor
+                        Prices="editForm.Prices"
+                        Model="editForm.PricingModel"
+                        ModelChanged="m => editForm.PricingModel = m" />
 
                     <hr class="my-3" />
 
@@ -211,7 +183,8 @@ else
                         </div>
                         <div class="col-md-4">
                             <label class="form-label" for="edit-servers">Maximum Servers</label>
-                            <InputNumber id="edit-servers" class="form-control" @bind-Value="editForm.MaximumServers" />
+                            <InputNumber id="edit-servers" class="form-control" @bind-Value="editForm.MaximumServers" placeholder="No limit" />
+                            <div class="form-text">Leave blank for no ceiling (per-server plans).</div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label" for="edit-users">Maximum Users</label>
@@ -221,6 +194,12 @@ else
                             <div class="form-check">
                                 <InputCheckbox id="edit-roles" class="form-check-input" @bind-Value="editForm.HasRoles" />
                                 <label class="form-check-label" for="edit-roles">Role separation</label>
+                            </div>
+                            <div class="form-check">
+                                <InputCheckbox id="edit-one-per-owner" class="form-check-input" @bind-Value="editForm.OnePerOwner" />
+                                <label class="form-check-label" for="edit-one-per-owner">
+                                    One organization per owner
+                                </label>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -263,14 +242,16 @@ else
                         <tr>
                             <th>Status</th>
                             <th>Name</th>
-                            <th>Monthly</th>
-                            <th>Quarterly</th>
-                            <th>Annual</th>
+                            <th>Pricing</th>
                             <th>Retention</th>
                             <th>Roles</th>
+                            <th title="At most one organization per person may be on this plan - set on the free tier so it isn't an unlimited supply of free servers">One&nbsp;per&nbsp;owner</th>
                             <th>Max Servers</th>
                             <th>Max Users</th>
-                            <th>Subscribers</th>
+                            @* "Ever", not "currently" - a plan every subscriber has since moved off
+                               still counts them, because that's what locks the plan against edits.
+                               See PlanDto.SubscriberCount. *@
+                            <th title="Organizations that have ever been on this plan, including any that have since moved off it">Subscribers</th>
                             <th>Created</th>
                             <th>Actions</th>
                         </tr>
@@ -295,12 +276,33 @@ else
                                         @plan.Name
                                     </span>
                                 </td>
-                                <td>@plan.MonthlyPrice.ToString("C")</td>
-                                <td>@plan.QuarterlyPrice.ToString("C")</td>
-                                <td>@plan.AnnualPrice.ToString("C")</td>
+                                @* One cell listing every term the plan is sold on, rather than three
+                                   fixed columns - a plan sold annually-only has nothing to put under a
+                                   "Monthly" heading, and a per-server plan's price isn't a single figure. *@
+                                <td>
+                                    @if (!plan.Prices.Any())
+                                    {
+                                        <span class="text-danger small">No prices set</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var price in plan.Prices.OrderBy(p => p.TermMonths))
+                                        {
+                                            <div class="small text-nowrap">
+                                                @price.BaseAmount.ToString("C")
+                                                <span class="text-muted">@BillingTerms.Describe(price.TermMonths)</span>
+                                                @if (price.UnitAmount > 0)
+                                                {
+                                                    <span class="text-muted">&middot; @price.UnitAmount.ToString("C") per extra server</span>
+                                                }
+                                            </div>
+                                        }
+                                    }
+                                </td>
                                 <td>@plan.RetentionHistory days</td>
                                 <td>@(plan.HasRoles ? "Yes" : "No")</td>
-                                <td>@plan.MaximumServers</td>
+                                <td>@(plan.OnePerOwner ? "Yes" : "No")</td>
+                                <td>@(plan.MaximumServers?.ToString() ?? "No limit")</td>
                                 <td>@plan.MaximumUsers</td>
                                 <td>@plan.SubscriberCount</td>
                                 <td>@plan.CreatedOn.LocalDateTime.ToString("g")</td>
@@ -348,8 +350,8 @@ else
             ConfirmButtonClass="btn-primary"
             OnClose="HandleSupersedeModalClose">
             <Message>
-                @editingPlan.SubscriberCount organization(s) are on the current "@editingPlan.Name" plan.
-                Saving will create a new "@editingPlan.Name" plan with these terms and deactivate the
+                @editingPlan.SubscriberCount organization(s) have been on the current "@editingPlan.Name"
+                plan. Saving will create a new "@editingPlan.Name" plan with these terms and deactivate the
                 current one. Existing subscribers keep their current terms. Proceed?
             </Message>
         </RustArchon.Panel.Components.Shared.ConfirmationModal>
@@ -364,7 +366,7 @@ else
             OnClose="HandleDeleteModalClose">
             <Message>
                 Are you sure you want to permanently delete this "@planToDelete.Name" plan
-                (@planToDelete.MonthlyPrice.ToString("C")/mo, created @planToDelete.CreatedOn.LocalDateTime.ToString("g"))?
+                (@DescribeCheapest(planToDelete), created @planToDelete.CreatedOn.LocalDateTime.ToString("g"))?
                 This cannot be undone.
             </Message>
         </RustArchon.Panel.Components.Shared.ConfirmationModal>
@@ -446,39 +448,25 @@ else
         creating = false;
     }
 
-    // Applied to whichever form (create or edit) the admin clicked the button on - overwrites
-    // Quarterly/Annual with the standard ratios against the form's current Monthly price. Both fields
-    // stay plain, independently-editable inputs afterward.
-    private void RecalculatePrices(PriceFormModel form)
+    /// <summary>
+    /// A one-line price summary for a plan whose terms aren't known in advance - the cheapest per-month
+    /// rate it's sold at, named by its term.
+    /// </summary>
+    private static string DescribeCheapest(PlanDto plan)
     {
-        form.QuarterlyPrice = Math.Round(form.MonthlyPrice * QuarterlyMultiplier, 2);
-        form.AnnualPrice = Math.Round(form.MonthlyPrice * AnnualMultiplier, 2);
+        var cheapest = plan.Prices
+            .Where(p => p.TermMonths > 0)
+            .OrderBy(p => p.BaseAmount / p.TermMonths)
+            .FirstOrDefault();
+
+        return cheapest is null
+            ? "no prices set"
+            : $"{cheapest.BaseAmount.ToString("C")} {BillingTerms.Describe(cheapest.TermMonths)}";
     }
 
-    // Non-blocking sanity checks, not validation errors - a plan can still be saved with "worse than
-    // monthly" pricing if that's genuinely what the admin wants (e.g. a deliberately-unappealing
-    // Quarterly option meant to push people to Annual instead).
-    private static List<string> GetPriceWarnings(decimal monthly, decimal quarterly, decimal annual)
-    {
-        var warnings = new List<string>();
-
-        if (quarterly > monthly * 3m)
-        {
-            warnings.Add("Quarterly price is more than 3× the monthly price - a subscriber would pay less just paying monthly for 3 months.");
-        }
-
-        if (annual > monthly * 12m)
-        {
-            warnings.Add("Annual price is more than 12× the monthly price - a subscriber would pay less just paying monthly for 12 months.");
-        }
-
-        if (annual > quarterly * 4m)
-        {
-            warnings.Add("Annual price is more than 4× the quarterly price - a subscriber would pay less just paying quarterly four times.");
-        }
-
-        return warnings;
-    }
+    // Price seeding and the "worse than paying monthly" warnings both moved into PlanPriceEditor, which
+    // owns the price rows now - the multipliers that used to live here can't work against a fixed three
+    // terms any more.
 
     private async Task SaveCreate()
     {
@@ -492,11 +480,11 @@ else
             {
                 Name = createForm.Name,
                 ColorCode = createForm.ColorCode,
-                MonthlyPrice = createForm.MonthlyPrice,
-                QuarterlyPrice = createForm.QuarterlyPrice,
-                AnnualPrice = createForm.AnnualPrice,
+                Prices = createForm.Prices,
+                PricingModel = createForm.PricingModel,
                 RetentionHistory = createForm.RetentionHistory,
                 HasRoles = createForm.HasRoles,
+                OnePerOwner = createForm.OnePerOwner,
                 MaximumServers = createForm.MaximumServers,
                 MaximumUsers = createForm.MaximumUsers,
                 Active = createForm.Active
@@ -521,11 +509,20 @@ else
         editForm = new EditFormModel
         {
             ColorCode = plan.ColorCode,
-            MonthlyPrice = plan.MonthlyPrice,
-            QuarterlyPrice = plan.QuarterlyPrice,
-            AnnualPrice = plan.AnnualPrice,
+            // Copied, not referenced - the editor mutates rows in place, and binding straight to the
+            // loaded plan would leave a cancelled edit showing changes that were never saved.
+            Prices = plan.Prices.Select(p => new PlanPriceDto
+            {
+                TermMonths = p.TermMonths,
+                BaseAmount = p.BaseAmount,
+                IncludedUnits = p.IncludedUnits,
+                UnitAmount = p.UnitAmount,
+                Currency = p.Currency
+            }).ToList(),
+            PricingModel = plan.PricingModel,
             RetentionHistory = plan.RetentionHistory,
             HasRoles = plan.HasRoles,
+            OnePerOwner = plan.OnePerOwner,
             MaximumServers = plan.MaximumServers,
             MaximumUsers = plan.MaximumUsers,
             Active = plan.Active
@@ -574,11 +571,11 @@ else
             {
                 Id = editingPlan.Id,
                 ColorCode = editForm.ColorCode,
-                MonthlyPrice = editForm.MonthlyPrice,
-                QuarterlyPrice = editForm.QuarterlyPrice,
-                AnnualPrice = editForm.AnnualPrice,
+                Prices = editForm.Prices,
+                PricingModel = editForm.PricingModel,
                 RetentionHistory = editForm.RetentionHistory,
                 HasRoles = editForm.HasRoles,
+                OnePerOwner = editForm.OnePerOwner,
                 MaximumServers = editForm.MaximumServers,
                 MaximumUsers = editForm.MaximumUsers,
                 Active = editForm.Active
@@ -615,11 +612,11 @@ else
             var superseded = await PlanClient.SupersedeAsync(editingPlan.Id, new SupersedePlanDto
             {
                 ColorCode = editForm.ColorCode,
-                MonthlyPrice = editForm.MonthlyPrice,
-                QuarterlyPrice = editForm.QuarterlyPrice,
-                AnnualPrice = editForm.AnnualPrice,
+                Prices = editForm.Prices,
+                PricingModel = editForm.PricingModel,
                 RetentionHistory = editForm.RetentionHistory,
                 HasRoles = editForm.HasRoles,
+                OnePerOwner = editForm.OnePerOwner,
                 MaximumServers = editForm.MaximumServers,
                 MaximumUsers = editForm.MaximumUsers
             });
@@ -676,17 +673,13 @@ else
         }
     }
 
-    // Common base so RecalculatePrices can operate on either form model without two overloads.
+    // Common base so PlanPriceEditor can bind to either form model without two sets of parameters.
     private abstract class PriceFormModel
     {
-        [Range(0, double.MaxValue)]
-        public decimal MonthlyPrice { get; set; }
+        /// <summary>The terms this plan is sold on. Mutated in place by PlanPriceEditor.</summary>
+        public List<PlanPriceDto> Prices { get; set; } = [];
 
-        [Range(0, double.MaxValue)]
-        public decimal QuarterlyPrice { get; set; }
-
-        [Range(0, double.MaxValue)]
-        public decimal AnnualPrice { get; set; }
+        public PricingModel PricingModel { get; set; }
     }
 
     private sealed class CreateFormModel : PriceFormModel
@@ -704,8 +697,12 @@ else
 
         public bool HasRoles { get; set; }
 
+        /// <summary>See Plan.OnePerOwner - set on the free tier, editable here.</summary>
+        public bool OnePerOwner { get; set; }
+
+        /// <summary>Null means no ceiling - see Plan.MaximumServers.</summary>
         [Range(0, int.MaxValue)]
-        public int MaximumServers { get; set; } = 1;
+        public int? MaximumServers { get; set; } = 1;
 
         [Range(0, int.MaxValue)]
         public int MaximumUsers { get; set; } = 1;
@@ -724,8 +721,11 @@ else
 
         public bool HasRoles { get; set; }
 
+        /// <summary>See Plan.OnePerOwner - set on the free tier, editable here.</summary>
+        public bool OnePerOwner { get; set; }
+        /// <summary>Null means no ceiling - see Plan.MaximumServers.</summary>
         [Range(0, int.MaxValue)]
-        public int MaximumServers { get; set; }
+        public int? MaximumServers { get; set; }
 
         [Range(0, int.MaxValue)]
         public int MaximumUsers { get; set; }

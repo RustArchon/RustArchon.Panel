@@ -10,3 +10,8 @@
 @using RustArchon.Panel
 @using RustArchon.Panel.Components
 @using RustArchon.Panel.Components.Layout
+@* Without this, a tag like <ReportPage> silently compiles to literal markup instead of resolving to
+   the component - the failure mode is a page that renders nothing and reports no error. Existing
+   call sites fully qualify Components.Shared for exactly that reason and still work unchanged. *@
+@using RustArchon.Panel.Components.Shared
+@using RustArchon.Panel.Components.Shared.Reporting

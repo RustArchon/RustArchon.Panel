@@ -1,0 +1,192 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Organization/Invitations/Accept"
+@using System.Net
+@using Microsoft.AspNetCore.Components.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@inject IInvitationPreviewApiClient PreviewClient
+@inject IInvitationAcceptApiClient AcceptClient
+@inject NavigationManager Navigation
+@rendermode RenderModes.NonPrerenderedServer
+
+@*
+    Deliberately not [Authorize]. Somebody following an invitation link may have no account at all,
+    and bouncing them straight to a login form tells them nothing about who is asking for them or
+    why. So the page reads the invitation anonymously first, says who it is from, and only then asks
+    them to sign in or register - with a return URL that brings them back here to finish.
+*@
+
+<PageTitle>Invitation</PageTitle>
+
+<div class="row justify-content-center">
+    <div class="col-md-7">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-envelope-open" aria-hidden="true"></i> Invitation
+            </div>
+            <div class="card-body">
+
+                @if (loading)
+                {
+                    <div class="text-muted">
+                        <span class="spinner-border spinner-border-sm"></span> Looking up this invitation...
+                    </div>
+                }
+
+                @if (!loading && preview is null)
+                {
+                    <div class="alert alert-warning mb-0">
+                        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                        We can't find this invitation. The link may have been mistyped, or it may have
+                        been withdrawn. Ask whoever invited you to send a new one.
+                    </div>
+                }
+
+                @if (!loading && preview is not null && !preview.IsPending && result is null)
+                {
+                    @* Spent, withdrawn or expired. The Api will say which if they try, but there is
+                       no reason to make them click to find out. *@
+                    <div class="alert alert-warning mb-0">
+                        This invitation to join <strong>@preview.OrganizationName</strong> is no longer
+                        valid - it may already have been used, withdrawn, or run out. Ask them to send
+                        a new one.
+                    </div>
+                }
+
+                @if (!loading && preview is not null && preview.IsPending && result is null)
+                {
+                    <p>
+                        You've been invited to join <strong>@preview.OrganizationName</strong> on
+                        RustArchon.
+                    </p>
+                    <p class="text-muted small">
+                        This invitation was sent to <strong>@preview.Email</strong>, and only works for
+                        that address. It expires @preview.ExpiresOn.ToLocalTime().ToString("d MMM yyyy").
+                    </p>
+
+                    <AuthorizeView>
+                        <Authorized>
+                            @* Their signed-in address is shown because the mismatch case is the one
+                               people get stuck on, and seeing both addresses side by side explains
+                               it before they click rather than after. *@
+                            <p class="small text-muted">
+                                You're signed in as <strong>@context.User.Identity?.Name</strong>.
+                            </p>
+                            <button class="btn btn-primary" disabled="@busy" @onclick="AcceptAsync">
+                                @if (busy)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                }
+                                Join @preview.OrganizationName
+                            </button>
+                        </Authorized>
+                        <NotAuthorized>
+                            <p class="small">
+                                Sign in with <strong>@preview.Email</strong> to accept, or create an
+                                account with that address if you don't have one yet.
+                            </p>
+                            <a class="btn btn-primary" href="@LoginUrl">Sign in</a>
+                            <a class="btn btn-outline-secondary" href="@RegisterUrl">Create an account</a>
+                        </NotAuthorized>
+                    </AuthorizeView>
+                }
+
+                @if (result is not null)
+                {
+                    <div class="alert @(result.Joined ? "alert-success" : "alert-warning")">
+                        @result.Message
+                    </div>
+
+                    @if (result.Joined)
+                    {
+                        @* Their organization list changed, so the switcher has to be re-read - a
+                           plain navigation does that where an enhanced one would keep the stale
+                           circuit and its cached tenant. *@
+                        <a class="btn btn-primary" href="servers" data-enhance="false">
+                            Go to @result.OrganizationName
+                        </a>
+                    }
+                }
+
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="alert alert-danger mt-3 mb-0">@errorMessage</div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "token")]
+    private string? Token { get; set; }
+
+    private InvitationPreviewDto? preview;
+    private AcceptInvitationResultDto? result;
+
+    private string? errorMessage;
+    private bool loading = true;
+    private bool busy;
+
+    /// <summary>Round trip back to this exact link, token and all, once they have signed in.</summary>
+    private string ReturnUrl =>
+        WebUtility.UrlEncode(Navigation.ToBaseRelativePath(Navigation.Uri));
+
+    private string LoginUrl => $"Account/Login?ReturnUrl=/{ReturnUrl}";
+
+    private string RegisterUrl => $"Account/Register?ReturnUrl=/{ReturnUrl}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Token))
+        {
+            loading = false;
+            return;
+        }
+
+        try
+        {
+            preview = await PreviewClient.PeekAsync(Token);
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            // A token that names nothing. Not an error worth showing as one - the message above
+            // covers it, and a guessed token should look exactly like a stale one.
+            preview = null;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "look up this invitation");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task AcceptAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Token))
+        {
+            return;
+        }
+
+        busy = true;
+        errorMessage = null;
+
+        try
+        {
+            result = await AcceptClient.AcceptAsync(Token);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "accept this invitation");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

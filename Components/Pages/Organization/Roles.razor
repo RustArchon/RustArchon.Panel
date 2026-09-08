@@ -1,0 +1,345 @@
+﻿@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Organization/Roles"
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IOrganizationRoleApiClient RoleClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>Roles</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0">Roles</h1>
+    <a class="btn btn-outline-secondary" href="Organization/Members">
+        <i class="bi bi-people" aria-hidden="true"></i> Members
+    </a>
+</div>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(successMessage))
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        @successMessage
+        <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+    </div>
+}
+
+@if (loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> Loading your roles...</div>
+}
+
+@if (!loading && data is null)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle"></i>
+        You don't have permission to manage this organization's roles.
+    </div>
+}
+
+@if (!loading && data is not null)
+{
+    @* The plan gate, stated once at the top. The roles below are still shown - an organization that
+       downgraded can see what it has even though it can no longer add to it. *@
+    @if (!data.PlanIncludesRoles)
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-lock" aria-hidden="true"></i>
+            Your plan doesn't include defining your own roles. Everyone in your organization is an
+            owner. <a href="Account/Subscription">Change plan</a> to separate what people can do.
+        </div>
+    }
+
+    @* The other gate, and a different sentence: the capability is here, this person just isn't the
+       one who decides what roles mean. *@
+    @if (data.PlanIncludesRoles && !data.CanEditRoles)
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-eye" aria-hidden="true"></i>
+            You can see these roles so you can hand them out, but changing what they grant needs the
+            "manage roles" permission.
+        </div>
+    }
+
+    <div class="table-responsive mb-4">
+        <table class="table align-middle">
+            <thead>
+                <tr><th>Role</th><th>Grants</th><th class="text-center">Members</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var role in data.Roles)
+                {
+                    <tr>
+                        <td>
+                            <div class="fw-semibold">
+                                @role.Name
+                                @if (role.IsBuiltIn)
+                                {
+                                    <span class="badge bg-secondary ms-1">Built in</span>
+                                }
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(role.Description))
+                            {
+                                <div class="text-muted small">@role.Description</div>
+                            }
+                        </td>
+                        <td class="small">
+                            @if (role.Permissions.Count == 0)
+                            {
+                                <span class="text-muted">Nothing yet</span>
+                            }
+                            else
+                            {
+                                @string.Join(", ", role.Permissions.Select(Describe))
+                            }
+                        </td>
+                        <td class="text-center">@role.MemberCount</td>
+                        <td class="text-end text-nowrap">
+                            @if (role.IsBuiltIn)
+                            {
+                                <span class="text-muted small">Every organization has this one</span>
+                            }
+                            else if (data.CanEditRoles)
+                            {
+                                <button class="btn btn-sm btn-outline-secondary" disabled="@busy"
+                                        @onclick="() => Edit(role)">Edit</button>
+                                <button class="btn btn-sm btn-outline-danger" disabled="@busy"
+                                        @onclick="() => DeleteAsync(role)">Delete</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@* The editor, for a role being created or changed. A standalone @if rather than an else-branch: this
+   page's blocks are independent of one another and chaining them makes them harder to add to. *@
+@if (!loading && data is not null && data.CanEditRoles && editing is not null)
+{
+    <div class="card mb-4">
+        <div class="card-header">
+            @(editingRoleId is null ? "New role" : $"Editing {editing.Name}")
+        </div>
+        <div class="card-body">
+            <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                    <label class="form-label" for="role-name">Name</label>
+                    <input id="role-name" class="form-control" value="@editing.Name"
+                           @oninput="e => editing.Name = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                <div class="col-md-8">
+                    <label class="form-label" for="role-description">Description</label>
+                    <input id="role-description" class="form-control" value="@editing.Description"
+                           @oninput="e => editing.Description = e.Value?.ToString()" />
+                </div>
+            </div>
+
+            <div class="mb-2 fw-semibold">What this role can do</div>
+            <p class="text-muted small">
+                You can only grant what you hold yourself - anything missing from this list is
+                something your own roles don't include.
+            </p>
+
+            @foreach (var group in data.GrantablePermissions.GroupBy(p => p.Group))
+            {
+                <div class="mb-3">
+                    <div class="text-muted text-uppercase small mb-1">@group.Key</div>
+                    @foreach (var permission in group)
+                    {
+                        var held = selected.Contains(permission.Name);
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox"
+                                   id="perm-@permission.Name" checked="@held"
+                                   @onchange="e => Toggle(permission.Name, e.Value is true)" />
+                            <label class="form-check-label" for="perm-@permission.Name">
+                                @Describe(permission.Name)
+                                @if (!string.IsNullOrWhiteSpace(permission.Description))
+                                {
+                                    <span class="text-muted small"> — @permission.Description</span>
+                                }
+                            </label>
+                        </div>
+                    }
+                </div>
+            }
+
+            <button class="btn btn-primary" disabled="@busy" @onclick="SaveAsync">
+                <i class="bi bi-check-lg" aria-hidden="true"></i> Save
+            </button>
+            <button class="btn btn-outline-secondary" disabled="@busy" @onclick="() => editing = null">
+                Cancel
+            </button>
+        </div>
+    </div>
+}
+
+@if (!loading && data is not null && data.CanEditRoles && editing is null)
+{
+    <button class="btn btn-primary" disabled="@busy" @onclick="StartNew">
+        <i class="bi bi-plus-lg" aria-hidden="true"></i> New role
+    </button>
+}
+
+@code {
+    private OrganizationRolesDto? data;
+
+    /// <summary>The role being edited, or a blank one when creating.</summary>
+    private SaveRoleRequestDto? editing;
+
+    /// <summary>Null while creating - the editor's only distinction between the two modes.</summary>
+    private Guid? editingRoleId;
+
+    private readonly HashSet<string> selected = new(StringComparer.Ordinal);
+
+    private string? errorMessage;
+    private string? successMessage;
+    private bool loading = true;
+    private bool busy;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            data = await RoleClient.ListAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load your roles");
+            data = null;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private void StartNew()
+    {
+        editing = new SaveRoleRequestDto();
+        editingRoleId = null;
+        selected.Clear();
+    }
+
+    private void Edit(OrganizationRoleDto role)
+    {
+        editing = new SaveRoleRequestDto { Name = role.Name, Description = role.Description };
+        editingRoleId = role.Id;
+
+        selected.Clear();
+        foreach (var permission in role.Permissions)
+        {
+            selected.Add(permission);
+        }
+    }
+
+    private void Toggle(string permission, bool on)
+    {
+        if (on)
+        {
+            selected.Add(permission);
+        }
+        else
+        {
+            selected.Remove(permission);
+        }
+    }
+
+    /// <summary>
+    /// Saves the role and then its permissions - two calls, because the Api keeps defining a role and
+    /// deciding what it grants apart, and only the second one can be refused by the grant rules.
+    /// </summary>
+    private async Task SaveAsync()
+    {
+        if (editing is null)
+        {
+            return;
+        }
+
+        busy = true;
+        errorMessage = null;
+
+        try
+        {
+            var saved = editingRoleId is { } roleId
+                ? await RoleClient.UpdateAsync(roleId, editing)
+                : await RoleClient.CreateAsync(editing);
+
+            await RoleClient.SetPermissionsAsync(
+                saved.Id, new SetRolePermissionsRequestDto { Permissions = [.. selected] });
+
+            successMessage = $"Saved '{saved.Name}'.";
+            editing = null;
+            editingRoleId = null;
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "save this role");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task DeleteAsync(OrganizationRoleDto role)
+    {
+        busy = true;
+        errorMessage = null;
+
+        try
+        {
+            await RoleClient.DeleteAsync(role.Id);
+            successMessage = $"Deleted '{role.Name}'. Anyone who held it no longer does.";
+
+            if (editingRoleId == role.Id)
+            {
+                editing = null;
+                editingRoleId = null;
+            }
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "delete this role");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Turns "RustServer.SendCommand" into "Send command", which is what the customer chose it by.
+    /// </summary>
+    /// <remarks>
+    /// The permission name is an identifier the Api and the marketing copy both use; showing it raw
+    /// would make a settings screen read like a config file. The group is already the heading above,
+    /// so only the part after the dot is worth displaying.
+    /// </remarks>
+    private static string Describe(string permission)
+    {
+        var name = permission[(permission.IndexOf('.') + 1)..];
+        var spaced = string.Concat(
+            name.Select((c, i) => i > 0 && char.IsUpper(c) ? " " + char.ToLowerInvariant(c) : c.ToString()));
+
+        return spaced;
+    }
+}
+

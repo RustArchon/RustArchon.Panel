@@ -16,6 +16,14 @@
             <ProfileMenu />
         </div>
 
+        @* Above the content, not inside it, so it is present on every page a site admin might wander
+           onto while acting as somebody else - including ones written later. *@
+        <AuthorizeView>
+            <Authorized>
+                <ActingAsBanner @rendermode="RenderModes.NonPrerenderedServer" />
+            </Authorized>
+        </AuthorizeView>
+
         <article class="content px-4">
             @Body
         </article>

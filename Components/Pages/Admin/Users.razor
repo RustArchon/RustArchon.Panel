@@ -1,0 +1,263 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/Users"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Data
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IPlatformUserApiClient PlatformUserClient
+@inject UserManager<ApplicationUser> UserManager
+@rendermode RenderModes.NonPrerenderedServer
+
+@*
+    The one screen that has to stand in both databases at once. Accounts - email, confirmation, lockout -
+    live in the Panel's Identity store; membership and the Site Admin role live in the Api's. Neither
+    side can render this table alone, which is why the join happens here rather than behind an endpoint.
+*@
+<PageTitle>Users</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0">Users</h1>
+    <a class="btn btn-outline-secondary" href="Admin/Organizations">
+        <i class="bi bi-buildings" aria-hidden="true"></i> Organizations
+    </a>
+</div>
+
+@if (accessDenied)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> You don't have access to manage organizations.
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    @if (loading)
+    {
+        <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> Loading users...</div>
+    }
+    else
+    {
+        <div class="d-flex gap-4 mb-3 small text-muted">
+            <span><strong class="text-body">@rows.Count</strong> accounts</span>
+            <span><strong class="text-body">@rows.Count(r => r.IsSiteAdmin)</strong> site admins</span>
+            <span><strong class="text-body">@rows.Count(r => r.Organizations.Count == 0)</strong> with no organization</span>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Account</th>
+                        <th>Organizations</th>
+                        <th>Site admin</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in rows)
+                    {
+                        <tr @key="row.UserId">
+                            <td>
+                                <div class="fw-semibold">@row.Display</div>
+                                <div class="small text-muted font-monospace">@row.UserId</div>
+                            </td>
+                            <td class="small">
+                                @if (row.Organizations.Count == 0)
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                                else
+                                {
+                                    @foreach (var org in row.Organizations)
+                                    {
+                                        <div>
+                                            <a href="Admin/Organizations/@org.TenantId">@org.TenantName</a>
+                                            @if (org.Roles.Count > 0)
+                                            {
+                                                <span class="text-muted"> · @string.Join(", ", org.Roles)</span>
+                                            }
+                                            @if (!org.IsActive)
+                                            {
+                                                <span class="badge bg-secondary ms-1">Suspended</span>
+                                            }
+                                        </div>
+                                    }
+                                }
+                            </td>
+                            <td>
+                                @if (row.IsSiteAdmin)
+                                {
+                                    <span class="badge bg-danger">Site Admin</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
+                            <td class="text-end">
+                                @if (row.IsSiteAdmin)
+                                {
+                                    <button class="btn btn-sm btn-outline-danger" disabled="@busy"
+                                            @onclick="() => RevokeAsync(row)">
+                                        Revoke site admin
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" disabled="@busy"
+                                            @onclick="() => GrantAsync(row)">
+                                        Make site admin
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <p class="text-muted small">
+            Site Admin grants every platform permission at once, including the one that grants it. The
+            last holder can't be removed - there would be nobody left able to put it back.
+        </p>
+    }
+}
+
+@code {
+    private readonly List<Row> rows = [];
+
+    private bool loading = true;
+    private bool busy;
+    private bool accessDenied;
+    private string? errorMessage;
+    private string? successMessage;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            var directory = await PlatformUserClient.GetDirectoryAsync();
+            var byId = directory.ToDictionary(d => d.UserId);
+
+            // Every Identity account, whether or not the Api has heard of it - an account that has
+            // registered but never been given an organization is exactly the row an admin is looking
+            // for, and it exists only on this side.
+            var accounts = await UserManager.Users
+                .OrderBy(u => u.Email)
+                .ToListAsync();
+
+            rows.Clear();
+
+            foreach (var account in accounts)
+            {
+                var known = byId.GetValueOrDefault(account.Id);
+
+                rows.Add(new Row
+                {
+                    UserId = account.Id,
+                    Display = account.Email ?? account.UserName ?? account.Id.ToString(),
+                    IsSiteAdmin = known?.IsSiteAdmin ?? false,
+                    Organizations = known?.Organizations ?? []
+                });
+
+                byId.Remove(account.Id);
+            }
+
+            // Anything the Api knows about that has no Identity account left - a deleted login whose
+            // membership rows outlived it. Rare, and worth seeing rather than hiding.
+            foreach (var orphan in byId.Values)
+            {
+                rows.Add(new Row
+                {
+                    UserId = orphan.UserId,
+                    Display = "(no account on this panel)",
+                    IsSiteAdmin = orphan.IsSiteAdmin,
+                    Organizations = orphan.Organizations
+                });
+            }
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+        {
+            accessDenied = true;
+        }
+        catch (Refit.ApiException ex)
+        {
+            errorMessage = $"Couldn't load users: {ex.StatusCode}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task GrantAsync(Row row) =>
+        await ActAsync(
+            () => PlatformUserClient.GrantSiteAdminAsync(row.UserId),
+            $"{row.Display} is now a site admin.");
+
+    private async Task RevokeAsync(Row row) =>
+        await ActAsync(
+            () => PlatformUserClient.RevokeSiteAdminAsync(row.UserId),
+            $"{row.Display} is no longer a site admin.");
+
+    private async Task ActAsync(Func<Task> action, string success)
+    {
+        busy = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            await action();
+            successMessage = success;
+            await LoadAsync();
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
+        {
+            // The last-admin guard, in the Api's own words rather than a paraphrase.
+            errorMessage = ex.Content?.Trim('"') ?? "That change was refused.";
+        }
+        catch (Refit.ApiException ex)
+        {
+            errorMessage = $"That didn't work: {ex.StatusCode}";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private sealed class Row
+    {
+        public Guid UserId { get; init; }
+        public required string Display { get; init; }
+        public bool IsSiteAdmin { get; init; }
+        public List<PlatformUserMembershipDto> Organizations { get; init; } = [];
+    }
+}

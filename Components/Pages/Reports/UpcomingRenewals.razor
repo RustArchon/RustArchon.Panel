@@ -1,0 +1,223 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Reports/UpcomingRenewals"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Components.Shared.Reporting
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IReportApiClient ReportClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<ReportPage Title="Upcoming Renewals"
+            Description="Organizations whose billing period ends in the selected window - what renews, when, and for how much."
+            Parameters="parameters"
+            OnRun="RunAsync"
+            Loading="loading"
+            ErrorMessage="@errorMessage"
+            AccessDenied="accessDenied"
+            Result="result"
+            OnExport="ExportAsync"
+            ExportDisabled="@(result is null || result.Rows.Count == 0)">
+    <ReportGrid @ref="grid"
+                TRow="UpcomingRenewalRowDto"
+                Rows="rows"
+                Columns="columns"
+                FileName="upcoming-renewals"
+                EmptyMessage="No organizations renew in this window." />
+</ReportPage>
+
+@code {
+    private ReportGrid<UpcomingRenewalRowDto>? grid;
+    private ReportResult<UpcomingRenewalRowDto>? result;
+
+    private bool loading = true;
+    private bool accessDenied;
+    private string? errorMessage;
+
+    private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
+
+    /// <summary>
+    /// The window this report covers. Defaults to the next 30 days - far enough ahead to act on a
+    /// renewal that needs a conversation, close enough that the list stays short enough to work through.
+    /// </summary>
+    private readonly DateRangeParameter window = new(
+        key: "renews",
+        label: "Renews",
+        from: DateRangeParameter.Today,
+        to: DateRangeParameter.Today.AddDays(30),
+        presets:
+        [
+            new DateRangePreset("Next 7 days", 0, 7),
+            new DateRangePreset("Next 30 days", 0, 30),
+            new DateRangePreset("Next 90 days", 0, 90),
+            // Periods whose end has passed without the scheduler rolling them over. Normally empty,
+            // and worth a click precisely because it should be.
+            new DateRangePreset("Overdue", -365, -1)
+        ]);
+
+    /// <summary>Populated on init, and the target of the drill-down from the Subscriptions report.</summary>
+    private readonly SelectParameter planFilter = new("planId", "Plan", allLabel: "All plans");
+
+    private IReadOnlyList<ReportParameter> parameters => [window, planFilter];
+
+    /// <summary>
+    /// Built once, not per render. <see cref="ReportGrid{TRow}"/> tracks the sorted column by reference,
+    /// so rebuilding this list on every render would silently clear the reader's sort the first time
+    /// anything else on the page re-rendered.
+    /// </summary>
+    private IReadOnlyList<ReportColumn<UpcomingRenewalRowDto>> columns = [];
+
+    private IReadOnlyList<UpcomingRenewalRowDto> rows => result?.Rows ?? [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        columns = BuildColumns();
+
+        try
+        {
+            planFilter.Options = await ReportClient.GetPlanOptionsAsync();
+        }
+        catch
+        {
+            // An empty dropdown still leaves the report usable unfiltered, and a permissions failure
+            // is reported properly by the report call itself.
+        }
+    }
+
+    private Task ExportAsync() => grid?.ExportCsvAsync() ?? Task.CompletedTask;
+
+    private async Task RunAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            result = await ReportClient.GetUpcomingRenewalsAsync(
+                window.From, window.To, Guid.TryParse(planFilter.Value, out var id) ? id : null);
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "run the renewals report");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    /// <summary>
+    /// The report's columns. Every <c>value</c> is the raw figure - see <see cref="ReportColumn{TRow}"/>
+    /// for why sorting and export must never see the formatted text.
+    /// </summary>
+    /// <remarks>
+    /// No <c>drillTo</c> on the Organization column yet: there is no per-Organization admin page to
+    /// drill into. The mechanism is there and costs one lambda the moment one exists.
+    /// </remarks>
+    private IReadOnlyList<ReportColumn<UpcomingRenewalRowDto>> BuildColumns() =>
+    [
+        new ReportColumn<UpcomingRenewalRowDto>(
+            header: "Organization",
+            value: r => r.OrganizationName),
+
+        new ReportColumn<UpcomingRenewalRowDto>(
+            header: "Contact",
+            value: r => r.ContactEmail,
+            template: r => @<span class="text-muted small">@r.ContactEmail</span>),
+
+        new ReportColumn<UpcomingRenewalRowDto>(
+            header: "Plan",
+            value: r => r.PlanName,
+            template: r =>
+                @<span>
+                    <span class="badge" style="background-color:@r.PlanColorCode">@r.PlanName</span>
+                    @if (r.HasScheduledChange)
+                    {
+                        <i class="bi bi-arrow-right text-muted mx-1" aria-hidden="true"></i>
+                        <span class="badge bg-secondary">@r.ScheduledPlanName</span>
+                    }
+                </span>),
+
+        new ReportColumn<UpcomingRenewalRowDto>(
+            header: "Term",
+            value: r => r.TermMonths,
+            display: r => BillingTerms.Describe(r.TermMonths)),
+
+        // Servers over bought slots - the renewal is priced against the slots, so showing only the
+        // server count would make a per-unit plan's amount look wrong.
+        new ReportColumn<UpcomingRenewalRowDto>(
+            header: "Servers",
+            value: r => r.ServerCount,
+            align: ReportAlign.Right,
+            template: r => @<span>@r.ServerCount / @r.Quantity</span>),
+
+        new ReportColumn<UpcomingRenewalRowDto>(
+            header: "Slots",
+            value: r => r.Quantity,
+            align: ReportAlign.Right),
+
+        // UTC, not local. The window this report is filtered by is UTC dates (see DateRangeParameter),
+        // and "local" in a Blazor Server app is the server's timezone rather than the reader's - so
+        // rendering local would show a renewal dated the 4th as the 3rd while still counting it as
+        // inside a window ending on the 4th.
+        new ReportColumn<UpcomingRenewalRowDto>(
+            header: "Renews",
+            value: r => r.RenewsOn,
+            display: r => r.RenewsOn.UtcDateTime.ToString("d MMM yyyy", CultureInfo.InvariantCulture)),
+
+        new ReportColumn<UpcomingRenewalRowDto>(
+            header: "In",
+            value: r => r.DaysUntilRenewal,
+            align: ReportAlign.Right,
+            template: r =>
+                @<span class="@DaysClass(r.DaysUntilRenewal)">
+                    @(r.DaysUntilRenewal < 0 ? $"{-r.DaysUntilRenewal}d overdue" : $"{r.DaysUntilRenewal}d")
+                </span>),
+
+        new ReportColumn<UpcomingRenewalRowDto>(
+            header: "Current",
+            value: r => r.CurrentAmount,
+            display: r => r.CurrentAmount.ToString("C", Money),
+            align: ReportAlign.Right),
+
+        // Null rather than zero when the plan has no price for the term, so the column sorts and
+        // exports as "no figure" instead of contributing a $0 that looks like a real one.
+        new ReportColumn<UpcomingRenewalRowDto>(
+            header: "At renewal",
+            value: r => r.RenewalAmountUnknown ? null : r.RenewalAmount,
+            align: ReportAlign.Right,
+            template: r =>
+                @<span>
+                    @if (r.RenewalAmountUnknown)
+                    {
+                        <span class="badge bg-danger"
+                              title="This plan has no price for the term this organization is billed on.">
+                            No price
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="@(r.RenewalAmount != r.CurrentAmount ? "fw-semibold" : null)">
+                            @r.RenewalAmount.ToString("C", Money)
+                        </span>
+                    }
+                </span>)
+    ];
+
+    /// <summary>Marks the rows that need attention first - overdue, then this week.</summary>
+    private static string? DaysClass(int days) => days switch
+    {
+        < 0 => "text-danger fw-semibold",
+        <= 7 => "fw-semibold",
+        _ => null
+    };
+}

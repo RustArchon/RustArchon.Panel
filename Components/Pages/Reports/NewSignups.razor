@@ -1,0 +1,161 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Reports/NewSignups"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Components.Shared.Reporting
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IReportApiClient ReportClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<ReportPage Title="New Signups"
+            Description="Organizations created in the selected window, and whether each one ever got a server running. A signup that never activates was never a customer."
+            Parameters="parameters"
+            OnRun="RunAsync"
+            Loading="loading"
+            ErrorMessage="@errorMessage"
+            AccessDenied="accessDenied"
+            Result="result"
+            OnExport="ExportAsync"
+            ExportDisabled="@(result is null || result.Rows.Count == 0)">
+    <ReportGrid @ref="grid"
+                TRow="NewSignupRowDto"
+                Rows="rows"
+                Columns="columns"
+                FileName="new-signups"
+                EmptyMessage="No organizations signed up in this window." />
+</ReportPage>
+
+@code {
+    private ReportGrid<NewSignupRowDto>? grid;
+    private ReportResult<NewSignupRowDto>? result;
+
+    private bool loading = true;
+    private bool accessDenied;
+    private string? errorMessage;
+
+    private static readonly CultureInfo Dates = CultureInfo.InvariantCulture;
+
+    /// <summary>
+    /// Looks backwards, unlike the renewals report. Defaults to the last 30 days, and the presets run
+    /// into the past for the same reason - a signup is something that already happened.
+    /// </summary>
+    private readonly IReadOnlyList<ReportParameter> parameters =
+    [
+        new DateRangeParameter(
+            key: "signedUp",
+            label: "Signed up",
+            from: DateRangeParameter.Today.AddDays(-30),
+            to: DateRangeParameter.Today,
+            presets:
+            [
+                new DateRangePreset("Last 7 days", -7, 0),
+                new DateRangePreset("Last 30 days", -30, 0),
+                new DateRangePreset("Last 90 days", -90, 0),
+                new DateRangePreset("Last year", -365, 0)
+            ])
+    ];
+
+    private IReadOnlyList<ReportColumn<NewSignupRowDto>> columns = [];
+
+    private DateRangeParameter Window => (DateRangeParameter)parameters[0];
+
+    private IReadOnlyList<NewSignupRowDto> rows => result?.Rows ?? [];
+
+    protected override void OnInitialized() => columns = BuildColumns();
+
+    private Task ExportAsync() => grid?.ExportCsvAsync() ?? Task.CompletedTask;
+
+    private async Task RunAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            result = await ReportClient.GetNewSignupsAsync(Window.From, Window.To);
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "run the signups report");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private IReadOnlyList<ReportColumn<NewSignupRowDto>> BuildColumns() =>
+    [
+        new ReportColumn<NewSignupRowDto>(
+            header: "Organization",
+            value: r => r.OrganizationName,
+            template: r =>
+                @<span>
+                    @r.OrganizationName
+                    @if (!r.IsActive)
+                    {
+                        <span class="badge bg-secondary ms-1">Deactivated</span>
+                    }
+                </span>),
+
+        new ReportColumn<NewSignupRowDto>(
+            header: "Contact",
+            value: r => r.ContactEmail,
+            template: r => @<span class="text-muted small">@r.ContactEmail</span>),
+
+        new ReportColumn<NewSignupRowDto>(
+            header: "Signed up",
+            value: r => r.SignedUpOn,
+            display: r => r.SignedUpOn.UtcDateTime.ToString("d MMM yyyy", Dates)),
+
+        new ReportColumn<NewSignupRowDto>(
+            header: "Age",
+            value: r => r.DaysSinceSignup,
+            display: r => $"{r.DaysSinceSignup}d",
+            align: ReportAlign.Right),
+
+        new ReportColumn<NewSignupRowDto>(
+            header: "Plan",
+            value: r => r.PlanName,
+            template: r =>
+                @<span class="badge" style="background-color:@r.PlanColorCode">@r.PlanName</span>),
+
+        new ReportColumn<NewSignupRowDto>(
+            header: "Servers",
+            value: r => r.ServerCount,
+            align: ReportAlign.Right),
+
+        // The point of the report. Null rather than 0 for a signup that never activated, so the column
+        // sorts the never-activated apart from the same-day ones instead of mixing them together.
+        new ReportColumn<NewSignupRowDto>(
+            header: "Activated in",
+            value: r => r.DaysToActivate,
+            align: ReportAlign.Right,
+            template: r =>
+                @<span>
+                    @if (r.DaysToActivate is { } days)
+                    {
+                        <span class="@(days <= 1 ? "fw-semibold" : null)">@days d</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-warning text-dark">Never</span>
+                    }
+                </span>),
+
+        new ReportColumn<NewSignupRowDto>(
+            header: "First server",
+            value: r => r.ActivatedOn,
+            display: r => r.ActivatedOn is { } on ? on.UtcDateTime.ToString("d MMM yyyy", Dates) : string.Empty)
+    ];
+}

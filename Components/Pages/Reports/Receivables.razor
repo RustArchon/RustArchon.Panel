@@ -1,0 +1,176 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Reports/Receivables"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Components.Shared.Reporting
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IReportApiClient ReportClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<ReportPage Title="Receivables"
+            Description="Every open invoice with a balance, oldest due first. One row per document - see Delinquent Accounts for the same money grouped per customer."
+            Parameters="parameters"
+            OnRun="RunAsync"
+            Loading="loading"
+            ErrorMessage="@errorMessage"
+            AccessDenied="accessDenied"
+            Result="result"
+            OnExport="ExportAsync"
+            ExportDisabled="@(result is null || result.Rows.Count == 0)">
+    <ReportGrid @ref="grid"
+                TRow="ReceivableRowDto"
+                Rows="rows"
+                Columns="columns"
+                FileName="receivables"
+                EmptyMessage="Nothing is outstanding. Every invoice raised has been settled." />
+</ReportPage>
+
+@code {
+    private ReportGrid<ReceivableRowDto>? grid;
+    private ReportResult<ReceivableRowDto>? result;
+
+    private bool loading = true;
+    private bool accessDenied;
+    private string? errorMessage;
+
+    private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
+    private static readonly CultureInfo Dates = CultureInfo.InvariantCulture;
+
+    private readonly DecimalParameter minOutstanding = new("minOutstanding", "Balance over", prefix: "$");
+
+    /// <summary>
+    /// Defaults to everything rather than overdue-only - this report is the register, and "what do we
+    /// expect to come in" is as much its job as "who is late". The chase list is the other report.
+    /// </summary>
+    private readonly SelectParameter dueFilter = new("overdueOnly", "Show", allLabel: "All open")
+    {
+        Options =
+        [
+            new ReportFilterOptionDto { Value = "true", Label = "Overdue only" }
+        ]
+    };
+
+    private IReadOnlyList<ReportParameter> parameters => [minOutstanding, dueFilter];
+
+    private IReadOnlyList<ReportColumn<ReceivableRowDto>> columns = [];
+
+    private IReadOnlyList<ReceivableRowDto> rows => result?.Rows ?? [];
+
+    protected override void OnInitialized() => columns = BuildColumns();
+
+    private Task ExportAsync() => grid?.ExportCsvAsync() ?? Task.CompletedTask;
+
+    private async Task RunAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            result = await ReportClient.GetReceivablesAsync(
+                minOutstanding.Value, dueFilter.Value == "true");
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "run the receivables report");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private IReadOnlyList<ReportColumn<ReceivableRowDto>> BuildColumns() =>
+    [
+        new ReportColumn<ReceivableRowDto>(
+            header: "Invoice",
+            value: r => r.InvoiceNumber),
+
+        // No drill target: Delinquent Accounts can't be filtered to one organization, so a link there
+        // would drop the reader on the whole list and call it a drill-down. It gets one when there is
+        // somewhere that actually narrows to this customer.
+        new ReportColumn<ReceivableRowDto>(
+            header: "Organization",
+            value: r => r.OrganizationName,
+            template: r =>
+                @<span>
+                    @r.OrganizationName
+                    @if (r.IsPartiallyPaid)
+                    {
+                        <span class="badge bg-info text-dark ms-1"
+                              title="Some of this invoice has been paid.">Part paid</span>
+                    }
+                </span>),
+
+        new ReportColumn<ReceivableRowDto>(
+            header: "Plan",
+            value: r => r.PlanName,
+            template: r =>
+                @<span class="badge" style="background-color:@r.PlanColorCode">@r.PlanName</span>),
+
+        new ReportColumn<ReceivableRowDto>(
+            header: "Issued",
+            value: r => r.IssuedOn,
+            display: r => r.IssuedOn is { } on ? on.UtcDateTime.ToString("d MMM yyyy", Dates) : string.Empty),
+
+        new ReportColumn<ReceivableRowDto>(
+            header: "Due",
+            value: r => r.DueOn,
+            display: r => r.DueOn is { } on ? on.UtcDateTime.ToString("d MMM yyyy", Dates) : string.Empty),
+
+        // Sorted on the raw day count so the order is by lateness, not by the bucket's label.
+        new ReportColumn<ReceivableRowDto>(
+            header: "Age",
+            value: r => r.DaysOverdue,
+            align: ReportAlign.Right,
+            template: r =>
+                @<span class="badge @BucketClass(r.Bucket)">@BucketText(r)</span>),
+
+        new ReportColumn<ReceivableRowDto>(
+            header: "Total",
+            value: r => r.Total,
+            display: r => r.Total.ToString("C", Money),
+            align: ReportAlign.Right),
+
+        new ReportColumn<ReceivableRowDto>(
+            header: "Paid",
+            value: r => r.AmountPaid,
+            display: r => r.AmountPaid == 0m ? string.Empty : r.AmountPaid.ToString("C", Money),
+            align: ReportAlign.Right),
+
+        new ReportColumn<ReceivableRowDto>(
+            header: "Outstanding",
+            value: r => r.Outstanding,
+            align: ReportAlign.Right,
+            template: r =>
+                @<strong class="@(r.DaysOverdue > 0 ? "text-danger" : null)">
+                    @r.Outstanding.ToString("C", Money)
+                </strong>)
+    ];
+
+    private static string BucketText(ReceivableRowDto row) => row.Bucket switch
+    {
+        AgingBucket.Current => row.DaysOverdue < 0 ? $"in {-row.DaysOverdue}d" : "due today",
+        _ => $"{row.DaysOverdue}d late"
+    };
+
+    /// <summary>Colours by how far gone the debt is - the same ordering the aging summary uses.</summary>
+    private static string BucketClass(AgingBucket bucket) => bucket switch
+    {
+        AgingBucket.Current => "bg-secondary",
+        AgingBucket.Days1To30 => "bg-warning text-dark",
+        AgingBucket.Days31To60 => "bg-warning text-dark",
+        AgingBucket.Days61To90 => "bg-danger",
+        _ => "bg-dark"
+    };
+}

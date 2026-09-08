@@ -261,10 +261,15 @@ else if (servers != null)
 
         try
         {
+            // Checked against bought capacity rather than the plan's ceiling - that's what
+            // RustServersController.Create now enforces, and the two differ on a per-unit plan.
             var status = await RustServerClient.GetPlanLimitAsync();
-            if (status.MaximumServers is { } max && status.CurrentServerCount >= max)
+            if (status.Quantity is { } slots && status.CurrentServerCount >= slots)
             {
-                errorMessage = $"Your plan ({status.PlanName}) allows up to {max} server(s). Upgrade your plan to add more.";
+                errorMessage = status.CanBuyCapacity
+                    ? $"You're using all {slots} of your server slot(s) on the {status.PlanName} plan. "
+                      + "Buy more capacity from your subscription page to add another."
+                    : $"Your plan ({status.PlanName}) allows up to {slots} server(s). Upgrade your plan to add more.";
                 return;
             }
         }

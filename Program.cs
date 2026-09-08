@@ -125,6 +125,12 @@ builder.Services.AddJumpStart(options =>
     options.ApiBaseUrl = apiBaseUrl;
     options.AutoDiscoverApiClients = true;   // discovers ITenantsApiClient, IRolesApiClient, ...
     options.AutoDiscoverRepositories = false; // no local repositories - this project has none
+
+    // A site admin opening a customer's server arrives at ?tenantId=<theirs>, which they are not a
+    // member of. Without this the client would quietly redirect them to their own Organization
+    // before the Api was ever asked. It grants nothing by itself - the Api re-validates every
+    // exchange against SiteAdminCrossTenantPolicy, which refuses anybody else.
+    options.AllowCrossTenantSelection = true;
 });
 
 // Account-bootstrap client + service - provisions a tenant and Owner role for a first-time user.
@@ -165,6 +171,69 @@ builder.Services.AddApiClient<IPlanApiClient>($"{apiBaseUrl}/api/plans")
     .AddHttpMessageHandler<JwtExchangeHandler>()
     .AddHttpMessageHandler<JwtAuthenticationHandler>();
 
+// Same handler chain, but no admin permission behind it - this one is any signed-in member acting on
+// their OWN Organization's subscription (the API resolves the tenant from the token, never from the
+// request), unlike IPlanApiClient above which manages the platform-wide catalog.
+builder.Services.AddApiClient<ISubscriptionApiClient>($"{apiBaseUrl}/api/subscription")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// Same handler chain again - gated by Platform.ViewReports (see ReportsController), which is its own
+// permission rather than a reuse of ManagePlans: reading what the business is owed and changing what it
+// charges are different jobs.
+builder.Services.AddApiClient<IReportApiClient>($"{apiBaseUrl}/api/reports")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// Same handler chain again - gated by Platform.ManageBilling (see BillingController), its own
+// permission rather than ViewReports: chasing an invoice and writing one off are different jobs, and
+// only the second moves money in the books.
+builder.Services.AddApiClient<IBillingApiClient>($"{apiBaseUrl}/api/billing")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// Same handler chain again - gated by Platform.ManageOrganizations (see OrganizationsController). The
+// only client here that reads and acts on an Organization other than the signed-in user's own, which is
+// why it has a permission to itself rather than sharing ViewReports.
+builder.Services.AddApiClient<IOrganizationApiClient>($"{apiBaseUrl}/api/admin/organizations")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// The platform-wide user directory and the Site Admin role, same permission as the console above.
+builder.Services.AddApiClient<IPlatformUserApiClient>($"{apiBaseUrl}/api/admin/users")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// The signed-in member's OWN Organization - its roles and its people. Same handler chain as the
+// subscription client above and for the same reason: the Api resolves the tenant from the token, so
+// neither of these can be pointed at somebody else's Organization the way IOrganizationApiClient can.
+builder.Services.AddApiClient<IOrganizationRoleApiClient>($"{apiBaseUrl}/api/organization/roles")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+builder.Services.AddApiClient<IOrganizationMemberApiClient>($"{apiBaseUrl}/api/organization/members")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+builder.Services.AddApiClient<IOrganizationInvitationApiClient>($"{apiBaseUrl}/api/organization/invitations")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// Creating an Organization of one's own. Same handler chain, but note this one is not scoped to a
+// tenant at all - the Organization does not exist yet, so the Api authorizes it on the caller alone.
+builder.Services.AddApiClient<IOrganizationCreationApiClient>($"{apiBaseUrl}/api/organization")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// Accepting an invitation, which is two calls with different requirements against one controller.
+// Reading it is anonymous - the person following the link may not have an account yet - so it gets
+// no handlers at all; attaching the exchange handler would try to mint a token for nobody.
+builder.Services.AddApiClient<IInvitationPreviewApiClient>($"{apiBaseUrl}/api/invitations/organization");
+
+builder.Services.AddApiClient<IInvitationAcceptApiClient>($"{apiBaseUrl}/api/invitations/organization")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
 // Deliberately no JWT handlers - Register.razor calls this before an account exists, so there's no
 // token to attach yet. See IInvitationApiClient's remarks.
 builder.Services.AddApiClient<IInvitationApiClient>($"{apiBaseUrl}/api/invitations");
@@ -182,6 +251,8 @@ builder.Services.AddSingleton<IEmailSender<ApplicationUser>, QueuedEmailSender>(
 
 // Live console/chat/status tail for a server's detail page - see RconHubClient's own remarks.
 builder.Services.AddScoped<RconHubClient>();
+
+builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
 
