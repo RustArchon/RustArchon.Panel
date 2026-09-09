@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>RustArchon.Panel</RootNamespace>
     <UserSecretsId>rustarchon-web-7a4d1e6b-9f2c-4b8a-8e5d-1c3f7a9b2d6e</UserSecretsId>
+    <Configurations>Debug;Release</Configurations>
   </PropertyGroup>
 
   <ItemGroup>

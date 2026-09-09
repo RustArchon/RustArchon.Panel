@@ -20,6 +20,7 @@
 @inject IdentityRedirectManager RedirectManager
 @inject NewTenantBootstrapper TenantBootstrapper
 @inject IInvitationApiClient InvitationClient
+@inject IInternalRegistrationApiClient InternalRegistrationClient
 
 <PageTitle>Register</PageTitle>
 
@@ -130,6 +131,23 @@
             return;
         }
 
+        // Checked, not consumed. A bad code is refused before anything is created, and a good one
+        // stays unspent until the registration has actually finished - see the redemption below.
+        if (invitationStatus.Enabled)
+        {
+            var usable = await InvitationClient.ValidateAsync(new RedeemInvitationCodeRequest
+            {
+                Code = Input.InvitationCode!.Trim(),
+                Email = Input.Email
+            });
+
+            if (!usable.Success)
+            {
+                invitationError = usable.Error ?? "That invitation code is not valid.";
+                return;
+            }
+        }
+
         registering = true;
         try
         {
@@ -146,12 +164,34 @@
                 return;
             }
 
-            // The invitation gate is deliberately the last check before the account is considered
-            // real, run *after* UserManager.CreateAsync rather than before it: that way a rejected
-            // password or a duplicate email (both already caught above) never burns a single-use code
-            // for no reason. If redemption fails here - already used, invalid, bound to a different
-            // email, or lost a race to someone else redeeming the same code - the just-created
-            // Identity user is rolled back rather than leaving an unauthorized account behind.
+            Logger.LogInformation("User created a new account with password.");
+
+            // Every new user needs their own tenant and an Owner role before they can call any
+            // permission-gated API endpoint (see JumpStart ADR-012's bootstrapping note), so this
+            // provisions both right here rather than waiting for them to hit a 403 on their first
+            // request. Mirrors JumpStart's own DemoNewUserBootstrapper pattern.
+            //
+            // If it fails, the account goes and the code is simply never spent. An account with no
+            // organization can do nothing at all, so keeping one would be worse than keeping none.
+            if (!await TenantBootstrapper.ProvisionAsync(user.Id, Input.Email))
+            {
+                await UserManager.DeleteAsync(user);
+
+                invitationError =
+                    "We couldn't finish setting up your organization, so nothing was created and "
+                    + "your invitation code has not been used. Please try again.";
+
+                return;
+            }
+
+            // Redeemed last, once there is an account and an organization for it to have bought.
+            // Everything above this line can fail without costing anybody a single-use code.
+            //
+            // Still the only thing that decides: the check before registration began asked about an
+            // instant that has since passed, so two people can both have been told yes, and this
+            // single guarded UPDATE is what makes exactly one of them the winner. The loser is
+            // rolled back - their organization is orphaned rather than deleted, since nothing can
+            // reach it once its only member is gone, and a site admin can cancel it.
             if (invitationStatus.Enabled)
             {
                 var redeemed = await InvitationClient.RedeemAsync(new RedeemInvitationCodeRequest
@@ -162,19 +202,29 @@
 
                 if (!redeemed.Success)
                 {
+                    Logger.LogWarning(
+                        "Invitation code was taken between validating and redeeming it for {Email}; "
+                        + "rolling the registration back.", Input.Email);
+
+                    // The organization goes too. It is seconds old and contains nothing but this
+                    // account, so leaving it would be leaving litter for a site admin to find - and
+                    // the Api refuses to discard it if that has stopped being true.
+                    try
+                    {
+                        await InternalRegistrationClient.DiscardOrganizationAsync(user.Id);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(
+                            ex, "Could not discard the organization provisioned for {Email}; it is "
+                            + "empty and can be cancelled by a site admin.", Input.Email);
+                    }
+
                     await UserManager.DeleteAsync(user);
                     invitationError = redeemed.Error ?? "That invitation code is not valid.";
                     return;
                 }
             }
-
-            Logger.LogInformation("User created a new account with password.");
-
-            // Every new user needs their own tenant and an Owner role before they can call any
-            // permission-gated API endpoint (see JumpStart ADR-012's bootstrapping note), so this
-            // provisions both right here rather than waiting for them to hit a 403 on their first
-            // request. Mirrors JumpStart's own DemoNewUserBootstrapper pattern.
-            await TenantBootstrapper.ProvisionAsync(user.Id, Input.Email);
 
             // By this point the account, tenant, and (if enabled) invitation redemption have all
             // already committed - there's nothing left to roll back, so a failure sending the

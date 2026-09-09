@@ -247,6 +247,12 @@ var internalApiKey = builder.Configuration["RUSTARCHON_INTERNAL_API_KEY"]
     ?? throw new InvalidOperationException("RUSTARCHON_INTERNAL_API_KEY configuration is missing.");
 builder.Services.AddApiClient<IInternalEmailApiClient>(apiBaseUrl)
     .ConfigureHttpClient(client => client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey));
+
+// Same channel, same key: clearing up the empty organization a registration leaves behind when it
+// gets that far and then loses the race for its invitation code. Nobody to authenticate as at that
+// point - the founding account is being deleted alongside it.
+builder.Services.AddApiClient<IInternalRegistrationApiClient>(apiBaseUrl)
+    .ConfigureHttpClient(client => client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey));
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, QueuedEmailSender>();
 
 // Live console/chat/status tail for a server's detail page - see RconHubClient's own remarks.

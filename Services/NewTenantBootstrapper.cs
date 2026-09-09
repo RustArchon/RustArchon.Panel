@@ -18,10 +18,14 @@ namespace RustArchon.Panel.Services;
 /// <c>ExternalLogin.razor</c>) - both already know the new user's real ID and username at the moment
 /// their account is created, so this mints a short-lived identity assertion and calls the bootstrap
 /// endpoint right there, needing none of <c>JwtExchangeHandler</c>'s circuit-scoped machinery.
-/// Deliberately best-effort: a failure here does not block registration, since the alternative (a
-/// user who can't create an account at all because a provisioning call is unreachable) is worse than
-/// "the account exists but has no tenant yet" - a state a later call can still recover, since
-/// provisioning is idempotent.
+/// <para>
+/// It reports whether it worked rather than deciding what a failure means. It used to swallow the
+/// exception on the reasoning that "the account exists but has no tenant yet" is recoverable, since
+/// provisioning is idempotent - but nothing ever retried it. <c>EnsureTenant</c> is called from
+/// account creation and nowhere else, so a swallowed failure left an account that could never do
+/// anything, having already spent a single-use invitation code to get there. The caller now rolls the
+/// whole registration back instead.
+/// </para>
 /// </remarks>
 public class NewTenantBootstrapper(
     IJwtTokenService jwtTokenService,
@@ -31,21 +35,27 @@ public class NewTenantBootstrapper(
     private static readonly TimeSpan AssertionTokenLifetime = TimeSpan.FromMinutes(2);
 
     /// <summary>
-    /// Ensures the newly created user has their own tenant and Owner role. Best-effort - logs and
-    /// swallows failures rather than propagating them, since this must never block registration.
+    /// Ensures the newly created user has their own tenant and Owner role.
     /// </summary>
     /// <param name="userId">The newly created user's ID.</param>
     /// <param name="username">The newly created user's username (for the identity assertion).</param>
-    public async Task ProvisionAsync(Guid userId, string username)
+    /// <returns>
+    /// <c>false</c> if provisioning did not complete. The exception is logged and not rethrown - the
+    /// caller's job is to undo the registration, not to render a stack trace - but it is reported,
+    /// because an account with no organization is not a registration that succeeded.
+    /// </returns>
+    public async Task<bool> ProvisionAsync(Guid userId, string username)
     {
         try
         {
             var assertionToken = jwtTokenService.GenerateToken(userId, username, expiration: AssertionTokenLifetime);
             await accountBootstrapClient.EnsureTenantAsync($"Bearer {assertionToken}", tenantName: $"{username}'s Organization");
+            return true;
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to provision a tenant for new user {UserId}", userId);
+            logger.LogError(ex, "Failed to provision a tenant for new user {UserId}", userId);
+            return false;
         }
     }
 }
