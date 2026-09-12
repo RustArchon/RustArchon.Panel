@@ -1,0 +1,214 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/Organizations/{TenantId:guid}/Servers/{ServerId:guid}"
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Messaging.Contracts
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IOrganizationApiClient OrganizationClient
+@inject NavigationManager Nav
+@rendermode RenderModes.NonPrerenderedServer
+
+@*
+    Correcting why a customer's server isn't connecting - its own page rather than an expand-in-row
+    panel on OrganizationDetail.razor's Servers tab, the same shape as
+    Admin/EmailTemplates/{Code} -> EmailTemplateDetail.razor. No single-server fetch endpoint exists,
+    so this loads the whole Organization (same call OrganizationDetail.razor itself makes) and picks
+    the one server out - not worth a new Api endpoint for one field's worth of savings.
+*@
+
+<PageTitle>@(server?.Name ?? Localizer["Server connection"])</PageTitle>
+
+@if (accessDenied)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage organizations."]
+    </div>
+}
+else if (loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Loading server..."]</div>
+}
+else if (organizationName is null || server is null)
+{
+    <div class="alert alert-danger">@Localizer["No such server."]</div>
+    <a class="btn btn-outline-secondary" href="Admin/Organizations/@TenantId">@Localizer["Back to organization"]</a>
+}
+else
+{
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb small">
+            <li class="breadcrumb-item"><a href="Admin/Organizations">@Localizer["Organizations"]</a></li>
+            <li class="breadcrumb-item"><a href="Admin/Organizations/@TenantId?tab=Servers">@organizationName</a></li>
+            <li class="breadcrumb-item active" aria-current="page">@server.Name</li>
+        </ol>
+    </nav>
+
+    <h1 class="mb-1">@server.Name</h1>
+    <p class="text-muted">
+        <span class="@StatusClass(server)">@StatusText(server)</span>
+        @if (!string.IsNullOrWhiteSpace(server.ConnectionStatusDetail))
+        {
+            <text> - @server.ConnectionStatusDetail</text>
+        }
+        · @Localizer["heartbeat {0}", Ago(server.LastHeartbeatUtc)]
+    </p>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="mb-3">
+                <label class="form-label">@Localizer["Host"]</label>
+                <input class="form-control" @bind="editHost" @bind:event="oninput" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">@Localizer["Port"]</label>
+                <input type="number" class="form-control" @bind="editPort" @bind:event="oninput" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">@Localizer["RCON password"]</label>
+                <input type="password" class="form-control" placeholder="@Localizer["Leave blank to keep the current one"]"
+                       @bind="editPassword" @bind:event="oninput" />
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-primary" disabled="@saving" @onclick="SaveAsync">
+                    @(saving ? Localizer["Saving..."] : Localizer["Save"])
+                </button>
+                <a class="btn btn-outline-secondary" href="Admin/Organizations/@TenantId?tab=Servers">@Localizer["Cancel"]</a>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid TenantId { get; set; }
+    [Parameter] public Guid ServerId { get; set; }
+
+    private string? organizationName;
+    private OrganizationServerDto? server;
+
+    private string editHost = string.Empty;
+    private int editPort = 28016;
+    private string editPassword = string.Empty;
+
+    private bool loading = true;
+    private bool saving;
+    private bool accessDenied;
+    private string? errorMessage;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            var detail = await OrganizationClient.GetAsync(TenantId);
+            organizationName = detail.Summary.Name;
+            server = detail.Servers.FirstOrDefault(s => s.Id == ServerId);
+
+            if (server is not null)
+            {
+                editHost = server.Host;
+                editPort = server.Port;
+                editPassword = string.Empty;
+            }
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+        {
+            accessDenied = true;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            organizationName = null;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load this server");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(editHost) || editPort is < 1 or > 65535)
+        {
+            errorMessage = Localizer["A host and a port between 1 and 65535 are required."];
+            return;
+        }
+
+        saving = true;
+        errorMessage = null;
+
+        try
+        {
+            await OrganizationClient.UpdateServerConnectionAsync(
+                TenantId, ServerId,
+                new UpdateServerConnectionRequestDto
+                {
+                    Host = editHost.Trim(),
+                    Port = editPort,
+                    RconPassword = string.IsNullOrWhiteSpace(editPassword) ? null : editPassword
+                });
+
+            Nav.NavigateTo($"Admin/Organizations/{TenantId}?tab=Servers");
+        }
+        catch (Refit.ApiException ex)
+        {
+            errorMessage = Localizer["That didn't work: {0}", ex.StatusCode];
+            saving = false;
+        }
+    }
+
+    private static string StatusClass(OrganizationServerDto s) => s.ConnectionStatus switch
+    {
+        RconConnectionStatus.Connected => "text-success",
+        RconConnectionStatus.Error => "text-danger",
+        RconConnectionStatus.Connecting or RconConnectionStatus.Reconnecting => "text-warning",
+        _ => "text-muted"
+    };
+
+    // Reuses the exact same "Connected"/"Connecting"/... keys as ServersList.razor's own StatusText -
+    // it's the same enum, described the same way in both places.
+    private string StatusText(OrganizationServerDto s) => s.ConnectionStatus switch
+    {
+        RconConnectionStatus.Connected => Localizer["Connected"],
+        RconConnectionStatus.Connecting => Localizer["Connecting"],
+        RconConnectionStatus.Reconnecting => Localizer["Reconnecting"],
+        RconConnectionStatus.Error => Localizer["Connection error"],
+        _ => Localizer["Disconnected"]
+    };
+
+    private string Ago(DateTimeOffset? at)
+    {
+        if (at is not { } value)
+        {
+            return Localizer["never"];
+        }
+
+        var span = DateTimeOffset.UtcNow - value;
+
+        return span.TotalMinutes < 2 ? Localizer["just now"]
+            : span.TotalHours < 1 ? Localizer["{0}m ago", (int)span.TotalMinutes]
+            : span.TotalDays < 1 ? Localizer["{0}h ago", (int)span.TotalHours]
+            : Localizer["{0}d ago", (int)span.TotalDays];
+    }
+}
