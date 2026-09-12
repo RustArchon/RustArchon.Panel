@@ -19,19 +19,19 @@
     The reports slice across the whole customer base - what renews soon, who owes money. This answers the
     question none of them could: "this customer emailed, what is going on with them?"
 *@
-<PageTitle>Organizations</PageTitle>
+<PageTitle>@Localizer["Organizations"]</PageTitle>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h1 class="mb-0">Organizations</h1>
+    <h1 class="mb-0">@Localizer["Organizations"]</h1>
     <a class="btn btn-outline-secondary" href="Reports/Subscriptions">
-        <i class="bi bi-card-list" aria-hidden="true"></i> Subscriptions report
+        <i class="bi bi-card-list" aria-hidden="true"></i> @Localizer["Subscriptions report"]
     </a>
 </div>
 
 @if (accessDenied)
 {
     <div class="alert alert-warning">
-        <i class="bi bi-shield-lock"></i> You don't have access to manage organizations.
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage organizations."]
     </div>
 }
 else
@@ -52,19 +52,19 @@ else
         <div class="card-body">
             <div class="row g-2 align-items-end">
                 <div class="col-md-4">
-                    <label class="form-label small text-muted mb-1" for="org-search">Search</label>
+                    <label class="form-label small text-muted mb-1" for="org-search">@Localizer["Search"]</label>
                     @* An explicit @oninput handler rather than @bind:event="oninput". They should be
                        equivalent and were not: with @bind the box's text never reached the field, so
                        every search ran against a null term and quietly returned all 206 rows. The
                        server log gave it away - the request went out and came back 200, just without
                        the filter. *@
-                    <input id="org-search" class="form-control" placeholder="Name or contact email"
+                    <input id="org-search" class="form-control" placeholder="@Localizer["Name or contact email"]"
                            value="@search" @oninput="OnSearchInput" @onkeyup="OnSearchKeyUp" />
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label small text-muted mb-1" for="org-plan">Plan</label>
+                    <label class="form-label small text-muted mb-1" for="org-plan">@Localizer["Plan"]</label>
                     <select id="org-plan" class="form-select" value="@planFilter" @onchange="OnPlanChanged">
-                        <option value="">All plans</option>
+                        <option value="">@Localizer["All plans"]</option>
                         @foreach (var option in planOptions)
                         {
                             <option value="@option.Value">@option.Label</option>
@@ -72,7 +72,7 @@ else
                     </select>
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label small text-muted mb-1" for="org-owing">Owing over</label>
+                    <label class="form-label small text-muted mb-1" for="org-owing">@Localizer["Owing over"]</label>
                     <div class="input-group">
                         <span class="input-group-text">$</span>
                         <input id="org-owing" type="number" min="0" step="1" class="form-control"
@@ -84,12 +84,12 @@ else
                         <input class="form-check-input" type="checkbox" id="org-cancelled"
                                checked="@includeCancelled" @onchange="OnIncludeCancelledChanged" />
                         <label class="form-check-label" for="org-cancelled">
-                            Include cancelled
+                            @Localizer["Include cancelled"]
                         </label>
                     </div>
                     <button type="button" class="btn btn-primary btn-sm mt-2"
                             @onclick="LoadAsync" disabled="@loading">
-                        <i class="bi bi-search" aria-hidden="true"></i> Search
+                        <i class="bi bi-search" aria-hidden="true"></i> @Localizer["Search"]
                     </button>
                 </div>
             </div>
@@ -98,33 +98,33 @@ else
 
     @if (loading)
     {
-        <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> Loading organizations...</div>
+        <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Loading organizations..."]</div>
     }
     else if (rows.Count == 0)
     {
-        <div class="alert alert-info">No organizations match that.</div>
+        <div class="alert alert-info">@Localizer["No organizations match that."]</div>
     }
     else
     {
         <div class="d-flex gap-4 mb-3 small text-muted">
-            <span><strong class="text-body">@rows.Count</strong> organizations</span>
-            <span><strong class="text-body">@Money(rows.Sum(r => r.MonthlyValue))</strong> monthly</span>
-            <span><strong class="text-body">@Money(rows.Sum(r => r.Outstanding))</strong> outstanding</span>
-            <span><strong class="text-body">@rows.Sum(r => r.ServerCount)</strong> servers</span>
+            <span><strong class="text-body">@rows.Count</strong> @Localizer["organizations"]</span>
+            <span><strong class="text-body">@Money(rows.Sum(r => r.MonthlyValue))</strong> @Localizer["monthly"]</span>
+            <span><strong class="text-body">@Money(rows.Sum(r => r.Outstanding))</strong> @Localizer["outstanding"]</span>
+            <span><strong class="text-body">@rows.Sum(r => r.ServerCount)</strong> @Localizer["servers"]</span>
         </div>
 
         <div class="table-responsive">
             <table class="table table-sm table-hover align-middle">
                 <thead>
                     <tr>
-                        <th>Organization</th>
-                        <th>Plan</th>
-                        <th>Term</th>
-                        <th class="text-end">Servers</th>
-                        <th>Signed up</th>
-                        <th>Renews</th>
-                        <th class="text-end">Monthly</th>
-                        <th class="text-end">Owing</th>
+                        <th>@Localizer["Organization"]</th>
+                        <th>@Localizer["Plan"]</th>
+                        <th>@Localizer["Term"]</th>
+                        <th class="text-end">@Localizer["Servers"]</th>
+                        <th>@Localizer["Signed up"]</th>
+                        <th>@Localizer["Renews"]</th>
+                        <th class="text-end">@Localizer["Monthly"]</th>
+                        <th class="text-end">@Localizer["Owing"]</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -136,7 +136,7 @@ else
                                 <a href="Admin/Organizations/@row.Id" class="fw-semibold text-decoration-none">@row.Name</a>
                                 @if (row.CancelledOn is not null)
                                 {
-                                    <span class="badge bg-secondary ms-1">Cancelled</span>
+                                    <span class="badge bg-secondary ms-1">@Localizer["Cancelled"]</span>
                                 }
                                 @if (!string.IsNullOrWhiteSpace(row.ContactEmail))
                                 {
@@ -157,7 +157,7 @@ else
                                 @(row.Outstanding > 0 ? Money(row.Outstanding) : "—")
                             </td>
                             <td class="text-end">
-                                <a class="btn btn-sm btn-outline-secondary" href="Admin/Organizations/@row.Id">Open</a>
+                                <a class="btn btn-sm btn-outline-secondary" href="Admin/Organizations/@row.Id">@Localizer["Open"]</a>
                             </td>
                         </tr>
                     }
@@ -199,6 +199,12 @@ else
             // A missing filter list is not worth failing the page over - the table below is the point.
             planOptions = [];
         }
+        catch (Exception ex) // TEMP diagnostic - revert before finishing
+        {
+            errorMessage = ex.ToString();
+            loading = false;
+            return;
+        }
 
         await LoadAsync();
     }
@@ -227,7 +233,11 @@ else
         }
         catch (Refit.ApiException ex)
         {
-            errorMessage = $"Couldn't load organizations: {ex.StatusCode}";
+            errorMessage = Localizer["Couldn't load organizations: {0}", ex.StatusCode];
+        }
+        catch (Exception ex) // TEMP diagnostic - revert before finishing
+        {
+            errorMessage = ex.ToString();
         }
         finally
         {

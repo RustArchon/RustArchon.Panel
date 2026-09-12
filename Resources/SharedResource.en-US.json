@@ -702,5 +702,22 @@
   "Sent": "Sent",
   "Viewed": "Viewed",
   "Bounced": "Bounced",
-  "Cancelled": "Cancelled"
+  "Cancelled": "Cancelled",
+  "Subscriptions report": "Subscriptions report",
+  "You don't have access to manage organizations.": "You don't have access to manage organizations.",
+  "Search": "Search",
+  "Name or contact email": "Name or contact email",
+  "All plans": "All plans",
+  "Owing over": "Owing over",
+  "Include cancelled": "Include cancelled",
+  "Loading organizations...": "Loading organizations...",
+  "No organizations match that.": "No organizations match that.",
+  "organizations": "organizations",
+  "monthly": "monthly",
+  "outstanding": "outstanding",
+  "servers": "servers",
+  "Signed up": "Signed up",
+  "Owing": "Owing",
+  "Open": "Open",
+  "Couldn't load organizations: {0}": "Couldn't load organizations: {0}"
 }
