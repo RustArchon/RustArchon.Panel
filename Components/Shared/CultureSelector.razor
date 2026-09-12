@@ -13,9 +13,10 @@
     render. See Program.cs's /Culture/Set endpoint, the only thing this ever calls.
 
     Renders nothing when only one culture is configured - a selector offering no real choice is worse
-    than no selector. The day a second language is added to Program.cs's supportedCultures array, this
-    starts showing itself with no further code change - see RequestLocalizationOptions being shared via
-    DI rather than duplicated here.
+    than no selector. The day a second Resources/SharedResource.<culture>.json file ships, this starts
+    showing itself with no further code change - Program.cs derives its supportedCultures array from
+    whichever such files exist, and RequestLocalizationOptions is shared via DI rather than duplicated
+    here.
 *@
 @if (SupportedCultures.Count > 1)
 {

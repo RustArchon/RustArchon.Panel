@@ -45,11 +45,42 @@ builder.Services.AddLocalization();
 
 // The one list every supported culture is named in - both JsonFileStringLocalizer's culture-fallback
 // (which JSON files it looks for) and RequestLocalizationOptions below (what negotiation/the switcher
-// may offer) ultimately trace back to this same array, so there is exactly one place to add a language
-// rather than two that could drift. English only for now (CultureSelector.razor hides itself entirely
-// while this array has just one entry) - the mechanism itself was verified end-to-end against a
-// temporary es-ES file before this was written, see Resources/README.md for how to actually add one.
-var supportedCultures = new[] { new CultureInfo("en-US") };
+// may offer) ultimately trace back to this same array. Derived from whichever
+// Resources/SharedResource.<culture>.json files are actually compiled in, rather than a hardcoded list
+// maintained alongside them - adding a language is then dropping in the JSON file (see
+// Resources/README.md) and nothing else, no second place to remember to edit. Also what
+// RustArchon.Api's PlatformSettings.razor-rendered "Default language" setting and the email template
+// editor's translation dropdown/missing-translation warning both read, via
+// IOptions<RequestLocalizationOptions>.SupportedUICultures - see EmailTemplateDetail.razor's remarks.
+var resourcesDirectory = Path.Combine(builder.Environment.ContentRootPath, "Resources");
+var supportedCultures = Directory.Exists(resourcesDirectory)
+    ? Directory.GetFiles(resourcesDirectory, "SharedResource.*.json")
+        .Select(path => Path.GetFileNameWithoutExtension(path)["SharedResource.".Length..])
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Select(name =>
+        {
+            try
+            {
+                return new CultureInfo(name);
+            }
+            catch (CultureNotFoundException)
+            {
+                // A stray or malformed file name shouldn't take the whole app's localization down -
+                // it's just not offered as a culture.
+                return null;
+            }
+        })
+        .OfType<CultureInfo>()
+        .OrderBy(c => c.Name, StringComparer.Ordinal)
+        .ToArray()
+    : [];
+
+// Never actually expected once Resources/ ships with the app (see Resources/README.md), but a running
+// app with zero negotiable cultures is worse than one silently pinned to English.
+if (supportedCultures.Length == 0)
+{
+    supportedCultures = [new CultureInfo("en-US")];
+}
 
 // Registered via Configure (not just a local RequestLocalizationOptions instance passed straight to
 // UseRequestLocalization below) so CultureSelector.razor can also read it as IOptions<RequestLocalizationOptions>
@@ -476,13 +507,29 @@ app.UseRequestLocalization();
 
 // The redirect-based culture switcher - see Components/Shared/CultureSelector.razor, the only caller.
 // A LocalRedirect, never anything else, to rule out open-redirect abuse of redirectUri.
-app.MapGet("/Culture/Set", (string? culture, string redirectUri, HttpContext context) =>
+app.MapGet("/Culture/Set", async (
+    string? culture, string redirectUri, HttpContext context, UserManager<ApplicationUser> userManager) =>
 {
     if (!string.IsNullOrWhiteSpace(culture))
     {
         context.Response.Cookies.Append(
             CookieRequestCultureProvider.DefaultCookieName,
             CookieRequestCultureProvider.MakeCookieValue(new RequestCulture(culture, culture)));
+
+        // Keeps ApplicationUser.PreferredCulture current for a signed-in user who switches language
+        // after registration, not just at the moment they signed up - this is the one place every
+        // switch (CultureSelector.razor's only caller) passes through, signed in or not. Best-effort:
+        // an anonymous visitor has nothing to update, and a failure here shouldn't block the redirect
+        // that actually changes what they see.
+        if (context.User.Identity?.IsAuthenticated == true)
+        {
+            var user = await userManager.GetUserAsync(context.User);
+            if (user is not null && user.PreferredCulture != culture)
+            {
+                user.PreferredCulture = culture;
+                await userManager.UpdateAsync(user);
+            }
+        }
     }
 
     return Results.LocalRedirect(redirectUri);

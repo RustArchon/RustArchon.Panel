@@ -2,6 +2,7 @@
 @layout MainLayout
 
 @using System.ComponentModel.DataAnnotations
+@using System.Globalization
 @using System.Text
 @using System.Text.Encodings.Web
 @using Microsoft.AspNetCore.Identity
@@ -154,6 +155,12 @@
         try
         {
             var user = CreateUser();
+
+            // Captured at the moment of sign-up rather than left null until the switcher is first
+            // used - see ApplicationUser.PreferredCulture's remarks. CurrentUICulture is whatever
+            // UseRequestLocalization resolved for this request (cookie, browser Accept-Language, or the
+            // default), the same value the page itself was just rendered in.
+            user.PreferredCulture = CultureInfo.CurrentUICulture.Name;
 
             await UserStore.SetUserNameAsync(user, Input.Email, CancellationToken.None);
             var emailStore = GetEmailStore();

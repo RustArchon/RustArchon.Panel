@@ -1,6 +1,7 @@
 @page "/Account/ExternalLogin"
 
 @using System.ComponentModel.DataAnnotations
+@using System.Globalization
 @using System.Security.Claims
 @using System.Text
 @using System.Text.Encodings.Web
@@ -192,6 +193,9 @@
 
         var emailStore = GetEmailStore();
         var user = CreateUser();
+
+        // See Register.razor's matching line/remarks.
+        user.PreferredCulture = CultureInfo.CurrentUICulture.Name;
 
         await UserStore.SetUserNameAsync(user, Input.Email, CancellationToken.None);
         await emailStore.SetEmailAsync(user, Input.Email, CancellationToken.None);
