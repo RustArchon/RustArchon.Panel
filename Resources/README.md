@@ -17,21 +17,25 @@ translate per language, not dozens.
 
 ## Adding a language
 
-Translations are managed in [Hosted Weblate](https://hosted.weblate.org), not by hand-editing JSON
-files in this repo directly (Weblate does that on your behalf, via pull request). To add a new
-language:
+`Program.cs` derives the app's supported cultures by scanning this folder for
+`SharedResource.<culture>.json` files at startup - there is no separate list to edit. Adding a language
+is dropping in the file:
 
-1. Add the culture to `SupportedCultures/SupportedUICultures` in `RustArchon.Panel/Program.cs`'s
-   `RequestLocalizationOptions`, so the app and its language switcher actually offer it.
-2. Add the language in Weblate's project settings - it creates `SharedResource.<culture>.json` from the
-   English source automatically.
-3. Once translated (fully or partially - untranslated keys fall back to English, they never show a raw
-   key), Weblate opens a pull request adding/updating that file. Merging it is the entire deploy step.
+1. Add `SharedResource.<culture>.json` here, either by hand or (preferably, for anything beyond a quick
+   first draft) via [Hosted Weblate](https://hosted.weblate.org), which creates it from the English
+   source and opens a pull request as translation progresses.
+2. That's it. The next restart picks it up automatically - the language switcher
+   (`CultureSelector.razor`), the `Admin/PlatformSettings` "Default language" setting, and the email
+   template editor's translation dropdown all read the same scanned list.
+
+Untranslated keys (missing entirely, or only partially translated) fall back to English - they never
+show a raw key. See `Localization/JsonFileStringLocalizer.cs`'s remarks for exactly why: a key *is* its
+own English fallback, by construction.
 
 ## Why JSON, not `.resx`
 
 Every free translation-collaboration tool (Weblate included) speaks JSON as a first-class format;
-`.resx` is Microsoft-specific and far less universally supported by that tooling. The backing library
-is [AspNetCore.Localizer.Json](https://github.com/AskmethatFR/AspNetCore.Localizer.Json), plugged into
-the standard `Microsoft.Extensions.Localization`/`IStringLocalizer<T>` pipeline - nothing about how a
+`.resx` is Microsoft-specific and far less universally supported by that tooling. The backing
+implementation is a small custom `IStringLocalizer` (`Localization/JsonFileStringLocalizer.cs`), not a
+package - see its own remarks for why owning ~50 lines beat depending on one. Nothing about how a
 `.razor` file consumes a translated string is non-standard, only where the values are stored.
