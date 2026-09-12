@@ -17,7 +17,7 @@
                             {
                                 <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none text-reset fw-bold"
                                         @onclick="() => SortBy(column)"
-                                        aria-label="@($"Sort by {column.Header}")">
+                                        aria-label="@Localizer["Sort by {0}", column.Header]">
                                     @column.Header
                                     @if (ReferenceEquals(sortColumn, column))
                                     {
@@ -74,8 +74,11 @@
 
     [Parameter, EditorRequired] public IReadOnlyList<ReportColumn<TRow>> Columns { get; set; } = [];
 
-    /// <summary>What to say when the report ran fine and matched nothing.</summary>
-    [Parameter] public string EmptyMessage { get; set; } = "Nothing matched this report's parameters.";
+    /// <summary>What to say when the report ran fine and matched nothing. string?, not a literal
+    /// default - @inject properties like Localizer aren't populated yet when field initializers run,
+    /// so the default is filled in from OnParametersSet below instead (see ConfirmationModal.razor for
+    /// the same pattern).</summary>
+    [Parameter] public string? EmptyMessage { get; set; }
 
     /// <summary>
     /// Base name of the exported file; the run date is appended. Only used by
@@ -86,6 +89,11 @@
     private ReportColumn<TRow>? sortColumn;
     private bool sortDescending;
     private IJSObjectReference? exportModule;
+
+    protected override void OnParametersSet()
+    {
+        EmptyMessage ??= Localizer["Nothing matched this report's parameters."];
+    }
 
     /// <summary>Rows in the order the reader is looking at them - which is also the order they export in.</summary>
     private IReadOnlyList<TRow> SortedRows
