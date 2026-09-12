@@ -30,5 +30,15 @@
   "Log Out": "Log Out",
   "You're acting as another organization.": "You're acting as another organization.",
   "Anything you do here happens to their servers and their billing, as though you were them.": "Anything you do here happens to their servers and their billing, as though you were them.",
-  "Leave": "Leave"
+  "Leave": "Leave",
+  "Rejoining the server...": "Rejoining the server...",
+  "Rejoin failed... trying again in": "Rejoin failed... trying again in",
+  "seconds.": "seconds.",
+  "Failed to rejoin.": "Failed to rejoin.",
+  "Please retry or reload the page.": "Please retry or reload the page.",
+  "Retry": "Retry",
+  "The session has been paused by the server.": "The session has been paused by the server.",
+  "Resume": "Resume",
+  "Failed to resume the session.": "Failed to resume the session.",
+  "Please reload the page.": "Please reload the page."
 }
