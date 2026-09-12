@@ -1,0 +1,112 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/EmailPlaceholders"
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IEmailPlaceholderApiClient EmailPlaceholderClient
+@rendermode RenderModes.NonPrerenderedServer
+
+@* The reusable {{Token}} placeholders email templates draw from - see EmailTemplateRegistry
+   (RustArchon.Api) for where each is declared. Just the list here; editing a placeholder's own page
+   (Admin/EmailPlaceholders/{Name} -> EmailPlaceholderDetail.razor), same shape as
+   Admin/EmailTemplates/{Code}. Which placeholders a *template* uses is edited on that template's own
+   page, not here - this page only administers the placeholders themselves. *@
+
+<PageTitle>@Localizer["Email Placeholders"]</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>@Localizer["Email Placeholders"]</h1>
+</div>
+
+@if (accessDenied == true)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage email placeholders."]
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (loading)
+    {
+        <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Loading placeholders..."]</div>
+    }
+    else if (placeholders.Count == 0)
+    {
+        <div class="alert alert-info">@Localizer["No email placeholders found."]</div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>@Localizer["Placeholder"]</th>
+                        <th>@Localizer["Description"]</th>
+                        <th>@Localizer["Sample"]</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var placeholder in placeholders)
+                    {
+                        <tr @key="placeholder.Name">
+                            <td><code>{{@placeholder.Name}}</code></td>
+                            <td class="text-muted small">@placeholder.Description</td>
+                            <td class="text-truncate" style="max-width: 280px;">@placeholder.Sample</td>
+                            <td class="text-end">
+                                <a class="btn btn-sm btn-outline-secondary" href="Admin/EmailPlaceholders/@placeholder.Name">
+                                    @Localizer["Edit"]
+                                </a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private List<EmailPlaceholderDto> placeholders = [];
+    private bool loading = true;
+    private bool? accessDenied;
+    private string? errorMessage;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            placeholders = await EmailPlaceholderClient.GetAllAsync();
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load email placeholders");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+}
