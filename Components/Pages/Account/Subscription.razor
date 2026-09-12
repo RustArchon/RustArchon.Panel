@@ -9,12 +9,12 @@
 @inject ISubscriptionApiClient SubscriptionClient
 @rendermode RenderModes.NonPrerenderedServer
 
-<PageTitle>Subscription</PageTitle>
+<PageTitle>@Localizer["Subscription"]</PageTitle>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h1 class="mb-0">Subscription</h1>
+    <h1 class="mb-0">@Localizer["Subscription"]</h1>
     <a class="btn btn-outline-secondary" href="Account/BillingHistory">
-        <i class="bi bi-receipt" aria-hidden="true"></i> Billing History
+        <i class="bi bi-receipt" aria-hidden="true"></i> @Localizer["Billing History"]
     </a>
 </div>
 
@@ -36,44 +36,44 @@
 
 @if (loading)
 {
-    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> Loading your subscription...</div>
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Loading your subscription..."]</div>
 }
 else if (subscription is null)
 {
     <div class="alert alert-warning">
         <i class="bi bi-exclamation-triangle"></i>
-        We couldn't find a subscription for your organization. Please contact support.
+        @Localizer["We couldn't find a subscription for your organization. Please contact support."]
     </div>
 }
 else
 {
     <div class="card mb-4">
-        <div class="card-header">Current plan</div>
+        <div class="card-header">@Localizer["Current plan"]</div>
         <div class="card-body">
             <div class="row g-3">
                 <div class="col-md-3">
-                    <div class="text-muted small">Plan</div>
+                    <div class="text-muted small">@Localizer["Plan"]</div>
                     <div class="fs-5">
                         <span class="plan-color-dot" style="background-color: @subscription.PlanColorCode"></span>
                         @subscription.PlanName
                     </div>
                 </div>
                 <div class="col-md-3">
-                    <div class="text-muted small">Billing</div>
+                    <div class="text-muted small">@Localizer["Billing"]</div>
                     <div class="fs-5">@BillingTerms.Describe(subscription.TermMonths)</div>
                 </div>
                 <div class="col-md-3">
-                    <div class="text-muted small">Current period ends</div>
+                    <div class="text-muted small">@Localizer["Current period ends"]</div>
                     <div class="fs-5">@FormatDate(subscription.PeriodEnd)</div>
                 </div>
                 <div class="col-md-3">
                     @* Against bought capacity, not the plan's ceiling - that's what actually gates
                        adding a server now. See SubscriptionPeriod.Quantity. *@
-                    <div class="text-muted small">Servers</div>
-                    <div class="fs-5">@subscription.CurrentServerCount of @subscription.Quantity</div>
+                    <div class="text-muted small">@Localizer["Servers"]</div>
+                    <div class="fs-5">@Localizer["{0} of {1}", subscription.CurrentServerCount, subscription.Quantity]</div>
                     @if (subscription.MaximumServers is { } planCeiling)
                     {
-                        <div class="text-muted small">@subscription.PlanName allows up to @planCeiling</div>
+                        <div class="text-muted small">@Localizer["{0} allows up to {1}", subscription.PlanName, planCeiling]</div>
                     }
                 </div>
             </div>
@@ -86,20 +86,17 @@ else
     @if (subscription.CanChangeQuantity)
     {
         <div class="card mb-4">
-            <div class="card-header">Capacity</div>
+            <div class="card-header">@Localizer["Capacity"]</div>
             <div class="card-body">
                 <p class="text-muted mb-3">
-                    Each slot lets you run one server, and costs
+                    @Localizer["Each slot lets you run one server, and costs"]
                     <strong>@subscription.UnitAmount.ToString("C")</strong>
-                    per @BillingTerms.Describe(subscription.TermMonths) period beyond the
-                    @subscription.IncludedUnits included with @subscription.PlanName.
-                    Buying takes effect immediately and is prorated; releasing takes effect at the end of
-                    your current period.
+                    @Localizer["per {0} period beyond the {1} included with {2}. Buying takes effect immediately and is prorated; releasing takes effect at the end of your current period.", BillingTerms.Describe(subscription.TermMonths), subscription.IncludedUnits, subscription.PlanName]
                 </p>
 
                 <div class="d-flex align-items-end gap-3 flex-wrap">
                     <div>
-                        <label class="form-label" for="capacity-quantity">Server slots</label>
+                        <label class="form-label" for="capacity-quantity">@Localizer["Server slots"]</label>
                         <div class="input-group" style="width: 12rem;">
                             <button class="btn btn-outline-secondary" type="button"
                                     @onclick="() => AdjustQuantity(-1)"
@@ -126,16 +123,14 @@ else
 
                     <button class="btn btn-primary" @onclick="QuoteCapacity"
                             disabled="@(working || selectedQuantity == subscription.Quantity)">
-                        Review change
+                        @Localizer["Review change"]
                     </button>
                 </div>
 
                 @if (selectedQuantity < subscription.MinimumQuantity)
                 {
                     <div class="text-danger small mt-2">
-                        You're running @subscription.CurrentServerCount server(s) and @subscription.PlanName
-                        includes @subscription.IncludedUnits, so you can't go below
-                        @subscription.MinimumQuantity.
+                        @Localizer["You're running {0} server(s) and {1} includes {2}, so you can't go below {3}.", subscription.CurrentServerCount, subscription.PlanName, subscription.IncludedUnits, subscription.MinimumQuantity]
                     </div>
                 }
             </div>
@@ -149,27 +144,27 @@ else
         <div class="alert alert-info d-flex justify-content-between align-items-start">
             <div>
                 <i class="bi bi-calendar-event"></i>
-                <strong>Scheduled change.</strong>
-                On @FormatDate(scheduled.EffectiveDate) you'll move to
-                <strong>@scheduled.PlanName</strong>, billed @BillingTerms.Describe(scheduled.TermMonths).
+                <strong>@Localizer["Scheduled change."]</strong>
+                @Localizer["On {0} you'll move to", FormatDate(scheduled.EffectiveDate)]
+                <strong>@scheduled.PlanName</strong>@Localizer[", billed {0}.", BillingTerms.Describe(scheduled.TermMonths)]
                 @if (scheduled.Quantity != subscription.Quantity)
                 {
-                    @: Your capacity drops to @scheduled.Quantity slot(s) at the same time.
+                    @Localizer["Your capacity drops to {0} slot(s) at the same time.", scheduled.Quantity]
                 }
-                Until then you stay on @subscription.PlanName (@BillingTerms.Describe(subscription.TermMonths)).
+                @Localizer["Until then you stay on {0} ({1}).", subscription.PlanName, BillingTerms.Describe(subscription.TermMonths)]
             </div>
             <button class="btn btn-sm btn-outline-secondary flex-shrink-0 ms-3"
                     @onclick="CancelScheduled" disabled="@working">
-                Cancel it
+                @Localizer["Cancel it"]
             </button>
         </div>
     }
 
     <div class="card">
-        <div class="card-header">Change plan</div>
+        <div class="card-header">@Localizer["Change plan"]</div>
         <div class="card-body">
             <div class="mb-3">
-                <label class="form-label">Billing term</label>
+                <label class="form-label">@Localizer["Billing term"]</label>
                 <div>
                     @* Built from what the plans actually offer, not a fixed list of three. A provider
                        selling annual-only shows one option here rather than two that can't be bought. *@
@@ -190,11 +185,11 @@ else
                     <thead>
                         <tr>
                             <th></th>
-                            <th>Plan</th>
-                            <th>Price</th>
-                            <th>Max servers</th>
-                            <th>Max users</th>
-                            <th>History</th>
+                            <th>@Localizer["Plan"]</th>
+                            <th>@Localizer["Price"]</th>
+                            <th>@Localizer["Max servers"]</th>
+                            <th>@Localizer["Max users"]</th>
+                            <th>@Localizer["History"]</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -218,7 +213,7 @@ else
                                     @plan.Name
                                     @if (plan.IsCurrent)
                                     {
-                                        <span class="badge bg-secondary ms-2">Current</span>
+                                        <span class="badge bg-secondary ms-2">@Localizer["Current"]</span>
                                     }
                                     @* Only a plan with an actual ceiling can be too small. Guarded on the
                                        nullable rather than on AllowedForCurrentServerCount alone, so a
@@ -226,28 +221,28 @@ else
                                     @if (!plan.AllowedForCurrentServerCount && plan.MaximumServers is { } ceiling)
                                     {
                                         <div class="small text-danger">
-                                            Allows @ceiling server(s); you have @subscription.CurrentServerCount.
+                                            @Localizer["Allows {0} server(s); you have {1}.", ceiling, subscription.CurrentServerCount]
                                         </div>
                                     }
                                     @if (!IsSoldOnSelectedTerm(plan))
                                     {
                                         <div class="small text-muted">
-                                            Not sold @BillingTerms.Describe(selectedTermMonths) &mdash;
+                                            @Localizer["Not sold {0} —", BillingTerms.Describe(selectedTermMonths)]
                                             @if (plan.Prices.Any())
                                             {
-                                                <text>only @string.Join(" or ", plan.Prices.OrderBy(p => p.TermMonths).Select(p => BillingTerms.Describe(p.TermMonths))).</text>
+                                                <text>@Localizer["only {0}.", string.Join(" " + Localizer["or"] + " ", plan.Prices.OrderBy(p => p.TermMonths).Select(p => BillingTerms.Describe(p.TermMonths)))]</text>
                                             }
                                             else
                                             {
-                                                <text>no pricing set up yet.</text>
+                                                <text>@Localizer["no pricing set up yet."]</text>
                                             }
                                         </div>
                                     }
                                 </td>
                                 <td>@PriceLabel(plan)</td>
-                                <td>@(plan.MaximumServers?.ToString() ?? "No limit")</td>
+                                <td>@(plan.MaximumServers?.ToString() ?? Localizer["No limit"])</td>
                                 <td>@plan.MaximumUsers</td>
-                                <td>@plan.RetentionHistory days</td>
+                                <td>@Localizer["{0} days", plan.RetentionHistory]</td>
                             </tr>
                         }
                     </tbody>
@@ -256,7 +251,7 @@ else
 
             @if (quoteLoading)
             {
-                <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> Working out what this would do...</div>
+                <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Working out what this would do..."]</div>
             }
             else if (quote is not null)
             {
@@ -279,7 +274,7 @@ else
                        listed, in order, each carrying its own explicit date. *@
                     <div class="card border-primary mb-3">
                         <div class="card-header bg-primary text-white">
-                            <i class="bi bi-clipboard-check"></i> Before you confirm - here's exactly what happens
+                            <i class="bi bi-clipboard-check"></i> @Localizer["Before you confirm - here's exactly what happens"]
                         </div>
                         <div class="card-body">
                             <ul class="mb-3">
@@ -292,7 +287,7 @@ else
                             @if (quote.AmountDueNow > 0)
                             {
                                 <div class="d-flex justify-content-between border-top pt-2">
-                                    <strong>Due today (prorated)</strong>
+                                    <strong>@Localizer["Due today (prorated)"]</strong>
                                     <strong>@quote.AmountDueNow.ToString("C")</strong>
                                 </div>
                                 @* An invoice is now issued for this, but nothing collects payment yet.
@@ -300,8 +295,7 @@ else
                                    surprise when the invoice turns up, and saying "you'll be invoiced"
                                    alone reads like a card is about to be debited. *@
                                 <div class="small text-muted mt-1">
-                                    You'll be invoiced for this straight away. Card payment isn't set up yet, so
-                                    nothing is collected automatically.
+                                    @Localizer["You'll be invoiced for this straight away. Card payment isn't set up yet, so nothing is collected automatically."]
                                 </div>
                             }
                         </div>
@@ -317,22 +311,22 @@ else
                         <div class="alert alert-warning">
                             <div class="fw-semibold mb-1">
                                 <i class="bi bi-exclamation-triangle"></i>
-                                This removes your roles
+                                @Localizer["This removes your roles"]
                             </div>
-                            The plan you're moving to doesn't include role separation, so when this
-                            takes effect your
-                            @(quote.RolesToRemove == 1 ? "role is" : $"{quote.RolesToRemove} roles are")
-                            removed and everyone in your organization becomes an owner
+                            @Localizer[
+                                "The plan you're moving to doesn't include role separation, so when this takes effect your {0} removed and everyone in your organization becomes an owner",
+                                quote.RolesToRemove == 1 ? Localizer["role is"] : Localizer["{0} roles are", quote.RolesToRemove]]
                             @if (quote.MembersToPromote > 0)
                             {
                                 <text>
-                                    - about @quote.MembersToPromote
-                                    @(quote.MembersToPromote == 1 ? "person" : "people")
-                                    @(quote.MembersToPromote == 1 ? "gains" : "gain") that today
+                                    @Localizer[
+                                        "- about {0} {1} {2} that today",
+                                        quote.MembersToPromote,
+                                        quote.MembersToPromote == 1 ? Localizer["person"] : Localizer["people"],
+                                        quote.MembersToPromote == 1 ? Localizer["gains"] : Localizer["gain"]]
                                 </text>
                             }
-                            . Owners can manage servers, members and billing, including changing this
-                            plan again.
+                            @Localizer[". Owners can manage servers, members and billing, including changing this plan again."]
                         </div>
                     }
 
@@ -341,7 +335,7 @@ else
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
                         }
-                        Confirm this change
+                        @Localizer["Confirm this change"]
                     </button>
                 }
             }
@@ -545,7 +539,7 @@ else
         try
         {
             await SubscriptionClient.CancelScheduledChangeAsync();
-            successMessage = "The scheduled change has been cancelled. Your current plan continues as it is.";
+            successMessage = Localizer["The scheduled change has been cancelled. Your current plan continues as it is."];
             await LoadAsync();
         }
         catch (Exception ex)
@@ -576,7 +570,7 @@ else
         }
 
         return plan.PricingModel == PricingModel.PerUnit && price.UnitAmount > 0
-            ? $"{price.UnitAmount.ToString("C")} per server"
+            ? Localizer["{0} per server", price.UnitAmount.ToString("C")]
             : price.BaseAmount.ToString("C");
     }
 
