@@ -1,9 +1,12 @@
 @* Copyright ©2026 Scott Blomfield *@
 
 @page "/Admin/PlatformSettings"
+@using System.Globalization
 @using System.Net
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Localization
+@using Microsoft.Extensions.Options
 @using RustArchon.Messaging.Contracts
 @using RustArchon.Panel.Clients
 @using RustArchon.Panel.Services
@@ -11,6 +14,7 @@
 @attribute [Authorize]
 @inject IPlatformSettingsApiClient SettingsClient
 @inject IPlanApiClient PlanClient
+@inject IOptions<RequestLocalizationOptions> LocalizationOptions
 @rendermode RenderModes.NonPrerenderedServer
 
 <PageTitle>@Localizer["Platform Settings"]</PageTitle>
@@ -76,7 +80,29 @@ else
                                         </div>
 
                                         <div class="flex-shrink-0">
-                                            @if (setting.ValueType == PlatformSettingValueType.Boolean)
+                                            @if (setting.Key == DefaultCultureKey)
+                                            {
+                                                @* Api has no notion of "the supported cultures" - see
+                                                   PlatformSettingsRegistry.DefaultCulture's remarks - so
+                                                   this is a String setting everywhere except here, where
+                                                   the Panel is the one place that actually knows the
+                                                   list: whichever Resources/SharedResource.*.json files
+                                                   are compiled in (Program.cs's supportedCultures). *@
+                                                <select class="form-select" style="max-width: 260px"
+                                                        disabled="@savingKeys.Contains(setting.Key)"
+                                                        @onchange="e => SaveValue(setting, e.Value?.ToString() ?? string.Empty)">
+                                                    <option value="" selected="@(string.IsNullOrEmpty(setting.Value))">
+                                                        @Localizer["Not set (defaults to English)"]
+                                                    </option>
+                                                    @foreach (var culture in SupportedCultures)
+                                                    {
+                                                        <option value="@culture.Name" selected="@(culture.Name == setting.Value)">
+                                                            @culture.NativeName
+                                                        </option>
+                                                    }
+                                                </select>
+                                            }
+                                            else if (setting.ValueType == PlatformSettingValueType.Boolean)
                                             {
                                                 <div class="form-check form-switch">
                                                     <input class="form-check-input" type="checkbox" role="switch"
@@ -248,6 +274,11 @@ else
     private const string SmtpHostKey = "EmailSmtpHost";
     private const string ApiKeyKey = "EmailApiKey";
     private const string SmtpProviderValue = "Smtp";
+    private const string DefaultCultureKey = "DefaultCulture";
+
+    /// <summary>The cultures this deployment's compiled-in resources actually offer - see
+    /// CultureSelector.razor's identical property and remarks.</summary>
+    private IList<CultureInfo> SupportedCultures => LocalizationOptions.Value.SupportedUICultures ?? [];
 
     // Categories not in this list (a section added at the Api without a preference here yet) fall in
     // alphabetically after these - see OrderedCategories.

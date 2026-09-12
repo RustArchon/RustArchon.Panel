@@ -1,13 +1,17 @@
 @* Copyright ©2026 Scott Blomfield *@
 
 @page "/Admin/EmailTemplates"
+@using System.Globalization
 @using System.Net
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Localization
+@using Microsoft.Extensions.Options
 @using RustArchon.Panel.Clients
 @using RustArchon.Panel.Services
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject IEmailTemplateApiClient EmailTemplateClient
+@inject IOptions<RequestLocalizationOptions> LocalizationOptions
 @rendermode RenderModes.NonPrerenderedServer
 
 @* Every kind of email RustArchon sends, editable without a deployment - see EmailTemplateRegistry
@@ -52,7 +56,7 @@ else
                 <thead>
                     <tr>
                         <th>@Localizer["Template"]</th>
-                        <th>@Localizer["Subject"]</th>
+                        <th>@Localizer["Languages"]</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -67,7 +71,22 @@ else
                                     <div class="small text-muted">@template.Description</div>
                                 }
                             </td>
-                            <td class="text-truncate" style="max-width: 320px;">@template.Subject</td>
+                            <td>
+                                @if (TranslatedCount(template) < SupportedCultures.Count)
+                                {
+                                    <span class="text-warning" title="@Localizer["Missing:"] @string.Join(", ", MissingCultureNames(template))">
+                                        <i class="bi bi-exclamation-triangle"></i>
+                                        @TranslatedCount(template) @Localizer["of"] @SupportedCultures.Count
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="text-success">
+                                        <i class="bi bi-check-circle"></i>
+                                        @TranslatedCount(template) @Localizer["of"] @SupportedCultures.Count
+                                    </span>
+                                }
+                            </td>
                             <td class="text-end">
                                 <a class="btn btn-sm btn-outline-secondary" href="Admin/EmailTemplates/@template.Code">
                                     @Localizer["Edit"]
@@ -86,6 +105,18 @@ else
     private bool loading = true;
     private bool? accessDenied;
     private string? errorMessage;
+
+    /// <summary>The cultures this deployment's compiled-in resources actually offer - see
+    /// CultureSelector.razor's identical property and remarks. What each row's language count is out
+    /// of, and the editor page's own translation dropdown reads the same list.</summary>
+    private IList<CultureInfo> SupportedCultures => LocalizationOptions.Value.SupportedUICultures ?? [];
+
+    private static int TranslatedCount(EmailTemplateDto template) => template.Translations.Count;
+
+    private IEnumerable<string> MissingCultureNames(EmailTemplateDto template) =>
+        SupportedCultures
+            .Where(c => !template.Translations.Any(t => t.Culture == c.Name))
+            .Select(c => c.NativeName);
 
     protected override Task OnInitializedAsync() => LoadAsync();
 

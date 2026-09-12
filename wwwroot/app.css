@@ -1375,3 +1375,67 @@ code, .badge {
     flex-shrink: 0;
     border: 1px solid rgba(0, 0, 0, 0.15);
 }
+
+/* ==========================================================================
+   Quill editor (Admin/EmailTemplates* - the email body WYSIWYG) - forced light
+   regardless of --bs-theme. An email always renders on a light background in the
+   recipient's own mail client, so the editor representing that content should look
+   like paper too; left to inherit the app's own dark-mode text/background, the
+   toolbar and typed text render at near-zero contrast against the white editor
+   surface. Not a Blazor-scoped .razor.css rule: Quill inserts its toolbar as a
+   plain DOM sibling of the container element, outside anything Razor rendered, so
+   scoped CSS isolation can never reach it - see EmailTemplateDetail.razor's remarks.
+   ========================================================================== */
+.ql-toolbar.ql-snow {
+    background-color: #fbf9f3;
+    border-color: #d3cdb8 !important;
+}
+
+.ql-container.ql-snow {
+    border-color: #d3cdb8 !important;
+}
+
+.ql-editor {
+    color: #211f18;
+    background-color: #ffffff;
+}
+
+.ql-editor.ql-blank::before {
+    color: #8a8570;
+}
+
+.ql-snow .ql-stroke {
+    stroke: #55523f;
+}
+
+.ql-snow .ql-fill,
+.ql-snow .ql-stroke.ql-fill {
+    fill: #55523f;
+}
+
+.ql-snow .ql-picker {
+    color: #211f18;
+}
+
+.ql-snow .ql-picker-options {
+    background-color: #fbf9f3;
+    border-color: #d3cdb8 !important;
+}
+
+.ql-snow.ql-toolbar button:hover,
+.ql-snow .ql-toolbar button:hover,
+.ql-snow.ql-toolbar button.ql-active,
+.ql-snow .ql-toolbar button.ql-active,
+.ql-snow.ql-toolbar .ql-picker-label:hover,
+.ql-snow .ql-toolbar .ql-picker-label:hover,
+.ql-snow.ql-toolbar .ql-picker-item:hover,
+.ql-snow .ql-toolbar .ql-picker-item:hover {
+    color: #c8500e;
+}
+
+.ql-snow.ql-toolbar button:hover .ql-stroke,
+.ql-snow .ql-toolbar button:hover .ql-stroke,
+.ql-snow.ql-toolbar button.ql-active .ql-stroke,
+.ql-snow .ql-toolbar button.ql-active .ql-stroke {
+    stroke: #c8500e;
+}

@@ -1,8 +1,11 @@
 @* Copyright ©2026 Scott Blomfield *@
 
 @page "/Admin/EmailTemplates/{Code}"
+@using System.Globalization
 @using System.Net
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Localization
+@using Microsoft.Extensions.Options
 @using RustArchon.Panel.Clients
 @using RustArchon.Panel.Services
 @using RustArchon.Shared.DTOs
@@ -10,6 +13,7 @@
 @attribute [Authorize]
 @inject IEmailTemplateApiClient EmailTemplateClient
 @inject IEmailPlaceholderApiClient EmailPlaceholderClient
+@inject IOptions<RequestLocalizationOptions> LocalizationOptions
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @inject SiteBrandingService Branding
@@ -21,6 +25,13 @@
     placeholder" chips. Its own page/route rather than an expand-in-row or modal on the list, the same
     shape as Admin/Organizations/{id} -> OrganizationDetail.razor - editing a whole template is enough
     of its own task to deserve a page, not a panel bolted onto the list.
+
+    One language at a time, not one page per language (Scott's call): a dropdown here switches which
+    EmailTemplateTranslation the Subject/HTML editors below are showing/saving, sourced from the same
+    IOptions<RequestLocalizationOptions>.SupportedUICultures every other culture picker in this app reads
+    (see CultureSelector.razor and PlatformSettings.razor's DefaultCulture special case) - never a
+    separate "expected languages" list maintained here. Placeholder management above is unaffected by
+    which translation is selected, since a placeholder set belongs to the template, not the language.
 *@
 
 <PageTitle>@(template?.Name ?? Localizer["Email Template"])</PageTitle>
@@ -60,6 +71,14 @@ else
         <div class="alert alert-danger alert-dismissible fade show" role="alert">
             @errorMessage
             <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
         </div>
     }
 
@@ -116,6 +135,27 @@ else
         }
     </div>
 
+    @if (MissingCultures.Any())
+    {
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle"></i>
+            @Localizer["No translation yet for:"]
+            @string.Join(", ", MissingCultures.Select(c => c.NativeName))
+        </div>
+    }
+
+    <div class="mb-3" style="max-width: 320px">
+        <label class="form-label" for="email-template-culture">@Localizer["Language"]</label>
+        <select id="email-template-culture" class="form-select" value="@selectedCulture" @onchange="OnCultureChangedAsync">
+            @foreach (var culture in SupportedCultures)
+            {
+                <option value="@culture.Name">
+                    @culture.NativeName @(HasTranslation(culture.Name) ? "" : Localizer["(no translation yet)"])
+                </option>
+            }
+        </select>
+    </div>
+
     <div class="row g-3">
         <div class="col-lg-6">
             <div class="mb-3">
@@ -162,7 +202,8 @@ else
     private List<EmailPlaceholderDto> allPlaceholders = [];
     private bool managingPlaceholders;
     private bool updatingPlaceholders;
-    private UpdateEmailTemplateDto editForm = new();
+    private UpdateEmailTemplateTranslationDto editForm = new();
+    private string selectedCulture = string.Empty;
     private Field activeField = Field.Body;
     private bool editorPendingInit;
     private DotNetObjectReference<EmailTemplateDetail>? dotNetRef;
@@ -171,6 +212,7 @@ else
     private bool saving;
     private bool? accessDenied;
     private string? errorMessage;
+    private string? successMessage;
     private string siteName = "RustArchon";
     private string siteUrl = "https://www.rustarchon.com";
 
@@ -212,8 +254,16 @@ else
         try
         {
             template = await EmailTemplateClient.GetAsync(Code);
-            editForm = new UpdateEmailTemplateDto { Subject = template.Subject, HtmlBody = template.HtmlBody };
-            editorPendingInit = true;
+
+            // The admin's own language if it already has a translation, otherwise whichever
+            // translation happens to exist (alphabetically first, per EmailTemplatesController's own
+            // ordering) - either way, opening the page never lands on a blank draft when real content
+            // already exists somewhere.
+            selectedCulture = template.Translations.Any(t => t.Culture == CultureInfo.CurrentUICulture.Name)
+                ? CultureInfo.CurrentUICulture.Name
+                : template.Translations.FirstOrDefault()?.Culture ?? CultureInfo.CurrentUICulture.Name;
+
+            LoadTranslationIntoForm(selectedCulture);
             accessDenied = false;
 
             allPlaceholders = await EmailPlaceholderClient.GetAllAsync();
@@ -234,6 +284,49 @@ else
         {
             loading = false;
         }
+    }
+
+    /// <summary>The cultures this deployment's compiled-in resources actually offer - see
+    /// CultureSelector.razor's identical property and remarks. What the language dropdown above offers,
+    /// and what <see cref="MissingCultures"/> checks <see cref="template"/>'s translations against.</summary>
+    private IList<CultureInfo> SupportedCultures => LocalizationOptions.Value.SupportedUICultures ?? [];
+
+    /// <summary>Every supported culture with no saved translation yet - the warning banner's contents.
+    /// Recomputed from the live <see cref="template"/> on every render, so saving a translation clears
+    /// its own entry immediately.</summary>
+    private IEnumerable<CultureInfo> MissingCultures =>
+        SupportedCultures.Where(c => !HasTranslation(c.Name));
+
+    private bool HasTranslation(string culture) =>
+        template?.Translations.Any(t => t.Culture == culture) == true;
+
+    /// <summary>Loads <paramref name="culture"/>'s saved Subject/HtmlBody into <see cref="editForm"/> -
+    /// blank fields, ready to create one, if it has no translation yet. Any unsaved edit to whichever
+    /// translation was showing is discarded, the same tradeoff as navigating away without saving -
+    /// there is no per-language draft kept in memory.</summary>
+    private void LoadTranslationIntoForm(string culture)
+    {
+        var translation = template?.Translations.FirstOrDefault(t => t.Culture == culture);
+
+        editForm = new UpdateEmailTemplateTranslationDto
+        {
+            Culture = culture,
+            Subject = translation?.Subject ?? string.Empty,
+            HtmlBody = translation?.HtmlBody ?? string.Empty
+        };
+
+        // Re-initializes the Quill instance with the newly-selected translation's body - the same flag
+        // OnInitializedAsync sets for the very first load, picked up by OnAfterRenderAsync.
+        editorPendingInit = true;
+    }
+
+    private Task OnCultureChangedAsync(ChangeEventArgs e)
+    {
+        selectedCulture = e.Value?.ToString() ?? selectedCulture;
+        LoadTranslationIntoForm(selectedCulture);
+        errorMessage = null;
+        successMessage = null;
+        return Task.CompletedTask;
     }
 
     private void OnSubjectInput(ChangeEventArgs e) => editForm.Subject = e.Value?.ToString() ?? string.Empty;
@@ -307,6 +400,7 @@ else
     {
         saving = true;
         errorMessage = null;
+        successMessage = null;
 
         try
         {
@@ -315,15 +409,25 @@ else
             // not have reached OnBodyChanged yet.
             editForm.HtmlBody = await JS.InvokeAsync<string>("emailTemplateEditor.getHtml", BodyEditorId);
 
-            await EmailTemplateClient.UpdateAsync(Code, editForm);
-            Nav.NavigateTo("Admin/EmailTemplates");
+            // Stays on the page rather than navigating back to the list, unlike the old single-language
+            // Save - an admin translating a template into several languages in one sitting just picks
+            // the next one from the dropdown above, and MissingCultures/HasTranslation both need the
+            // refreshed template to reflect what was just saved.
+            template = await EmailTemplateClient.UpsertTranslationAsync(Code, editForm);
+            successMessage = Localizer["Saved the {0} translation.", CultureName(selectedCulture)];
         }
         catch (Exception ex)
         {
-            errorMessage = ApiErrorMessage.For(ex, "save this template");
+            errorMessage = ApiErrorMessage.For(ex, "save this translation");
+        }
+        finally
+        {
             saving = false;
         }
     }
+
+    private string CultureName(string culture) =>
+        SupportedCultures.FirstOrDefault(c => c.Name == culture)?.NativeName ?? culture;
 
     private (string Subject, string HtmlBody) Preview() =>
         EmailTemplatePreviewRenderer.Render(
