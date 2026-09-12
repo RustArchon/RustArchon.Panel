@@ -16,19 +16,19 @@
     result set; this one has actions on every row, which is exactly the mixed-content case they were
     scoped to exclude. Receivables is the read-only view of the same money.
 *@
-<PageTitle>Invoices</PageTitle>
+<PageTitle>@Localizer["Invoices"]</PageTitle>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h1 class="mb-0">Invoices</h1>
+    <h1 class="mb-0">@Localizer["Invoices"]</h1>
     <a class="btn btn-outline-secondary" href="Reports/Receivables">
-        <i class="bi bi-cash-stack" aria-hidden="true"></i> Receivables report
+        <i class="bi bi-cash-stack" aria-hidden="true"></i> @Localizer["Receivables report"]
     </a>
 </div>
 
 @if (accessDenied)
 {
     <div class="alert alert-warning">
-        <i class="bi bi-shield-lock"></i> You don't have access to manage billing.
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage billing."]
     </div>
 }
 else
@@ -64,12 +64,12 @@ else
 
     @if (loading)
     {
-        <p><em>Loading invoices...</em></p>
+        <p><em>@Localizer["Loading invoices..."]</em></p>
     }
     else if (invoices.Count == 0)
     {
         <div class="alert alert-info">
-            <i class="bi bi-info-circle"></i> No invoices match this filter.
+            <i class="bi bi-info-circle"></i> @Localizer["No invoices match this filter."]
         </div>
     }
     else
@@ -78,15 +78,15 @@ else
             <table class="table table-sm table-hover align-middle">
                 <thead>
                     <tr>
-                        <th>Invoice</th>
-                        <th>Organization</th>
-                        <th>Issued</th>
-                        <th>Due</th>
-                        <th class="text-end">Total</th>
-                        <th class="text-end">Paid</th>
-                        <th class="text-end">Credited</th>
-                        <th class="text-end">Outstanding</th>
-                        <th>Status</th>
+                        <th>@Localizer["Invoice"]</th>
+                        <th>@Localizer["Organization"]</th>
+                        <th>@Localizer["Issued"]</th>
+                        <th>@Localizer["Due"]</th>
+                        <th class="text-end">@Localizer["Total"]</th>
+                        <th class="text-end">@Localizer["Paid"]</th>
+                        <th class="text-end">@Localizer["Credited"]</th>
+                        <th class="text-end">@Localizer["Outstanding"]</th>
+                        <th>@Localizer["Status"]</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -108,7 +108,7 @@ else
                             <td class="text-end">
                                 <button class="btn btn-sm btn-outline-secondary"
                                         @onclick="() => Toggle(invoice.Id)">
-                                    @(expandedId == invoice.Id ? "Hide" : "Details")
+                                    @(expandedId == invoice.Id ? Localizer["Hide"] : Localizer["Details"])
                                 </button>
                             </td>
                         </tr>
@@ -119,7 +119,7 @@ else
                                 <td colspan="10">
                                     <div class="row g-4">
                                         <div class="col-md-6">
-                                            <h6 class="text-muted text-uppercase small">Lines</h6>
+                                            <h6 class="text-muted text-uppercase small">@Localizer["Lines"]</h6>
                                             <table class="table table-sm mb-0">
                                                 <tbody>
                                                     @foreach (var line in invoice.Lines)
@@ -131,7 +131,7 @@ else
                                                                     @Date(line.ServiceStart) – @Date(line.ServiceEnd)
                                                                     @if (line.Quantity > 1)
                                                                     {
-                                                                        <span>· @line.Quantity slots</span>
+                                                                        <span>@Localizer["· {0} slots", line.Quantity]</span>
                                                                     }
                                                                 </div>
                                                             </td>
@@ -143,7 +143,7 @@ else
 
                                             @if (invoice.Settlements.Count > 0)
                                             {
-                                                <h6 class="text-muted text-uppercase small mt-3">Settlements</h6>
+                                                <h6 class="text-muted text-uppercase small mt-3">@Localizer["Settlements"]</h6>
                                                 <table class="table table-sm mb-0">
                                                     <tbody>
                                                         @foreach (var settlement in invoice.Settlements)
@@ -157,7 +157,7 @@ else
                                                                     }
                                                                     @if (settlement.ReversedOn is not null)
                                                                     {
-                                                                        <span class="badge bg-secondary ms-1">Reversed</span>
+                                                                        <span class="badge bg-secondary ms-1">@Localizer["Reversed"]</span>
                                                                     }
                                                                     @if (!string.IsNullOrWhiteSpace(settlement.Reference))
                                                                     {
@@ -176,7 +176,7 @@ else
                                                                         <button class="btn btn-sm btn-outline-danger"
                                                                                 disabled="@working"
                                                                                 @onclick="() => Reverse(settlement.Id, PaymentStatus.Refunded)">
-                                                                            Refund
+                                                                            @Localizer["Refund"]
                                                                         </button>
                                                                     }
                                                                 </td>
@@ -190,10 +190,10 @@ else
                                         <div class="col-md-6">
                                             @if (invoice.Status == InvoiceStatus.Open)
                                             {
-                                                <h6 class="text-muted text-uppercase small">Record a payment</h6>
+                                                <h6 class="text-muted text-uppercase small">@Localizer["Record a payment"]</h6>
                                                 <div class="row g-2 align-items-end mb-3">
                                                     <div class="col-4">
-                                                        <label class="form-label small">Amount</label>
+                                                        <label class="form-label small">@Localizer["Amount"]</label>
                                                         <div class="input-group input-group-sm">
                                                             <span class="input-group-text">$</span>
                                                             <input type="number" step="0.01" min="0.01" class="form-control"
@@ -202,7 +202,7 @@ else
                                                         </div>
                                                     </div>
                                                     <div class="col-4">
-                                                        <label class="form-label small">Method</label>
+                                                        <label class="form-label small">@Localizer["Method"]</label>
                                                         <select class="form-select form-select-sm"
                                                                 @onchange="e => paymentMethod = Enum.Parse<PaymentMethod>(e.Value?.ToString() ?? nameof(PaymentMethod.Manual))">
                                                             @foreach (var method in Enum.GetValues<PaymentMethod>())
@@ -212,7 +212,7 @@ else
                                                         </select>
                                                     </div>
                                                     <div class="col-4">
-                                                        <label class="form-label small">Reference</label>
+                                                        <label class="form-label small">@Localizer["Reference"]</label>
                                                         <input class="form-control form-control-sm"
                                                                value="@paymentReference"
                                                                @onchange="e => paymentReference = e.Value?.ToString()" />
@@ -220,43 +220,42 @@ else
                                                 </div>
                                                 <button class="btn btn-primary btn-sm" disabled="@working"
                                                         @onclick="() => RecordPayment(invoice)">
-                                                    Record payment
+                                                    @Localizer["Record payment"]
                                                 </button>
 
                                                 <hr class="my-3" />
 
-                                                <h6 class="text-muted text-uppercase small">Close without payment</h6>
+                                                <h6 class="text-muted text-uppercase small">@Localizer["Close without payment"]</h6>
                                                 <div class="mb-2">
-                                                    <input class="form-control form-control-sm" placeholder="Reason"
+                                                    <input class="form-control form-control-sm" placeholder="@Localizer["Reason"]"
                                                            value="@closeReason"
                                                            @onchange="e => closeReason = e.Value?.ToString()" />
                                                 </div>
                                                 <div class="d-flex gap-2 flex-wrap">
                                                     <button class="btn btn-sm btn-outline-secondary" disabled="@working"
                                                             @onclick="() => Credit(invoice)">
-                                                        Credit @invoice.Outstanding.ToString("C", Money)
+                                                        @Localizer["Credit {0}", invoice.Outstanding.ToString("C", Money)]
                                                     </button>
                                                     <button class="btn btn-sm btn-outline-warning" disabled="@working"
                                                             @onclick="() => WriteOff(invoice)"
-                                                            title="The debt was real and you're giving up on it. Stays in the books as bad debt.">
-                                                        Write off
+                                                            title="@Localizer["The debt was real and you're giving up on it. Stays in the books as bad debt."]">
+                                                        @Localizer["Write off"]
                                                     </button>
                                                     <button class="btn btn-sm btn-outline-danger" disabled="@working"
                                                             @onclick="() => Void(invoice)"
-                                                            title="This invoice should never have existed. Removed from receivables entirely.">
-                                                        Void
+                                                            title="@Localizer["This invoice should never have existed. Removed from receivables entirely."]">
+                                                        @Localizer["Void"]
                                                     </button>
                                                 </div>
                                                 <div class="form-text">
-                                                    Writing off keeps the debt in the books as an expense; voiding says it was
-                                                    never owed. They are not interchangeable.
+                                                    @Localizer["Writing off keeps the debt in the books as an expense; voiding says it was never owed. They are not interchangeable."]
                                                 </div>
                                             }
                                             else
                                             {
                                                 <div class="text-muted">
-                                                    This invoice is @StatusText(invoice).@(invoice.Status == InvoiceStatus.Paid
-                                                        ? " Refund a payment above to reopen it."
+                                                    @Localizer["This invoice is {0}.", StatusText(invoice)]@(invoice.Status == InvoiceStatus.Paid
+                                                        ? " " + Localizer["Refund a payment above to reopen it."]
                                                         : string.Empty)
                                                 </div>
                                             }
@@ -291,13 +290,15 @@ else
     private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
     private static readonly CultureInfo Dates = CultureInfo.InvariantCulture;
 
-    private static readonly (string Label, InvoiceStatus? Value)[] StatusFilters =
+    // A property, not a field initializer - @inject properties like Localizer aren't populated yet
+    // when field initializers run (see ConfirmationModal.razor for the same pattern).
+    private (string Label, InvoiceStatus? Value)[] StatusFilters =>
     [
-        ("Open", InvoiceStatus.Open),
-        ("Paid", InvoiceStatus.Paid),
-        ("Written off", InvoiceStatus.Uncollectible),
-        ("Void", InvoiceStatus.Void),
-        ("All", null)
+        (Localizer["Open"], InvoiceStatus.Open),
+        (Localizer["Paid"], InvoiceStatus.Paid),
+        (Localizer["Written off"], InvoiceStatus.Uncollectible),
+        (Localizer["Void"], InvoiceStatus.Void),
+        (Localizer["All"], null)
     ];
 
     protected override Task OnInitializedAsync() => LoadAsync();
@@ -368,7 +369,7 @@ else
                 Method = paymentMethod,
                 Reference = paymentReference
             }),
-            $"Recorded {paymentAmount.ToString("C", Money)} against {invoice.Number}.",
+            Localizer["Recorded {0} against {1}.", paymentAmount.ToString("C", Money), invoice.Number],
             "record that payment");
 
     private Task Credit(InvoiceDto invoice) =>
@@ -377,9 +378,9 @@ else
             {
                 InvoiceId = invoice.Id,
                 Amount = invoice.Outstanding,
-                Reason = string.IsNullOrWhiteSpace(closeReason) ? "Credit issued by an administrator" : closeReason!
+                Reason = string.IsNullOrWhiteSpace(closeReason) ? Localizer["Credit issued by an administrator"] : closeReason!
             }),
-            $"Credited {invoice.Outstanding.ToString("C", Money)} against {invoice.Number}.",
+            Localizer["Credited {0} against {1}.", invoice.Outstanding.ToString("C", Money), invoice.Number],
             "issue that credit note");
 
     private Task WriteOff(InvoiceDto invoice) =>
@@ -389,7 +390,7 @@ else
                 InvoiceId = invoice.Id,
                 Reason = closeReason
             }),
-            $"Wrote off {invoice.Number}.",
+            Localizer["Wrote off {0}.", invoice.Number],
             "write off that invoice");
 
     private Task Void(InvoiceDto invoice) =>
@@ -399,13 +400,13 @@ else
                 InvoiceId = invoice.Id,
                 Reason = closeReason
             }),
-            $"Voided {invoice.Number}.",
+            Localizer["Voided {0}.", invoice.Number],
             "void that invoice");
 
     private Task Reverse(Guid paymentId, PaymentStatus status) =>
         RunAsync(
             () => BillingClient.ReversePaymentAsync(paymentId, status),
-            "Payment reversed. Anything it settled is owed again.",
+            Localizer["Payment reversed. Anything it settled is owed again."],
             "reverse that payment");
 
     /// <summary>
@@ -441,11 +442,11 @@ else
     private static string Blank(decimal amount) =>
         amount == 0m ? string.Empty : amount.ToString("C", Money);
 
-    private static string StatusText(InvoiceDto invoice) => invoice.Status switch
+    private string StatusText(InvoiceDto invoice) => invoice.Status switch
     {
-        InvoiceStatus.Open when invoice.DaysOverdue > 0 => $"{invoice.DaysOverdue}d overdue",
-        InvoiceStatus.Open when invoice.AmountPaid > 0m => "Part paid",
-        InvoiceStatus.Uncollectible => "Written off",
+        InvoiceStatus.Open when invoice.DaysOverdue > 0 => Localizer["{0}d overdue", invoice.DaysOverdue],
+        InvoiceStatus.Open when invoice.AmountPaid > 0m => Localizer["Part paid"],
+        InvoiceStatus.Uncollectible => Localizer["Written off"],
         _ => invoice.Status.ToString()
     };
 
