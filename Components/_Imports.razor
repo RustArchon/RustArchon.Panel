@@ -6,6 +6,7 @@
 @using Microsoft.AspNetCore.Components.Web
 @using static Microsoft.AspNetCore.Components.Web.RenderMode
 @using Microsoft.AspNetCore.Components.Web.Virtualization
+@using Microsoft.Extensions.Localization
 @using Microsoft.JSInterop
 @using RustArchon.Panel
 @using RustArchon.Panel.Components
@@ -15,3 +16,9 @@
    call sites fully qualify Components.Shared for exactly that reason and still work unchanged. *@
 @using RustArchon.Panel.Components.Shared
 @using RustArchon.Panel.Components.Shared.Reporting
+@using RustArchon.Panel.Localization
+@* Every component under here gets a shared Localizer for free instead of repeating this @using/@inject
+   pair in ~80 files by hand - see Localization/SharedResource.cs and Resources/README.md for the
+   one-file-per-language pattern this backs. A component can still declare its own narrower
+   IStringLocalizer<T> if it ever needs one, which simply shadows this. *@
+@inject IStringLocalizer<SharedResource> Localizer

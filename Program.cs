@@ -1,5 +1,6 @@
 // Copyright ©2026 Scott Blomfield
 
+using System.Globalization;
 using JumpStart.Api.Clients;
 using JumpStart.Services;
 using JumpStart.Services.Authentication;
@@ -8,12 +9,17 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Localization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Localization;
 using RustArchon.Panel.Clients;
 using RustArchon.Panel.Components;
 using RustArchon.Panel.Components.Account;
 using RustArchon.Panel.Data;
+using RustArchon.Panel.Infrastructure;
+using RustArchon.Panel.Localization;
 using RustArchon.Panel.Services;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +28,39 @@ var builder = WebApplication.CreateBuilder(args);
 // ============================================
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+// ============================================
+// 1B. LOCALIZATION
+// ============================================
+// Standard Microsoft.Extensions.Localization pipeline (AddLocalization, IStringLocalizer<T>,
+// RequestLocalizationOptions) - the only non-standard piece is where the strings themselves live.
+// See RustArchon.Panel/Resources/README.md for the whole story: one shared JSON file per language
+// (SharedResource.<culture>.json, physical files copied next to the built app - see the .csproj),
+// translated collaboratively through Hosted Weblate rather than a hand-rolled admin UI or one .resx
+// per component. AddSingleton<IStringLocalizerFactory> must come before AddLocalization() (which only
+// registers the factory if one isn't already present) - see JsonFileStringLocalizerFactory's own
+// remarks for why this factory exists instead of a package.
+builder.Services.AddSingleton<IStringLocalizerFactory, JsonFileStringLocalizerFactory>();
+builder.Services.AddLocalization();
+
+// The one list every supported culture is named in - both JsonFileStringLocalizer's culture-fallback
+// (which JSON files it looks for) and RequestLocalizationOptions below (what negotiation/the switcher
+// may offer) ultimately trace back to this same array, so there is exactly one place to add a language
+// rather than two that could drift. English only for now (CultureSelector.razor hides itself entirely
+// while this array has just one entry) - the mechanism itself was verified end-to-end against a
+// temporary es-ES file before this was written, see Resources/README.md for how to actually add one.
+var supportedCultures = new[] { new CultureInfo("en-US") };
+
+// Registered via Configure (not just a local RequestLocalizationOptions instance passed straight to
+// UseRequestLocalization below) so CultureSelector.razor can also read it as IOptions<RequestLocalizationOptions>
+// to populate the language list - one source of truth for "what languages does the switcher offer",
+// not a second copy of supportedCultures living in the component.
+builder.Services.Configure<RequestLocalizationOptions>(options =>
+{
+    options.DefaultRequestCulture = new RequestCulture(supportedCultures[0]);
+    options.SupportedCultures = supportedCultures;
+    options.SupportedUICultures = supportedCultures;
+});
 
 // ============================================
 // 2. DATABASE CONTEXT (Identity only)
@@ -178,6 +217,29 @@ builder.Services.AddApiClient<ISubscriptionApiClient>($"{apiBaseUrl}/api/subscri
     .AddHttpMessageHandler<JwtExchangeHandler>()
     .AddHttpMessageHandler<JwtAuthenticationHandler>();
 
+// Same handler chain again - gated by Platform.ManageOrganizations, the same permission behind the
+// Organizations console and the user directory this is used from (see NotesController's remarks).
+builder.Services.AddApiClient<INoteApiClient>($"{apiBaseUrl}/api/notes")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// Same handler chain and permission again - the permanent communications log alongside Notes on the
+// same two admin screens.
+builder.Services.AddApiClient<ICommunicationApiClient>($"{apiBaseUrl}/api/communications")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// Same handler chain and permission as IPlatformSettingsApiClient - editing what an email says is the
+// same kind of platform-wide decision as everything else Platform.ManageSettings already covers.
+builder.Services.AddApiClient<IEmailTemplateApiClient>($"{apiBaseUrl}/api/email-templates")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// Same handler chain and permission again - the reusable placeholders email templates draw from.
+builder.Services.AddApiClient<IEmailPlaceholderApiClient>($"{apiBaseUrl}/api/email-placeholders")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
 // Same handler chain again - gated by Platform.ViewReports (see ReportsController), which is its own
 // permission rather than a reuse of ManagePlans: reading what the business is owed and changing what it
 // charges are different jobs.
@@ -219,6 +281,10 @@ builder.Services.AddApiClient<IOrganizationInvitationApiClient>($"{apiBaseUrl}/a
     .AddHttpMessageHandler<JwtExchangeHandler>()
     .AddHttpMessageHandler<JwtAuthenticationHandler>();
 
+builder.Services.AddApiClient<IOrganizationSettingsApiClient>($"{apiBaseUrl}/api/organization/settings")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
 // Creating an Organization of one's own. Same handler chain, but note this one is not scoped to a
 // tenant at all - the Organization does not exist yet, so the Api authorizes it on the caller alone.
 builder.Services.AddApiClient<IOrganizationCreationApiClient>($"{apiBaseUrl}/api/organization")
@@ -233,6 +299,33 @@ builder.Services.AddApiClient<IInvitationPreviewApiClient>($"{apiBaseUrl}/api/in
 builder.Services.AddApiClient<IInvitationAcceptApiClient>($"{apiBaseUrl}/api/invitations/organization")
     .AddHttpMessageHandler<JwtExchangeHandler>()
     .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// The platform's own name and public site URL - anonymous, same no-handlers reasoning as
+// IInvitationPreviewApiClient above: the nav bar (and the login page it renders on) needs this before
+// anyone is signed in. SiteBrandingService reads this straight out of the same Valkey cache
+// RustArchon.Api's own PlatformSettingsCache writes through to (see IValkeyCache below); this client
+// is only its fallback for a cold cache.
+builder.Services.AddApiClient<ISiteBrandingApiClient>($"{apiBaseUrl}/api/public/branding");
+builder.Services.AddSingleton<SiteBrandingService>();
+
+// Same Valkey container RustArchon.Api's own PlatformSettingsCache writes through to on every admin
+// save - reading it directly here, rather than keeping a second Panel-local cache with its own
+// invalidation to keep in sync, is what makes a saved change visible immediately everywhere: there is
+// nothing of the Panel's own to go stale. Registered only when a connection string is actually
+// configured, and resolved lazily via IServiceProvider inside ValkeyCache, for the identical reason
+// RustArchon.Api's own PlatformSettingsCache does both - see its Program.cs remarks.
+var valkeyConnectionString = builder.Configuration["Valkey:ConnectionString"];
+if (!string.IsNullOrWhiteSpace(valkeyConnectionString))
+{
+    builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    {
+        var options = ConfigurationOptions.Parse(valkeyConnectionString);
+        options.AbortOnConnectFail = false;
+        return ConnectionMultiplexer.Connect(options);
+    });
+}
+
+builder.Services.AddSingleton<IValkeyCache, ValkeyCache>();
 
 // Deliberately no JWT handlers - Register.razor calls this before an account exists, so there's no
 // token to attach yet. See IInvitationApiClient's remarks.
@@ -253,6 +346,11 @@ builder.Services.AddApiClient<IInternalEmailApiClient>(apiBaseUrl)
 // point - the founding account is being deleted alongside it.
 builder.Services.AddApiClient<IInternalRegistrationApiClient>(apiBaseUrl)
     .ConfigureHttpClient(client => client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey));
+
+// Same channel again - backs the /track/email/{id}.gif endpoint below, the only caller.
+builder.Services.AddApiClient<IInternalCommunicationApiClient>(apiBaseUrl)
+    .ConfigureHttpClient(client => client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey));
+
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, QueuedEmailSender>();
 
 // Live console/chat/status tail for a server's detail page - see RconHubClient's own remarks.
@@ -279,6 +377,33 @@ using (var migrationScope = app.Services.CreateScope())
 if (app.Environment.IsDevelopment())
 {
     app.UseMigrationsEndPoint();
+
+    app.MapGet("/single-user-auth/login", async (
+        IConfiguration config,
+        UserManager<ApplicationUser> userManager,
+        SignInManager<ApplicationUser> signInManager,
+        string? returnUrl) =>
+    {
+        var section = config.GetSection("SingleUserAuth");
+        var username = section["Username"];
+
+        if (!section.GetValue<bool>("Enabled") || string.IsNullOrWhiteSpace(username))
+            return Results.LocalRedirect("/");
+
+        var user = await userManager.FindByNameAsync(username)
+                    ?? await userManager.FindByEmailAsync(username);
+
+        // If user doesn't exist and we're trying to use SingleUserAuth, check for the admin registration
+        if (user is null)
+        {
+            return Results.BadRequest($"SingleUserAuth: no user found for '{username}'.");
+        }
+        else
+        { 
+            await signInManager.SignInAsync(user, isPersistent: true);
+            return Results.LocalRedirect(string.IsNullOrEmpty(returnUrl) ? "/" : returnUrl);
+        }
+    });
 }
 else
 {
@@ -311,6 +436,28 @@ if (!builder.Configuration.GetValue<bool>("DOTNET_RUNNING_IN_CONTAINER"))
 // on every @Assets[...] reference, including blazor.web.js itself, breaking all interactivity.
 app.MapStaticAssets();
 
+// A 1x1 transparent GIF, embedded in every Communication's HtmlBody by RustArchon.Api's
+// CommunicationPublisher. Unauthenticated and unconditional (not gated to Development, unlike
+// single-user-auth below) - a real recipient's mail client has to be able to load this in production.
+// Lives here, not on RustArchon.Api directly, because the Api is never reachable from outside the
+// Docker network (see its InternalController's remarks) - this Panel is the one public door, so it
+// serves the pixel itself and makes one internal call to record the view.
+var trackingPixel = Convert.FromBase64String("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==");
+app.MapGet("/track/email/{id:guid}.gif", async (Guid id, IInternalCommunicationApiClient client) =>
+{
+    try
+    {
+        await client.MarkViewedAsync(id);
+    }
+    catch
+    {
+        // Never let a broken or already-resolved tracking call turn into a broken image in
+        // somebody's inbox - the pixel itself always loads regardless of what MarkViewedAsync did.
+    }
+
+    return Results.File(trackingPixel, "image/gif");
+});
+
 // Authentication & Authorization must run before UseAntiforgery, so HttpContext.User is already
 // populated when antiforgery validates the token's embedded claims - otherwise every check compares
 // against the wrong (unauthenticated) principal, causing AntiforgeryValidationException on every
@@ -319,6 +466,27 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseAntiforgery();
+
+// Placed immediately before MapRazorComponents per Microsoft's own guidance for Blazor Server/global
+// Interactive Server apps - see App.razor's own remarks for how the resolved culture then survives
+// for the life of the circuit despite Blazor Server never re-running this middleware per component.
+// Uses the same RequestLocalizationOptions instance Configure<>() built above (see its own remarks),
+// not a second one constructed here.
+app.UseRequestLocalization();
+
+// The redirect-based culture switcher - see Components/Shared/CultureSelector.razor, the only caller.
+// A LocalRedirect, never anything else, to rule out open-redirect abuse of redirectUri.
+app.MapGet("/Culture/Set", (string? culture, string redirectUri, HttpContext context) =>
+{
+    if (!string.IsNullOrWhiteSpace(culture))
+    {
+        context.Response.Cookies.Append(
+            CookieRequestCultureProvider.DefaultCookieName,
+            CookieRequestCultureProvider.MakeCookieValue(new RequestCulture(culture, culture)));
+    }
+
+    return Results.LocalRedirect(redirectUri);
+});
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

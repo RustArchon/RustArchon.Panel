@@ -1,21 +1,26 @@
 @implements IDisposable
 
+@using RustArchon.Panel.Services
 @inject NavigationManager NavigationManager
-@inject IConfiguration Configuration
+@inject SiteBrandingService Branding
 
 <div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
         @* Panel's own "/" is just a redirect-to-servers page (see Index.razor) since the marketing
            home page now lives in the separate RustArchon.Web app - the brand mark navigates there
-           instead of Panel's own root. *@
-        <a class="navbar-brand" href="@marketingBaseUrl">RustArchon</a>
-        <button type="button" class="theme-toggle" data-theme-toggle aria-label="Toggle light/dark theme" aria-pressed="true">
-            <span data-theme-icon>☀</span>
-        </button>
+           instead of Panel's own root. Both the text and the href come from the platform's own
+           SiteName/SiteUrl settings (see SiteBrandingService), not this app's name. *@
+        <a class="navbar-brand" href="@siteUrl">@siteName</a>
+        <div class="d-flex align-items-center gap-2">
+            <CultureSelector />
+            <button type="button" class="theme-toggle" data-theme-toggle aria-label="@Localizer["Toggle light/dark theme"]" aria-pressed="true">
+                <span data-theme-icon>☀</span>
+            </button>
+        </div>
     </div>
 </div>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+<input type="checkbox" title="@Localizer["Navigation menu"]" class="navbar-toggler" />
 
 @*
     Grouped by who the section is for, which is the same split the product itself has: what a
@@ -32,8 +37,8 @@
 <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
     <nav class="nav flex-column">
         <div class="nav-item px-3">
-            <a class="nav-link" href="@marketingBaseUrl">
-                <i class="bi bi-house-door-fill" aria-hidden="true"></i> Home
+            <a class="nav-link" href="@siteUrl">
+                <i class="bi bi-house-door-fill" aria-hidden="true"></i> @Localizer["Home"]
             </a>
         </div>
 
@@ -41,28 +46,28 @@
             <Authorized>
                 @* The subscriber's own organization: the servers they run, the people who help run
                    them, and what they pay for it. Servers leads because it is the product. *@
-                <h2 class="nav-group">Your organization</h2>
+                <h2 class="nav-group">@Localizer["Your organization"]</h2>
 
                 <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="servers">
-                        <i class="bi bi-hdd-network-fill" aria-hidden="true"></i> Servers
+                    <NavLink class="nav-link" href="Organization" Match="NavLinkMatch.All">
+                        <i class="bi bi-people-fill" aria-hidden="true"></i> @Localizer["Organization"]
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="Organization/Members">
-                        <i class="bi bi-people-fill" aria-hidden="true"></i> Members
+                    <NavLink class="nav-link" href="servers">
+                        <i class="bi bi-hdd-network-fill" aria-hidden="true"></i> @Localizer["Servers"]
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Organization/Roles">
-                        <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> Roles
+                        <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> @Localizer["Roles"]
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     @* Their OWN plan, not the platform-wide catalog under Site administration. The
                        two used to sit six items apart in one flat list. *@
                     <NavLink class="nav-link" href="Account/Subscription">
-                        <i class="bi bi-credit-card-fill" aria-hidden="true"></i> Subscription
+                        <i class="bi bi-credit-card-fill" aria-hidden="true"></i> @Localizer["Subscription"]
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
@@ -70,7 +75,7 @@
                        someone goes to answer "what have I been charged?", which is a question you
                        look for in the nav rather than remember is one click deeper. *@
                     <NavLink class="nav-link" href="Account/BillingHistory">
-                        <i class="bi bi-receipt" aria-hidden="true"></i> Billing history
+                        <i class="bi bi-receipt" aria-hidden="true"></i> @Localizer["Billing history"]
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
@@ -78,48 +83,58 @@
                        It lives here because the switcher above it is JumpStart's component and must
                        not learn RustArchon's routes. *@
                     <NavLink class="nav-link" href="Organization/New">
-                        <i class="bi bi-plus-square" aria-hidden="true"></i> New organization
+                        <i class="bi bi-plus-square" aria-hidden="true"></i> @Localizer["New organization"]
                     </NavLink>
                 </div>
 
                 @* Everything a site admin does across all organizations, ordered the way the job
                    runs: the customers, then how the business is doing, then what it sells, then the
                    settings that govern the platform itself. *@
-                <h2 class="nav-group">Site administration</h2>
+                <h2 class="nav-group">@Localizer["Site administration"]</h2>
 
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Admin/Organizations">
-                        <i class="bi bi-buildings-fill" aria-hidden="true"></i> Organizations
+                        <i class="bi bi-buildings-fill" aria-hidden="true"></i> @Localizer["Organizations"]
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Admin/Users">
-                        <i class="bi bi-person-vcard-fill" aria-hidden="true"></i> Users
+                        <i class="bi bi-person-vcard-fill" aria-hidden="true"></i> @Localizer["Users"]
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Reports">
-                        <i class="bi bi-bar-chart-fill" aria-hidden="true"></i> Reports
+                        <i class="bi bi-bar-chart-fill" aria-hidden="true"></i> @Localizer["Reports"]
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Admin/Invoices">
-                        <i class="bi bi-receipt-cutoff" aria-hidden="true"></i> Invoices
+                        <i class="bi bi-receipt-cutoff" aria-hidden="true"></i> @Localizer["Invoices"]
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Admin/Plans">
-                        <i class="bi bi-tags-fill" aria-hidden="true"></i> Plans
+                        <i class="bi bi-tags-fill" aria-hidden="true"></i> @Localizer["Plans"]
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Admin/InvitationCodes">
-                        <i class="bi bi-ticket-perforated-fill" aria-hidden="true"></i> Invitation codes
+                        <i class="bi bi-ticket-perforated-fill" aria-hidden="true"></i> @Localizer["Invitation codes"]
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Admin/PlatformSettings">
-                        <i class="bi bi-sliders" aria-hidden="true"></i> Platform settings
+                        <i class="bi bi-sliders" aria-hidden="true"></i> @Localizer["Platform settings"]
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Admin/EmailTemplates">
+                        <i class="bi bi-envelope-paper-fill" aria-hidden="true"></i> @Localizer["Email templates"]
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Admin/EmailPlaceholders">
+                        <i class="bi bi-braces" aria-hidden="true"></i> @Localizer["Email placeholders"]
                     </NavLink>
                 </div>
 
@@ -137,7 +152,7 @@
                         <AntiforgeryToken />
                         <input type="hidden" name="ReturnUrl" value="@currentUrl" />
                         <button type="submit" class="nav-link">
-                            <i class="bi bi-arrow-bar-left" aria-hidden="true"></i> Logout
+                            <i class="bi bi-arrow-bar-left" aria-hidden="true"></i> @Localizer["Logout"]
                         </button>
                     </form>
                 </div>
@@ -148,7 +163,7 @@
            not just marketing-site visitors - must be offered a way to get its source. See NOTICE.md. *@
         <div class="nav-item px-3 nav-source">
             <a class="nav-link" href="https://github.com/RustArchon" target="_blank" rel="noopener">
-                <i class="bi bi-github" aria-hidden="true"></i> Source
+                <i class="bi bi-github" aria-hidden="true"></i> @Localizer["Source"]
             </a>
         </div>
 
@@ -156,12 +171,12 @@
             <NotAuthorized>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Account/Register">
-                        <i class="bi bi-person" aria-hidden="true"></i> Register
+                        <i class="bi bi-person" aria-hidden="true"></i> @Localizer["Register"]
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Account/Login">
-                        <i class="bi bi-person-badge" aria-hidden="true"></i> Login
+                        <i class="bi bi-person-badge" aria-hidden="true"></i> @Localizer["Login"]
                     </NavLink>
                 </div>
             </NotAuthorized>
@@ -171,20 +186,39 @@
 
 @code {
     private string? currentUrl;
-    private string marketingBaseUrl = string.Empty;
+    private string siteName = "RustArchon";
+    private string siteUrl = "https://www.rustarchon.com";
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        marketingBaseUrl = Configuration["MarketingBaseUrl"]
-            ?? throw new InvalidOperationException("MarketingBaseUrl configuration is missing.");
+        await LoadBrandingAsync();
+
         currentUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
         NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    private async Task LoadBrandingAsync()
+    {
+        var branding = await Branding.GetAsync();
+        siteName = branding.SiteName;
+        siteUrl = branding.SiteUrl;
     }
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
         currentUrl = NavigationManager.ToBaseRelativePath(e.Location);
-        StateHasChanged();
+
+        // This component is mounted once and never re-initialized for the life of the circuit (see
+        // MainLayout), so OnInitializedAsync's own load above only ever runs the first time - refreshed
+        // here instead so an admin's saved Site name/Site URL change shows up on this nav bar's very
+        // next navigation, not whenever the circuit next happens to restart. Cheap to do on every
+        // navigation: GetAsync() reads Valkey directly (see SiteBrandingService), not a network round
+        // trip to the Api in the common case.
+        _ = InvokeAsync(async () =>
+        {
+            await LoadBrandingAsync();
+            StateHasChanged();
+        });
     }
 
     public void Dispose()
