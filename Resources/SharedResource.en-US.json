@@ -24,5 +24,8 @@
   "Register": "Register",
   "Login": "Login",
   "An unhandled error has occurred.": "An unhandled error has occurred.",
-  "Reload": "Reload"
+  "Reload": "Reload",
+  "Coming soon": "Coming soon",
+  "Preferences": "Preferences",
+  "Log Out": "Log Out"
 }
