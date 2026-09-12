@@ -1,0 +1,139 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/EmailPlaceholders/{Name}"
+@using System.ComponentModel.DataAnnotations
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IEmailPlaceholderApiClient EmailPlaceholderClient
+@inject NavigationManager Nav
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@("{{" + Name + "}}")</PageTitle>
+
+@if (accessDenied == true)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage email placeholders."]
+    </div>
+}
+else if (loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Loading placeholder..."]</div>
+}
+else if (placeholder is null)
+{
+    <div class="alert alert-danger">@Localizer["No such placeholder."]</div>
+    <a class="btn btn-outline-secondary" href="Admin/EmailPlaceholders">@Localizer["Back to email placeholders"]</a>
+}
+else
+{
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb small">
+            <li class="breadcrumb-item"><a href="Admin/EmailPlaceholders">@Localizer["Email placeholders"]</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{@Name}}</li>
+        </ol>
+    </nav>
+
+    <h1 class="mb-1"><code>{{@Name}}</code></h1>
+    <p class="text-muted">
+        @Localizer["The literal token text is fixed - only what it means and its preview sample can be changed here."]
+    </p>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    <EditForm Model="editForm" OnValidSubmit="SaveAsync" class="col-lg-6">
+        <DataAnnotationsValidator />
+        <ValidationSummary class="text-danger" role="alert" />
+
+        <div class="mb-3">
+            <label class="form-label">@Localizer["Description"]</label>
+            <input class="form-control" @bind="editForm.Description" @bind:event="oninput"
+                   placeholder="@Localizer["Shown to the admin editing a template, next to this placeholder's chip."]" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">@Localizer["Sample"]</label>
+            <input class="form-control" @bind="editForm.Sample" @bind:event="oninput" />
+            <div class="form-text">
+                @Localizer["What stands in for"] <code>{{@Name}}</code> @Localizer["in a template's live preview - never sent to a real recipient."]
+            </div>
+        </div>
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary" disabled="@saving">
+                @(saving ? Localizer["Saving..."] : Localizer["Save"])
+            </button>
+            <a class="btn btn-outline-secondary" href="Admin/EmailPlaceholders">@Localizer["Cancel"]</a>
+        </div>
+    </EditForm>
+}
+
+@code {
+    [Parameter] public string Name { get; set; } = string.Empty;
+
+    private EmailPlaceholderDto? placeholder;
+    private UpdateEmailPlaceholderDto editForm = new();
+
+    private bool loading = true;
+    private bool saving;
+    private bool? accessDenied;
+    private string? errorMessage;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            placeholder = await EmailPlaceholderClient.GetAsync(Name);
+            editForm = new UpdateEmailPlaceholderDto { Description = placeholder.Description, Sample = placeholder.Sample };
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            placeholder = null;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load this placeholder");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        saving = true;
+        errorMessage = null;
+
+        try
+        {
+            await EmailPlaceholderClient.UpdateAsync(Name, editForm);
+            Nav.NavigateTo("Admin/EmailPlaceholders");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "save this placeholder");
+            saving = false;
+        }
+    }
+}
