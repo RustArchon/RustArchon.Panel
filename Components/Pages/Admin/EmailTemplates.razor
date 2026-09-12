@@ -1,0 +1,115 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/EmailTemplates"
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IEmailTemplateApiClient EmailTemplateClient
+@rendermode RenderModes.NonPrerenderedServer
+
+@* Every kind of email RustArchon sends, editable without a deployment - see EmailTemplateRegistry
+   (RustArchon.Api) for where each row is declared. Just the list here; editing is its own page
+   (Admin/EmailTemplates/{Code} -> EmailTemplateDetail.razor), the same shape as
+   Admin/Organizations/{id} -> OrganizationDetail.razor - not an expand-in-row or modal editor. *@
+
+<PageTitle>@Localizer["Email Templates"]</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>@Localizer["Email Templates"]</h1>
+</div>
+
+@if (accessDenied == true)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage email templates."]
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (loading)
+    {
+        <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Loading templates..."]</div>
+    }
+    else if (templates.Count == 0)
+    {
+        <div class="alert alert-info">@Localizer["No email templates found."]</div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>@Localizer["Template"]</th>
+                        <th>@Localizer["Subject"]</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var template in templates)
+                    {
+                        <tr @key="template.Code">
+                            <td>
+                                <div>@template.Name</div>
+                                @if (!string.IsNullOrEmpty(template.Description))
+                                {
+                                    <div class="small text-muted">@template.Description</div>
+                                }
+                            </td>
+                            <td class="text-truncate" style="max-width: 320px;">@template.Subject</td>
+                            <td class="text-end">
+                                <a class="btn btn-sm btn-outline-secondary" href="Admin/EmailTemplates/@template.Code">
+                                    @Localizer["Edit"]
+                                </a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private List<EmailTemplateDto> templates = [];
+    private bool loading = true;
+    private bool? accessDenied;
+    private string? errorMessage;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            templates = await EmailTemplateClient.GetAllAsync();
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load email templates");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+}
