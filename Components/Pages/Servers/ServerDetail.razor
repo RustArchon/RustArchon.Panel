@@ -16,27 +16,28 @@
 @inject RconHubClient HubClient
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
+@inject SiteBrandingService Branding
 @rendermode RenderModes.NonPrerenderedServer
 @implements IAsyncDisposable
 
-<PageTitle>@(server?.Name ?? "Server") — RustArchon</PageTitle>
+<PageTitle>@(server?.Name ?? Localizer["Server"]) — @siteName</PageTitle>
 
 @if (loading)
 {
-    <p><em>Loading server...</em></p>
+    <p><em>@Localizer["Loading server..."]</em></p>
 }
 else if (server is null)
 {
     <div class="alert alert-danger">
-        <i class="bi bi-exclamation-triangle"></i> Server not found, or it's not one of yours.
+        <i class="bi bi-exclamation-triangle"></i> @Localizer["Server not found, or it's not one of yours."]
     </div>
-    <a class="btn btn-outline-secondary" href="servers"><i class="bi bi-arrow-left"></i> Back to Servers</a>
+    <a class="btn btn-outline-secondary" href="servers"><i class="bi bi-arrow-left"></i> @Localizer["Back to Servers"]</a>
 }
 else
 {
     <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
         <div>
-            <a href="servers" class="link-arrow d-inline-block mb-2"><i class="bi bi-arrow-left"></i> All Servers</a>
+            <a href="servers" class="link-arrow d-inline-block mb-2"><i class="bi bi-arrow-left"></i> @Localizer["All Servers"]</a>
             <h1 class="mb-0">@server.Name</h1>
             <p class="text-muted mb-0">
                 <code>@server.Host:@server.Port</code>
@@ -54,32 +55,32 @@ else
     <ul class="nav nav-tabs console-tabs mb-3">
         <li class="nav-item">
             <button class="nav-link @(activeTab == Tab.Console ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Console)">
-                <i class="bi bi-terminal"></i> Console
+                <i class="bi bi-terminal"></i> @Localizer["Console"]
             </button>
         </li>
         <li class="nav-item">
             <button class="nav-link @(activeTab == Tab.Chat ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Chat)">
-                <i class="bi bi-chat-dots"></i> Chat
+                <i class="bi bi-chat-dots"></i> @Localizer["Chat"]
             </button>
         </li>
         <li class="nav-item">
             <button class="nav-link @(activeTab == Tab.Players ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Players)">
-                <i class="bi bi-people"></i> Players
+                <i class="bi bi-people"></i> @Localizer["Players"]
             </button>
         </li>
         <li class="nav-item">
             <button class="nav-link @(activeTab == Tab.Stats ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Stats)">
-                <i class="bi bi-graph-up"></i> Stats
+                <i class="bi bi-graph-up"></i> @Localizer["Stats"]
             </button>
         </li>
         <li class="nav-item">
             <button class="nav-link @(activeTab == Tab.Logs ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Logs)">
-                <i class="bi bi-journal-text"></i> Logs
+                <i class="bi bi-journal-text"></i> @Localizer["Logs"]
             </button>
         </li>
         <li class="nav-item">
             <button class="nav-link @(activeTab == Tab.Control ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Control)">
-                <i class="bi bi-sliders"></i> Control
+                <i class="bi bi-sliders"></i> @Localizer["Control"]
             </button>
         </li>
     </ul>
@@ -89,7 +90,7 @@ else
         {
             <div class="console-toolbar">
                 <label>
-                    Lines
+                    @Localizer["Lines"]
                     <select class="form-select form-select-sm" @bind="consoleLineCount">
                         <option value="50">50</option>
                         <option value="100">100</option>
@@ -99,20 +100,20 @@ else
                     </select>
                 </label>
                 <label>
-                    From
+                    @Localizer["From"]
                     <input type="datetime-local" class="form-control form-control-sm" @bind="consoleSince" @bind:format="yyyy-MM-ddTHH:mm" />
                 </label>
                 <label>
-                    To
+                    @Localizer["To"]
                     <input type="datetime-local" class="form-control form-control-sm" @bind="consoleUntil" @bind:format="yyyy-MM-ddTHH:mm" />
                 </label>
                 <button class="btn btn-sm btn-outline-secondary" @onclick="() => LoadConsoleHistoryAsync()" disabled="@loadingConsoleHistory">
-                    <i class="bi bi-arrow-clockwise"></i> Load
+                    <i class="bi bi-arrow-clockwise"></i> @Localizer["Load"]
                 </button>
                 @if (consoleFilterActive)
                 {
                     <button class="btn btn-sm btn-outline-secondary" @onclick="ResetConsoleFilterAsync" disabled="@loadingConsoleHistory">
-                        <i class="bi bi-x-circle"></i> Reset to latest
+                        <i class="bi bi-x-circle"></i> @Localizer["Reset to latest"]
                     </button>
                 }
             </div>
@@ -121,10 +122,8 @@ else
             {
                 <div class="console-empty">
                     <i class="bi bi-broadcast"></i>
-                    <p>No console activity captured yet.</p>
-                    <p class="text-muted small">Once this server's connection is live, every console
-                    line will stream here in real time, and history will still be here the next time
-                    you check back - even if nobody was watching when it happened.</p>
+                    <p>@Localizer["No console activity captured yet."]</p>
+                    <p class="text-muted small">@Localizer["Once this server's connection is live, every console line will stream here in real time, and history will still be here the next time you check back - even if nobody was watching when it happened."]</p>
                 </div>
             }
             else
@@ -140,11 +139,11 @@ else
                 </div>
             }
             <div class="console-input">
-                <input type="text" class="form-control" placeholder="Send a command..."
+                <input type="text" class="form-control" placeholder="@Localizer["Send a command..."]"
                        @bind="commandText" @bind:event="oninput" @onkeydown="OnCommandKeyDown"
                        disabled="@sendingCommand" />
                 <button class="btn btn-primary" @onclick="SendCommandAsync" disabled="@(sendingCommand || string.IsNullOrWhiteSpace(commandText))">
-                    Send
+                    @Localizer["Send"]
                 </button>
             </div>
             @if (!string.IsNullOrEmpty(commandError))
@@ -156,7 +155,7 @@ else
         {
             <div class="console-toolbar">
                 <label>
-                    Lines
+                    @Localizer["Lines"]
                     <select class="form-select form-select-sm" @bind="chatLineCount">
                         <option value="50">50</option>
                         <option value="100">100</option>
@@ -166,20 +165,20 @@ else
                     </select>
                 </label>
                 <label>
-                    From
+                    @Localizer["From"]
                     <input type="datetime-local" class="form-control form-control-sm" @bind="chatSince" @bind:format="yyyy-MM-ddTHH:mm" />
                 </label>
                 <label>
-                    To
+                    @Localizer["To"]
                     <input type="datetime-local" class="form-control form-control-sm" @bind="chatUntil" @bind:format="yyyy-MM-ddTHH:mm" />
                 </label>
                 <button class="btn btn-sm btn-outline-secondary" @onclick="() => LoadChatHistoryAsync()" disabled="@loadingChatHistory">
-                    <i class="bi bi-arrow-clockwise"></i> Load
+                    <i class="bi bi-arrow-clockwise"></i> @Localizer["Load"]
                 </button>
                 @if (chatFilterActive)
                 {
                     <button class="btn btn-sm btn-outline-secondary" @onclick="ResetChatFilterAsync" disabled="@loadingChatHistory">
-                        <i class="bi bi-x-circle"></i> Reset to latest
+                        <i class="bi bi-x-circle"></i> @Localizer["Reset to latest"]
                     </button>
                 }
             </div>
@@ -188,9 +187,8 @@ else
             {
                 <div class="console-empty">
                     <i class="bi bi-chat-dots"></i>
-                    <p>No chat activity captured yet.</p>
-                    <p class="text-muted small">In-game chat will show up here once this server's
-                    connection is live.</p>
+                    <p>@Localizer["No chat activity captured yet."]</p>
+                    <p class="text-muted small">@Localizer["In-game chat will show up here once this server's connection is live."]</p>
                 </div>
             }
             else
@@ -224,11 +222,11 @@ else
                 </div>
             }
             <div class="console-input">
-                <input type="text" class="form-control" placeholder="Send a chat message..."
+                <input type="text" class="form-control" placeholder="@Localizer["Send a chat message..."]"
                        @bind="chatText" @bind:event="oninput" @onkeydown="OnChatKeyDown"
                        disabled="@sendingChat" />
                 <button class="btn btn-primary" @onclick="SendChatAsync" disabled="@(sendingChat || string.IsNullOrWhiteSpace(chatText))">
-                    Send
+                    @Localizer["Send"]
                 </button>
             </div>
             @if (!string.IsNullOrEmpty(chatError))
@@ -240,18 +238,17 @@ else
         {
             <div class="players-columns">
                 <div class="players-current">
-                    <h2 class="h6 text-muted text-uppercase">Currently connected</h2>
+                    <h2 class="h6 text-muted text-uppercase">@Localizer["Currently connected"]</h2>
                     @if (loadingPlayers)
                     {
-                        <p><em>Loading players...</em></p>
+                        <p><em>@Localizer["Loading players..."]</em></p>
                     }
                     else if (currentPlayers.Count == 0)
                     {
                         <div class="console-empty">
                             <i class="bi bi-people"></i>
-                            <p>Nobody is connected right now.</p>
-                            <p class="text-muted small">Players show up here the moment they join,
-                            and drop off the moment they disconnect.</p>
+                            <p>@Localizer["Nobody is connected right now."]</p>
+                            <p class="text-muted small">@Localizer["Players show up here the moment they join, and drop off the moment they disconnect."]</p>
                         </div>
                     }
                     else
@@ -260,11 +257,11 @@ else
                             <table class="table table-sm player-table">
                                 <thead>
                                     <tr>
-                                        <th>Player</th>
-                                        <th>Steam ID</th>
-                                        <th>IP address</th>
-                                        <th>Connected</th>
-                                        <th>Location</th>
+                                        <th>@Localizer["Player"]</th>
+                                        <th>@Localizer["Steam ID"]</th>
+                                        <th>@Localizer["IP address"]</th>
+                                        <th>@Localizer["Connected"]</th>
+                                        <th>@Localizer["Location"]</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -285,18 +282,17 @@ else
                 </div>
 
                 <div class="players-kills">
-                    <h2 class="h6 text-muted text-uppercase">Recent kills</h2>
+                    <h2 class="h6 text-muted text-uppercase">@Localizer["Recent kills"]</h2>
                     @if (loadingKills)
                     {
-                        <p><em>Loading kill history...</em></p>
+                        <p><em>@Localizer["Loading kill history..."]</em></p>
                     }
                     else if (recentKills.Count == 0)
                     {
                         <div class="console-empty">
                             <i class="bi bi-crosshair"></i>
-                            <p>No kills captured yet.</p>
-                            <p class="text-muted small">Kills are detected heuristically from console
-                            text, so this may miss some and shouldn't be treated as authoritative.</p>
+                            <p>@Localizer["No kills captured yet."]</p>
+                            <p class="text-muted small">@Localizer["Kills are detected heuristically from console text, so this may miss some and shouldn't be treated as authoritative."]</p>
                         </div>
                     }
                     else
@@ -315,18 +311,17 @@ else
             </div>
 
             <div class="players-inactive">
-                <h2 class="h6 text-muted text-uppercase">Inactive players</h2>
+                <h2 class="h6 text-muted text-uppercase">@Localizer["Inactive players"]</h2>
                 @if (loadingInactivePlayers && inactivePlayers.Count == 0)
                 {
-                    <p><em>Loading player history...</em></p>
+                    <p><em>@Localizer["Loading player history..."]</em></p>
                 }
                 else if (inactivePlayers.Count == 0)
                 {
                     <div class="console-empty">
                         <i class="bi bi-clock-history"></i>
-                        <p>No player history yet.</p>
-                        <p class="text-muted small">Everyone who has ever connected and since
-                        disconnected will show up here, along with their playtime and account info.</p>
+                        <p>@Localizer["No player history yet."]</p>
+                        <p class="text-muted small">@Localizer["Everyone who has ever connected and since disconnected will show up here, along with their playtime and account info."]</p>
                     </div>
                 }
                 else
@@ -335,19 +330,19 @@ else
                         <table class="table table-sm player-table">
                             <thead>
                                 <tr>
-                                    <th>Nickname</th>
-                                    <th>Steam ID</th>
-                                    <th>Country</th>
-                                    <th>VAC Bans</th>
-                                    <th>Game Bans</th>
-                                    <th>Violations</th>
-                                    <th>Hours on Record</th>
-                                    <th>Hours on Server</th>
-                                    <th>Last Ping</th>
-                                    <th>Last Session</th>
-                                    <th>IP Address</th>
-                                    <th>VPN</th>
-                                    <th>Last Connected</th>
+                                    <th>@Localizer["Nickname"]</th>
+                                    <th>@Localizer["Steam ID"]</th>
+                                    <th>@Localizer["Country"]</th>
+                                    <th>@Localizer["VAC Bans"]</th>
+                                    <th>@Localizer["Game Bans"]</th>
+                                    <th>@Localizer["Violations"]</th>
+                                    <th>@Localizer["Hours on Record"]</th>
+                                    <th>@Localizer["Hours on Server"]</th>
+                                    <th>@Localizer["Last Ping"]</th>
+                                    <th>@Localizer["Last Session"]</th>
+                                    <th>@Localizer["IP Address"]</th>
+                                    <th>@Localizer["VPN"]</th>
+                                    <th>@Localizer["Last Connected"]</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -376,7 +371,7 @@ else
                     @if (inactivePlayers.Count < inactivePlayersTotalCount)
                     {
                         <button class="btn btn-sm btn-outline-secondary" @onclick="() => LoadInactivePlayersAsync(append: true)" disabled="@loadingInactivePlayers">
-                            @(loadingInactivePlayers ? "Loading..." : $"Load more ({inactivePlayers.Count} of {inactivePlayersTotalCount})")
+                            @(loadingInactivePlayers ? Localizer["Loading..."] : Localizer["Load more ({0} of {1})", inactivePlayers.Count, inactivePlayersTotalCount])
                         </button>
                     }
                 }
@@ -384,9 +379,9 @@ else
 
             <div class="players-banlist">
                 <div class="d-flex justify-content-between align-items-center">
-                    <h2 class="h6 text-muted text-uppercase mb-0">Ban list</h2>
+                    <h2 class="h6 text-muted text-uppercase mb-0">@Localizer["Ban list"]</h2>
                     <button class="btn btn-sm btn-outline-secondary" @onclick="LoadBanListAsync" disabled="@loadingBanList">
-                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                        <i class="bi bi-arrow-clockwise"></i> @Localizer["Refresh"]
                     </button>
                 </div>
                 @if (banListError is not null)
@@ -395,13 +390,13 @@ else
                 }
                 else if (loadingBanList && banList.Count == 0)
                 {
-                    <p><em>Loading ban list...</em></p>
+                    <p><em>@Localizer["Loading ban list..."]</em></p>
                 }
                 else if (banList.Count == 0)
                 {
                     <div class="console-empty">
                         <i class="bi bi-slash-circle"></i>
-                        <p>No one is banned.</p>
+                        <p>@Localizer["No one is banned."]</p>
                     </div>
                 }
                 else
@@ -410,10 +405,10 @@ else
                         <table class="table table-sm player-table">
                             <thead>
                                 <tr>
-                                    <th>Steam ID</th>
-                                    <th>Name</th>
-                                    <th>Reason</th>
-                                    <th>Expires</th>
+                                    <th>@Localizer["Steam ID"]</th>
+                                    <th>@Localizer["Name"]</th>
+                                    <th>@Localizer["Reason"]</th>
+                                    <th>@Localizer["Expires"]</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -423,7 +418,7 @@ else
                                         <td><code>@b.SteamId</code></td>
                                         <td>@b.Name</td>
                                         <td>@b.Reason</td>
-                                        <td>@(b.IsPermanent ? "Permanent" : b.Expiry)</td>
+                                        <td>@(b.IsPermanent ? Localizer["Permanent"] : b.Expiry)</td>
                                     </tr>
                                 }
                             </tbody>
@@ -446,9 +441,9 @@ else
         {
             <div class="stats-pane">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h2 class="h6 text-muted text-uppercase mb-0">Server info</h2>
+                    <h2 class="h6 text-muted text-uppercase mb-0">@Localizer["Server info"]</h2>
                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => LoadLiveServerInfoAsync()" disabled="@loadingLiveServerInfo">
-                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                        <i class="bi bi-arrow-clockwise"></i> @Localizer["Refresh"]
                     </button>
                 </div>
 
@@ -459,62 +454,61 @@ else
 
                 @if (loadingLiveServerInfo && liveServerInfo is null)
                 {
-                    <p><em>Loading server info...</em></p>
+                    <p><em>@Localizer["Loading server info..."]</em></p>
                 }
                 else if (liveServerInfo is not null)
                 {
                     <dl class="server-info-grid mb-4">
-                        <div><dt>Hostname</dt><dd>@liveServerInfo.Hostname</dd></div>
-                        <div><dt>Map</dt><dd>@liveServerInfo.Map</dd></div>
-                        <div><dt>Players</dt><dd>@liveServerInfo.Players / @liveServerInfo.MaxPlayers @(liveServerInfo.ReservedSlots > 0 ? $"({liveServerInfo.ReservedSlots} reserved)" : "")</dd></div>
-                        <div><dt>Queued / Joining</dt><dd>@liveServerInfo.Queued / @liveServerInfo.Joining</dd></div>
-                        <div><dt>Entity Count</dt><dd>@liveServerInfo.EntityCount.ToString("N0")</dd></div>
-                        <div><dt>Framerate</dt><dd>@liveServerInfo.Framerate.ToString("0.0") fps</dd></div>
-                        <div><dt>Memory</dt><dd>@liveServerInfo.Memory MB @(liveServerInfo.MemoryUsageSystem > 0 ? $"({liveServerInfo.MemoryUsageSystem} MB system)" : "")</dd></div>
-                        <div><dt>Collections</dt><dd>@liveServerInfo.Collections</dd></div>
-                        <div><dt>Uptime</dt><dd>@FormatUptime(liveServerInfo.Uptime)</dd></div>
-                        <div><dt>Game Time</dt><dd>@liveServerInfo.GameTime</dd></div>
-                        <div><dt>Save Created</dt><dd>@liveServerInfo.SaveCreatedTime</dd></div>
-                        <div><dt>Version</dt><dd>@liveServerInfo.Version <span class="text-muted">(protocol @liveServerInfo.Protocol)</span></dd></div>
-                        <div><dt>Restarting</dt><dd>@(liveServerInfo.Restarting ? "Yes" : "No")</dd></div>
+                        <div><dt>@Localizer["Hostname"]</dt><dd>@liveServerInfo.Hostname</dd></div>
+                        <div><dt>@Localizer["Map"]</dt><dd>@liveServerInfo.Map</dd></div>
+                        <div><dt>@Localizer["Players"]</dt><dd>@liveServerInfo.Players / @liveServerInfo.MaxPlayers @(liveServerInfo.ReservedSlots > 0 ? Localizer["({0} reserved)", liveServerInfo.ReservedSlots] : "")</dd></div>
+                        <div><dt>@Localizer["Queued / Joining"]</dt><dd>@liveServerInfo.Queued / @liveServerInfo.Joining</dd></div>
+                        <div><dt>@Localizer["Entity Count"]</dt><dd>@liveServerInfo.EntityCount.ToString("N0")</dd></div>
+                        <div><dt>@Localizer["Framerate"]</dt><dd>@liveServerInfo.Framerate.ToString("0.0") @Localizer["fps"]</dd></div>
+                        <div><dt>@Localizer["Memory"]</dt><dd>@liveServerInfo.Memory @Localizer["MB"] @(liveServerInfo.MemoryUsageSystem > 0 ? Localizer["({0} MB system)", liveServerInfo.MemoryUsageSystem] : "")</dd></div>
+                        <div><dt>@Localizer["Collections"]</dt><dd>@liveServerInfo.Collections</dd></div>
+                        <div><dt>@Localizer["Uptime"]</dt><dd>@FormatUptime(liveServerInfo.Uptime)</dd></div>
+                        <div><dt>@Localizer["Game Time"]</dt><dd>@liveServerInfo.GameTime</dd></div>
+                        <div><dt>@Localizer["Save Created"]</dt><dd>@liveServerInfo.SaveCreatedTime</dd></div>
+                        <div><dt>@Localizer["Version"]</dt><dd>@liveServerInfo.Version <span class="text-muted">@Localizer["(protocol {0})", liveServerInfo.Protocol]</span></dd></div>
+                        <div><dt>@Localizer["Restarting"]</dt><dd>@(liveServerInfo.Restarting ? Localizer["Yes"] : Localizer["No"])</dd></div>
                     </dl>
                 }
 
-                <h2 class="h6 text-muted text-uppercase mb-2">Trends</h2>
+                <h2 class="h6 text-muted text-uppercase mb-2">@Localizer["Trends"]</h2>
                 @if (serverInfoHistoryError is not null)
                 {
                     <div class="alert alert-warning py-2 px-3 small mb-3">@serverInfoHistoryError</div>
                 }
                 @if (loadingServerInfoHistory && serverInfoHistory.Count == 0)
                 {
-                    <p><em>Loading history...</em></p>
+                    <p><em>@Localizer["Loading history..."]</em></p>
                 }
                 else if (serverInfoHistory.Count == 0)
                 {
                     <div class="console-empty">
                         <i class="bi bi-graph-up"></i>
-                        <p>No history captured yet.</p>
-                        <p class="text-muted small">RustArchon.Worker polls <code>serverinfo</code> every
-                        60 seconds while connected - check back shortly after the server comes online.</p>
+                        <p>@Localizer["No history captured yet."]</p>
+                        <p class="text-muted small">@Localizer["RustArchon.Worker polls"] <code>serverinfo</code> @Localizer["every 60 seconds while connected - check back shortly after the server comes online."]</p>
                     </div>
                 }
                 else
                 {
                     <div class="stats-charts">
                         <div class="chart-card">
-                            <h3 class="h6">Player Count</h3>
+                            <h3 class="h6">@Localizer["Player Count"]</h3>
                             <div class="chart-wrap"><canvas id="playersChart"></canvas></div>
                         </div>
                         <div class="chart-card">
-                            <h3 class="h6">Network In/Out (bytes/s)</h3>
+                            <h3 class="h6">@Localizer["Network In/Out (bytes/s)"]</h3>
                             <div class="chart-wrap"><canvas id="networkChart"></canvas></div>
                         </div>
                         <div class="chart-card">
-                            <h3 class="h6">Memory (MB)</h3>
+                            <h3 class="h6">@Localizer["Memory (MB)"]</h3>
                             <div class="chart-wrap"><canvas id="memoryChart"></canvas></div>
                         </div>
                         <div class="chart-card">
-                            <h3 class="h6">Server FPS</h3>
+                            <h3 class="h6">@Localizer["Server FPS"]</h3>
                             <div class="chart-wrap"><canvas id="fpsChart"></canvas></div>
                         </div>
                     </div>
@@ -527,9 +521,9 @@ else
         {
             <div class="logs-pane">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h2 class="h6 text-muted text-uppercase mb-0">Connection Log</h2>
+                    <h2 class="h6 text-muted text-uppercase mb-0">@Localizer["Connection Log"]</h2>
                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => LoadConnectionLogAsync()" disabled="@loadingConnectionLog">
-                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                        <i class="bi bi-arrow-clockwise"></i> @Localizer["Refresh"]
                     </button>
                 </div>
 
@@ -540,13 +534,13 @@ else
 
                 @if (loadingConnectionLog && connectionLog.Count == 0)
                 {
-                    <p><em>Loading connection log...</em></p>
+                    <p><em>@Localizer["Loading connection log..."]</em></p>
                 }
                 else if (connectionLog.Count == 0)
                 {
                     <div class="console-empty">
                         <i class="bi bi-plug"></i>
-                        <p>No log entries in the last 24 hours.</p>
+                        <p>@Localizer["No log entries in the last 24 hours."]</p>
                     </div>
                 }
                 else
@@ -594,38 +588,38 @@ else
 
                 <div class="control-grid">
                     <div class="control-card">
-                        <h2 class="h6 text-muted text-uppercase">Time</h2>
+                        <h2 class="h6 text-muted text-uppercase">@Localizer["Time"]</h2>
                         <div class="d-flex align-items-center gap-2">
                             <input type="number" class="form-control form-control-sm" style="width:5rem" min="0" max="24" step="0.5" @bind="controlTimeValue" />
-                            <button class="btn btn-sm btn-outline-primary" @onclick="SetTimeAsync" disabled="@controlBusy">Set Time</button>
+                            <button class="btn btn-sm btn-outline-primary" @onclick="SetTimeAsync" disabled="@controlBusy">@Localizer["Set Time"]</button>
                         </div>
-                        <p class="control-card-hint">0-24, e.g. 12 for noon</p>
+                        <p class="control-card-hint">@Localizer["0-24, e.g. 12 for noon"]</p>
                     </div>
 
                     <div class="control-card">
-                        <h2 class="h6 text-muted text-uppercase">Weather</h2>
+                        <h2 class="h6 text-muted text-uppercase">@Localizer["Weather"]</h2>
                         <div class="control-row">
-                            <span class="control-row-label">Rain</span>
+                            <span class="control-row-label">@Localizer["Rain"]</span>
                             <div class="btn-group btn-group-sm" role="group">
-                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "1")' disabled="@controlBusy">On</button>
-                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "0")' disabled="@controlBusy">Off</button>
-                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "*")' disabled="@controlBusy">Auto</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "1")' disabled="@controlBusy">@Localizer["On"]</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "0")' disabled="@controlBusy">@Localizer["Off"]</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.rain", "*")' disabled="@controlBusy">@Localizer["Auto"]</button>
                             </div>
                         </div>
                         <div class="control-row">
-                            <span class="control-row-label">Fog</span>
+                            <span class="control-row-label">@Localizer["Fog"]</span>
                             <div class="btn-group btn-group-sm" role="group">
-                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "1")' disabled="@controlBusy">On</button>
-                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "0")' disabled="@controlBusy">Off</button>
-                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "*")' disabled="@controlBusy">Auto</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "1")' disabled="@controlBusy">@Localizer["On"]</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "0")' disabled="@controlBusy">@Localizer["Off"]</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.fog", "*")' disabled="@controlBusy">@Localizer["Auto"]</button>
                             </div>
                         </div>
                         <div class="control-row">
-                            <span class="control-row-label">Clouds</span>
+                            <span class="control-row-label">@Localizer["Clouds"]</span>
                             <div class="btn-group btn-group-sm" role="group">
-                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "1")' disabled="@controlBusy">On</button>
-                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "0")' disabled="@controlBusy">Off</button>
-                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "*")' disabled="@controlBusy">Auto</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "1")' disabled="@controlBusy">@Localizer["On"]</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "0")' disabled="@controlBusy">@Localizer["Off"]</button>
+                                <button class="btn btn-outline-secondary" @onclick='() => SetWeatherAsync("weather.clouds", "*")' disabled="@controlBusy">@Localizer["Auto"]</button>
                             </div>
                         </div>
                     </div>
@@ -635,62 +629,62 @@ else
                        into their own single/double-row cards just multiplied border/padding chrome
                        without adding information density. *@
                     <div class="control-card">
-                        <h2 class="h6 text-muted text-uppercase">World</h2>
+                        <h2 class="h6 text-muted text-uppercase">@Localizer["World"]</h2>
                         <div class="control-row">
-                            <span class="control-row-label">Radiation</span>
+                            <span class="control-row-label">@Localizer["Radiation"]</span>
                             <div class="btn-group btn-group-sm" role="group">
-                                <button class="btn btn-outline-success" @onclick="() => SetRadiationAsync(true)" disabled="@controlBusy">On</button>
-                                <button class="btn btn-outline-danger" @onclick="() => SetRadiationAsync(false)" disabled="@controlBusy">Off</button>
+                                <button class="btn btn-outline-success" @onclick="() => SetRadiationAsync(true)" disabled="@controlBusy">@Localizer["On"]</button>
+                                <button class="btn btn-outline-danger" @onclick="() => SetRadiationAsync(false)" disabled="@controlBusy">@Localizer["Off"]</button>
                             </div>
                         </div>
                         <div class="control-row">
-                            <span class="control-row-label">Animal Move</span>
+                            <span class="control-row-label">@Localizer["Animal Move"]</span>
                             <div class="btn-group btn-group-sm" role="group">
-                                <button class="btn btn-outline-success" @onclick='() => SetAiConvarAsync("ai.move", true)' disabled="@controlBusy">On</button>
-                                <button class="btn btn-outline-danger" @onclick='() => SetAiConvarAsync("ai.move", false)' disabled="@controlBusy">Off</button>
+                                <button class="btn btn-outline-success" @onclick='() => SetAiConvarAsync("ai.move", true)' disabled="@controlBusy">@Localizer["On"]</button>
+                                <button class="btn btn-outline-danger" @onclick='() => SetAiConvarAsync("ai.move", false)' disabled="@controlBusy">@Localizer["Off"]</button>
                             </div>
                         </div>
                         <div class="control-row">
-                            <span class="control-row-label">Animal AI</span>
+                            <span class="control-row-label">@Localizer["Animal AI"]</span>
                             <div class="btn-group btn-group-sm" role="group">
-                                <button class="btn btn-outline-success" @onclick='() => SetAiConvarAsync("ai.think", true)' disabled="@controlBusy">On</button>
-                                <button class="btn btn-outline-danger" @onclick='() => SetAiConvarAsync("ai.think", false)' disabled="@controlBusy">Off</button>
+                                <button class="btn btn-outline-success" @onclick='() => SetAiConvarAsync("ai.think", true)' disabled="@controlBusy">@Localizer["On"]</button>
+                                <button class="btn btn-outline-danger" @onclick='() => SetAiConvarAsync("ai.think", false)' disabled="@controlBusy">@Localizer["Off"]</button>
                             </div>
                         </div>
                     </div>
 
                     <div class="control-card">
-                        <h2 class="h6 text-muted text-uppercase">World Reset</h2>
+                        <h2 class="h6 text-muted text-uppercase">@Localizer["World Reset"]</h2>
                         <div class="d-flex flex-wrap gap-2">
                             <button class="btn btn-sm btn-outline-warning" @onclick="ResetAnimalsAsync" disabled="@controlBusy">
-                                <i class="bi bi-arrow-repeat"></i> Animals
+                                <i class="bi bi-arrow-repeat"></i> @Localizer["Animals"]
                             </button>
                             <button class="btn btn-sm btn-outline-warning" @onclick="ResetResourcesAsync" disabled="@controlBusy">
-                                <i class="bi bi-arrow-repeat"></i> Resources
+                                <i class="bi bi-arrow-repeat"></i> @Localizer["Resources"]
                             </button>
                             <button class="btn btn-sm btn-outline-warning" @onclick="ResetCollectiblesAsync" disabled="@controlBusy">
-                                <i class="bi bi-arrow-repeat"></i> Collectibles
+                                <i class="bi bi-arrow-repeat"></i> @Localizer["Collectibles"]
                             </button>
                         </div>
                     </div>
 
                     <div class="control-card">
-                        <h2 class="h6 text-muted text-uppercase">Configuration</h2>
+                        <h2 class="h6 text-muted text-uppercase">@Localizer["Configuration"]</h2>
                         <button class="btn btn-sm btn-outline-primary align-self-start" @onclick="SaveConfigAsync" disabled="@controlBusy">
-                            <i class="bi bi-save"></i> Save server.cfg
+                            <i class="bi bi-save"></i> @Localizer["Save server.cfg"]
                         </button>
-                        <p class="control-card-hint">Writes the server's current convars to <code>server.cfg</code> so they survive a restart.</p>
+                        <p class="control-card-hint">@Localizer["Writes the server's current convars to"] <code>server.cfg</code> @Localizer["so they survive a restart."]</p>
                     </div>
 
                     <div class="control-card">
-                        <h2 class="h6 text-muted text-uppercase">Notice</h2>
+                        <h2 class="h6 text-muted text-uppercase">@Localizer["Notice"]</h2>
                         <div class="d-flex gap-2">
-                            <input type="text" class="form-control form-control-sm flex-grow-1" placeholder="Message to pop up for everyone" @bind="noticeMessage" />
+                            <input type="text" class="form-control form-control-sm flex-grow-1" placeholder="@Localizer["Message to pop up for everyone"]" @bind="noticeMessage" />
                             <button class="btn btn-sm btn-outline-primary text-nowrap" @onclick="SendNoticeAsync" disabled="@(controlBusy || string.IsNullOrWhiteSpace(noticeMessage))">
-                                <i class="bi bi-megaphone"></i> Send Notice
+                                <i class="bi bi-megaphone"></i> @Localizer["Send Notice"]
                             </button>
                         </div>
-                        <p class="control-card-hint">A server-wide popup, distinct from a plain chat message - see the Chat tab for that.</p>
+                        <p class="control-card-hint">@Localizer["A server-wide popup, distinct from a plain chat message - see the Chat tab for that."]</p>
                     </div>
                 </div>
             </div>
@@ -711,6 +705,7 @@ else
     public string? TabQuery { get; set; }
 
     private RustServerDto? server;
+    private string siteName = "RustArchon";
     private bool loading = true;
     private Tab activeTab = Tab.Console;
     private RconConnectionStatus status;
@@ -816,6 +811,8 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        siteName = (await Branding.GetAsync()).SiteName;
+
         try
         {
             server = await RustServerClient.GetByIdAsync(Id);
@@ -1135,18 +1132,18 @@ else
             {
                 banListError = result.Error switch
                 {
-                    "NotConnected" => "This server isn't connected right now - the ban list is unavailable.",
-                    _ => result.Error ?? "Failed to load the ban list."
+                    "NotConnected" => Localizer["This server isn't connected right now - the ban list is unavailable."],
+                    _ => result.Error ?? Localizer["Failed to load the ban list."]
                 };
             }
         }
         catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
         {
-            banListError = "No worker responded in time - this server may not have an active connection.";
+            banListError = Localizer["No worker responded in time - this server may not have an active connection."];
         }
         catch (Exception)
         {
-            banListError = "Something went wrong loading the ban list.";
+            banListError = Localizer["Something went wrong loading the ban list."];
         }
         finally
         {
@@ -1242,18 +1239,18 @@ else
             {
                 liveServerInfoError = result.Error switch
                 {
-                    "NotConnected" => "This server isn't connected right now - server info is unavailable.",
-                    _ => result.Error ?? "Failed to load server info."
+                    "NotConnected" => Localizer["This server isn't connected right now - server info is unavailable."],
+                    _ => result.Error ?? Localizer["Failed to load server info."]
                 };
             }
         }
         catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
         {
-            liveServerInfoError = "No worker responded in time - this server may not have an active connection.";
+            liveServerInfoError = Localizer["No worker responded in time - this server may not have an active connection."];
         }
         catch (Exception)
         {
-            liveServerInfoError = "Something went wrong loading server info.";
+            liveServerInfoError = Localizer["Something went wrong loading server info."];
         }
         finally
         {
@@ -1278,7 +1275,7 @@ else
         }
         catch (Exception)
         {
-            serverInfoHistoryError = "Failed to load history.";
+            serverInfoHistoryError = Localizer["Failed to load history."];
         }
         finally
         {
@@ -1305,7 +1302,7 @@ else
         }
         catch (Exception)
         {
-            connectionLogError = "Failed to load connection log.";
+            connectionLogError = Localizer["Failed to load connection log."];
         }
         finally
         {
@@ -1335,8 +1332,8 @@ else
                     labels,
                     datasets = new object[]
                     {
-                        new { label = "Players", data = serverInfoHistory.Select(s => s.Players).ToArray(), borderColor = "#f97316", backgroundColor = "#f9731633", fill = true, tension = 0.25 },
-                        new { label = "Max Players", data = serverInfoHistory.Select(s => s.MaxPlayers).ToArray(), borderColor = "#6b7280", borderDash = new[] { 4, 4 }, pointRadius = 0, fill = false, tension = 0 }
+                        new { label = Localizer["Players"].Value, data = serverInfoHistory.Select(s => s.Players).ToArray(), borderColor = "#f97316", backgroundColor = "#f9731633", fill = true, tension = 0.25 },
+                        new { label = Localizer["Max Players"].Value, data = serverInfoHistory.Select(s => s.MaxPlayers).ToArray(), borderColor = "#6b7280", borderDash = new[] { 4, 4 }, pointRadius = 0, fill = false, tension = 0 }
                     }
                 }
             });
@@ -1349,8 +1346,8 @@ else
                     labels,
                     datasets = new object[]
                     {
-                        new { label = "In", data = serverInfoHistory.Select(s => s.NetworkIn).ToArray(), borderColor = "#22c55e", backgroundColor = "#22c55e33", fill = false, tension = 0.25 },
-                        new { label = "Out", data = serverInfoHistory.Select(s => s.NetworkOut).ToArray(), borderColor = "#3b82f6", backgroundColor = "#3b82f633", fill = false, tension = 0.25 }
+                        new { label = Localizer["In"].Value, data = serverInfoHistory.Select(s => s.NetworkIn).ToArray(), borderColor = "#22c55e", backgroundColor = "#22c55e33", fill = false, tension = 0.25 },
+                        new { label = Localizer["Out"].Value, data = serverInfoHistory.Select(s => s.NetworkOut).ToArray(), borderColor = "#3b82f6", backgroundColor = "#3b82f633", fill = false, tension = 0.25 }
                     }
                 }
             });
@@ -1363,7 +1360,7 @@ else
                     labels,
                     datasets = new object[]
                     {
-                        new { label = "Memory (MB)", data = serverInfoHistory.Select(s => s.Memory).ToArray(), borderColor = "#a855f7", backgroundColor = "#a855f733", fill = true, tension = 0.25 }
+                        new { label = Localizer["Memory (MB)"].Value, data = serverInfoHistory.Select(s => s.Memory).ToArray(), borderColor = "#a855f7", backgroundColor = "#a855f733", fill = true, tension = 0.25 }
                     }
                 }
             });
@@ -1376,7 +1373,7 @@ else
                     labels,
                     datasets = new object[]
                     {
-                        new { label = "FPS", data = serverInfoHistory.Select(s => s.Framerate).ToArray(), borderColor = "#eab308", backgroundColor = "#eab30833", fill = true, tension = 0.25 }
+                        new { label = Localizer["FPS"].Value, data = serverInfoHistory.Select(s => s.Framerate).ToArray(), borderColor = "#eab308", backgroundColor = "#eab30833", fill = true, tension = 0.25 }
                     }
                 }
             });
@@ -1389,12 +1386,12 @@ else
         }
     }
 
-    private static string FormatUptime(int uptimeSeconds)
+    private string FormatUptime(int uptimeSeconds)
     {
         var span = TimeSpan.FromSeconds(uptimeSeconds);
         return span.Days > 0
-            ? $"{span.Days}d {span.Hours}h {span.Minutes}m"
-            : $"{span.Hours}h {span.Minutes}m";
+            ? Localizer["{0}d {1}h {2}m", span.Days, span.Hours, span.Minutes]
+            : Localizer["{0}h {1}m", span.Hours, span.Minutes];
     }
 
     /// <summary>
@@ -1415,23 +1412,23 @@ else
             {
                 controlError = result.Error switch
                 {
-                    "NotConnected" => "This server isn't connected right now - the command wasn't sent.",
-                    _ => result.Error ?? "The command failed."
+                    "NotConnected" => Localizer["This server isn't connected right now - the command wasn't sent."],
+                    _ => result.Error ?? Localizer["The command failed."]
                 };
                 return false;
             }
 
-            controlSuccessMessage = $"Sent: {command}";
+            controlSuccessMessage = Localizer["Sent: {0}", command];
             return true;
         }
         catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
         {
-            controlError = "No worker responded in time - this server may not have an active connection.";
+            controlError = Localizer["No worker responded in time - this server may not have an active connection."];
             return false;
         }
         catch (Exception)
         {
-            controlError = "Something went wrong sending that command.";
+            controlError = Localizer["Something went wrong sending that command."];
             return false;
         }
         finally
@@ -1668,18 +1665,18 @@ else
             {
                 commandError = result.Error switch
                 {
-                    "NotConnected" => "This server isn't connected right now - the command wasn't sent.",
-                    _ => result.Error ?? "The command failed."
+                    "NotConnected" => Localizer["This server isn't connected right now - the command wasn't sent."],
+                    _ => result.Error ?? Localizer["The command failed."]
                 };
             }
         }
         catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
         {
-            commandError = "No worker responded in time - this server may not have an active connection.";
+            commandError = Localizer["No worker responded in time - this server may not have an active connection."];
         }
         catch (Exception)
         {
-            commandError = "Something went wrong sending that command.";
+            commandError = Localizer["Something went wrong sending that command."];
         }
         finally
         {
@@ -1718,18 +1715,18 @@ else
             {
                 chatError = result.Error switch
                 {
-                    "NotConnected" => "This server isn't connected right now - the message wasn't sent.",
-                    _ => result.Error ?? "The message failed to send."
+                    "NotConnected" => Localizer["This server isn't connected right now - the message wasn't sent."],
+                    _ => result.Error ?? Localizer["The message failed to send."]
                 };
             }
         }
         catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
         {
-            chatError = "No worker responded in time - this server may not have an active connection.";
+            chatError = Localizer["No worker responded in time - this server may not have an active connection."];
         }
         catch (Exception)
         {
-            chatError = "Something went wrong sending that message.";
+            chatError = Localizer["Something went wrong sending that message."];
         }
         finally
         {
@@ -1793,7 +1790,7 @@ else
     // all. So this is intentionally a bare passthrough, not an escaping no-op.
     private static string BuildSayCommand(string message) => $"say {message}";
 
-    private static string FormatDuration(DateTimeOffset connectedAtUtc)
+    private string FormatDuration(DateTimeOffset connectedAtUtc)
     {
         var elapsed = DateTimeOffset.UtcNow - connectedAtUtc;
         if (elapsed < TimeSpan.Zero)
@@ -1802,14 +1799,14 @@ else
         }
 
         return elapsed.TotalHours >= 1
-            ? $"{(int)elapsed.TotalHours}h {elapsed.Minutes}m"
-            : $"{Math.Max(0, (int)elapsed.TotalMinutes)}m";
+            ? Localizer["{0}h {1}m", (int)elapsed.TotalHours, elapsed.Minutes]
+            : Localizer["{0}m", Math.Max(0, (int)elapsed.TotalMinutes)];
     }
 
     // Every IGeolocationProvider is currently a stub that always returns null (see the Providers/
     // remarks), so in practice this always falls through to "—" today - it's written against the
     // real shape now so nothing here needs to change once a provider is actually wired up.
-    private static string GeolocationSummary(PlayerSessionDto player)
+    private string GeolocationSummary(PlayerSessionDto player)
     {
         if (string.IsNullOrEmpty(player.GeolocationCountry))
         {
@@ -1823,11 +1820,11 @@ else
         var flags = new List<string>();
         if (player.GeolocationIsVpn == true)
         {
-            flags.Add("VPN");
+            flags.Add(Localizer["VPN"]);
         }
         if (player.GeolocationIsProxy == true)
         {
-            flags.Add("Proxy");
+            flags.Add(Localizer["Proxy"]);
         }
 
         return flags.Count > 0 ? $"{label} — {string.Join(", ", flags)}" : label!;
@@ -1894,10 +1891,10 @@ else
             : player.Country;
     }
 
-    private static string VpnStatus(bool? isVpn) => isVpn switch
+    private string VpnStatus(bool? isVpn) => isVpn switch
     {
-        true => "Yes",
-        false => "No",
+        true => Localizer["Yes"],
+        false => Localizer["No"],
         null => "—"
     };
 
@@ -1916,7 +1913,7 @@ else
     // only cares about names for display, since the Players tab's job is showing what happened, not
     // re-deriving who's a player vs. an NPC (the Worker already filtered NPC-vs-NPC noise out before
     // publishing PlayerKilled at all).
-    private static string KillSummary(PlayerKillEventDto kill)
+    private string KillSummary(PlayerKillEventDto kill)
     {
         var weaponSuffix = string.IsNullOrEmpty(kill.Weapon) ? string.Empty : $" ({kill.Weapon})";
 
@@ -1926,10 +1923,10 @@ else
             // by" - confirmed live for a real player death ("CyberKnet[...] died (Fall)"), not just
             // NPCs. Weapon holds that reason here (see KillFeedTextParser's DiedPattern remarks), and
             // dropping it silently threw away the one piece of information the event actually has.
-            return $"{kill.VictimName} died{weaponSuffix}";
+            return Localizer["{0} died{1}", kill.VictimName, weaponSuffix];
         }
 
-        return $"{kill.VictimName} was killed by {kill.KillerName}{weaponSuffix}";
+        return Localizer["{0} was killed by {1}{2}", kill.VictimName, kill.KillerName, weaponSuffix];
     }
 
     private static string StatusBadgeClass(RconConnectionStatus status) => status switch
@@ -1947,13 +1944,13 @@ else
         _ => "bi-x-circle-fill"
     };
 
-    private static string StatusText(RconConnectionStatus status) => status switch
+    private string StatusText(RconConnectionStatus status) => status switch
     {
-        RconConnectionStatus.Connected => "Connected",
-        RconConnectionStatus.Connecting => "Connecting",
-        RconConnectionStatus.Reconnecting => "Reconnecting",
-        RconConnectionStatus.Error => "Connection error",
-        _ => "Disconnected"
+        RconConnectionStatus.Connected => Localizer["Connected"],
+        RconConnectionStatus.Connecting => Localizer["Connecting"],
+        RconConnectionStatus.Reconnecting => Localizer["Reconnecting"],
+        RconConnectionStatus.Error => Localizer["Connection error"],
+        _ => Localizer["Disconnected"]
     };
 
     // The Logs tab's badge for an entry with no RconConnectionStatus (a worker-side diagnostic, not a
@@ -1974,11 +1971,11 @@ else
         _ => "bi-info-circle-fill"
     };
 
-    private static string LevelText(ConnectionLogLevel level) => level switch
+    private string LevelText(ConnectionLogLevel level) => level switch
     {
-        ConnectionLogLevel.Error => "Error",
-        ConnectionLogLevel.Warning => "Warning",
-        _ => "Info"
+        ConnectionLogLevel.Error => Localizer["Error"],
+        ConnectionLogLevel.Warning => Localizer["Warning"],
+        _ => Localizer["Info"]
     };
 
     public async ValueTask DisposeAsync()
