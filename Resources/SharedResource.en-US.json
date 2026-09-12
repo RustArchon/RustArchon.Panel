@@ -719,5 +719,20 @@
   "Signed up": "Signed up",
   "Owing": "Owing",
   "Open": "Open",
-  "Couldn't load organizations: {0}": "Couldn't load organizations: {0}"
+  "Couldn't load organizations: {0}": "Couldn't load organizations: {0}",
+  "Loading users...": "Loading users...",
+  "accounts": "accounts",
+  "site admins": "site admins",
+  "with no organization": "with no organization",
+  "Account": "Account",
+  "Site admin": "Site admin",
+  "Site Admin": "Site Admin",
+  "Revoke site admin": "Revoke site admin",
+  "Make site admin": "Make site admin",
+  "Site Admin grants every platform permission at once, including the one that grants it. The last holder can't be removed - there would be nobody left able to put it back.": "Site Admin grants every platform permission at once, including the one that grants it. The last holder can't be removed - there would be nobody left able to put it back.",
+  "Couldn't load users: {0}": "Couldn't load users: {0}",
+  "{0} is now a site admin.": "{0} is now a site admin.",
+  "{0} is no longer a site admin.": "{0} is no longer a site admin.",
+  "That change was refused.": "That change was refused.",
+  "That didn't work: {0}": "That didn't work: {0}"
 }
