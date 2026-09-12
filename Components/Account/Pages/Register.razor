@@ -22,9 +22,9 @@
 @inject IInvitationApiClient InvitationClient
 @inject IInternalRegistrationApiClient InternalRegistrationClient
 
-<PageTitle>Register</PageTitle>
+<PageTitle>@Localizer["Register"]</PageTitle>
 
-<h1>Register</h1>
+<h1>@Localizer["Register"]</h1>
 
 <div class="row">
     <div class="col-lg-6">
@@ -35,47 +35,47 @@
         }
         @if (invitationStatus == null)
         {
-            <p><em>Checking sign-up availability...</em></p>
+            <p><em>@Localizer["Checking sign-up availability..."]</em></p>
         }
         else
         {
             <EditForm Model="Input" method="post" OnValidSubmit="RegisterUser" FormName="register">
                 <DataAnnotationsValidator />
-                <h2>Create a new account.</h2>
+                <h2>@Localizer["Create a new account."]</h2>
                 <hr />
                 <ValidationSummary class="text-danger" role="alert" />
                 @if (invitationStatus.Enabled)
                 {
                     <div class="form-floating mb-3">
-                        <InputText @bind-Value="Input.InvitationCode" id="Input.InvitationCode" class="form-control" placeholder="Invitation code" />
-                        <label for="Input.InvitationCode">Invitation code</label>
+                        <InputText @bind-Value="Input.InvitationCode" id="Input.InvitationCode" class="form-control" placeholder="@Localizer["Invitation code"]" />
+                        <label for="Input.InvitationCode">@Localizer["Invitation code"]</label>
                         <ValidationMessage For="() => Input.InvitationCode" class="text-danger" />
                     </div>
                 }
                 <div class="form-floating mb-3">
                     <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
-                    <label for="Input.Email">Email</label>
+                    <label for="Input.Email">@Localizer["Email"]</label>
                     <ValidationMessage For="() => Input.Email" class="text-danger" />
                 </div>
                 <div class="form-floating mb-3">
-                    <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
-                    <label for="Input.Password">Password</label>
+                    <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="@Localizer["password"]" />
+                    <label for="Input.Password">@Localizer["Password"]</label>
                     <ValidationMessage For="() => Input.Password" class="text-danger" />
                 </div>
                 <div class="form-floating mb-3">
-                    <InputText type="password" @bind-Value="Input.ConfirmPassword" id="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
-                    <label for="Input.ConfirmPassword">Confirm Password</label>
+                    <InputText type="password" @bind-Value="Input.ConfirmPassword" id="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="@Localizer["password"]" />
+                    <label for="Input.ConfirmPassword">@Localizer["Confirm Password"]</label>
                     <ValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
                 </div>
                 <button type="submit" class="w-100 btn btn-lg btn-primary" disabled="@registering">
-                    @(registering ? "Registering..." : "Register")
+                    @(registering ? Localizer["Registering..."] : Localizer["Register"])
                 </button>
             </EditForm>
         }
     </div>
     <div class="col-lg-4 col-lg-offset-2">
         <section>
-            <h3>Use another service to register.</h3>
+            <h3>@Localizer["Use another service to register."]</h3>
             <hr />
             <ExternalLoginPicker />
         </section>
@@ -91,7 +91,9 @@
     [SupplyParameterFromQuery]
     private string? ReturnUrl { get; set; }
 
-    private string? Message => identityErrors is null ? null : $"Error: {string.Join(", ", identityErrors.Select(error => error.Description))}";
+    private string? Message => identityErrors is null
+        ? null
+        : Localizer["Error: {0}", string.Join(", ", identityErrors.Select(error => error.Description))];
 
     private InvitationStatusDto? invitationStatus;
     private string? invitationError;
@@ -121,13 +123,13 @@
 
         if (invitationStatus == null)
         {
-            invitationError = "Unable to verify invitation status right now. Please try again in a moment.";
+            invitationError = Localizer["Unable to verify invitation status right now. Please try again in a moment."];
             return;
         }
 
         if (invitationStatus.Enabled && string.IsNullOrWhiteSpace(Input.InvitationCode))
         {
-            invitationError = "An invitation code is required to register.";
+            invitationError = Localizer["An invitation code is required to register."];
             return;
         }
 
@@ -143,7 +145,7 @@
 
             if (!usable.Success)
             {
-                invitationError = usable.Error ?? "That invitation code is not valid.";
+                invitationError = usable.Error ?? Localizer["That invitation code is not valid."];
                 return;
             }
         }
@@ -177,9 +179,9 @@
             {
                 await UserManager.DeleteAsync(user);
 
-                invitationError =
+                invitationError = Localizer[
                     "We couldn't finish setting up your organization, so nothing was created and "
-                    + "your invitation code has not been used. Please try again.";
+                    + "your invitation code has not been used. Please try again."];
 
                 return;
             }
@@ -221,7 +223,7 @@
                     }
 
                     await UserManager.DeleteAsync(user);
-                    invitationError = redeemed.Error ?? "That invitation code is not valid.";
+                    invitationError = redeemed.Error ?? Localizer["That invitation code is not valid."];
                     return;
                 }
             }

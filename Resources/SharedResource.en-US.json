@@ -63,5 +63,15 @@
   "Resend email confirmation": "Resend email confirmation",
   "Use another service to log in.": "Use another service to log in.",
   "Error: {0}": "Error: {0}",
-  "Error: Invalid login attempt.": "Error: Invalid login attempt."
+  "Error: Invalid login attempt.": "Error: Invalid login attempt.",
+  "Checking sign-up availability...": "Checking sign-up availability...",
+  "Create a new account.": "Create a new account.",
+  "Invitation code": "Invitation code",
+  "Confirm Password": "Confirm Password",
+  "Registering...": "Registering...",
+  "Use another service to register.": "Use another service to register.",
+  "Unable to verify invitation status right now. Please try again in a moment.": "Unable to verify invitation status right now. Please try again in a moment.",
+  "An invitation code is required to register.": "An invitation code is required to register.",
+  "That invitation code is not valid.": "That invitation code is not valid.",
+  "We couldn't finish setting up your organization, so nothing was created and your invitation code has not been used. Please try again.": "We couldn't finish setting up your organization, so nothing was created and your invitation code has not been used. Please try again."
 }
