@@ -12,8 +12,8 @@
 @inject IReportApiClient ReportClient
 @rendermode RenderModes.NonPrerenderedServer
 
-<ReportPage Title="Plan Changes"
-            Description="Every move from one plan to another in the selected window. A drop to a free plan is what churn looks like here - an organization always has a plan, so it never stops having one."
+<ReportPage Title="@Localizer["Plan Changes"]"
+            Description="@Localizer["Every move from one plan to another in the selected window. A drop to a free plan is what churn looks like here - an organization always has a plan, so it never stops having one."]"
             Parameters="parameters"
             OnRun="RunAsync"
             Loading="loading"
@@ -27,7 +27,7 @@
                 Rows="rows"
                 Columns="columns"
                 FileName="plan-changes"
-                EmptyMessage="No organization changed plan in this window." />
+                EmptyMessage="@Localizer["No organization changed plan in this window."]" />
 </ReportPage>
 
 @code {
@@ -41,20 +41,12 @@
     private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
     private static readonly CultureInfo Dates = CultureInfo.InvariantCulture;
 
-    private readonly DateRangeParameter window = new(
-        key: "changed",
-        label: "Changed",
-        from: DateRangeParameter.Today.AddDays(-90),
-        to: DateRangeParameter.Today,
-        presets:
-        [
-            new DateRangePreset("Last 30 days", -30, 0),
-            new DateRangePreset("Last 90 days", -90, 0),
-            new DateRangePreset("Last year", -365, 0)
-        ]);
+    // Built in OnInitializedAsync, not field initializers - @inject properties like Localizer aren't
+    // populated yet when field initializers run (see ConfirmationModal.razor for the same pattern).
+    private DateRangeParameter window = null!;
 
     /// <summary>Matches a move with this plan on <em>either</em> side - onto it or off it.</summary>
-    private readonly SelectParameter planFilter = new("planId", "Plan", allLabel: "Any plan");
+    private SelectParameter planFilter = null!;
 
     private IReadOnlyList<ReportParameter> parameters => [window, planFilter];
 
@@ -64,6 +56,20 @@
 
     protected override async Task OnInitializedAsync()
     {
+        window = new DateRangeParameter(
+            key: "changed",
+            label: Localizer["Changed"],
+            from: DateRangeParameter.Today.AddDays(-90),
+            to: DateRangeParameter.Today,
+            presets:
+            [
+                new DateRangePreset(Localizer["Last 30 days"], -30, 0),
+                new DateRangePreset(Localizer["Last 90 days"], -90, 0),
+                new DateRangePreset(Localizer["Last year"], -365, 0)
+            ]);
+
+        planFilter = new SelectParameter("planId", Localizer["Plan"], allLabel: Localizer["Any plan"]);
+
         columns = BuildColumns();
 
         try
@@ -106,28 +112,28 @@
     private IReadOnlyList<ReportColumn<PlanChangeRowDto>> BuildColumns() =>
     [
         new ReportColumn<PlanChangeRowDto>(
-            header: "Organization",
+            header: Localizer["Organization"],
             value: r => r.OrganizationName),
 
         new ReportColumn<PlanChangeRowDto>(
-            header: "Changed",
+            header: Localizer["Changed"],
             value: r => r.ChangedOn,
             display: r => r.ChangedOn.UtcDateTime.ToString("d MMM yyyy", Dates)),
 
         new ReportColumn<PlanChangeRowDto>(
-            header: "From",
+            header: Localizer["From"],
             value: r => r.FromPlanName,
             template: r =>
                 @<span class="badge" style="background-color:@r.FromPlanColorCode">@r.FromPlanName</span>),
 
         new ReportColumn<PlanChangeRowDto>(
-            header: "To",
+            header: Localizer["To"],
             value: r => r.ToPlanName,
             template: r =>
                 @<span class="badge" style="background-color:@r.ToPlanColorCode">@r.ToPlanName</span>),
 
         new ReportColumn<PlanChangeRowDto>(
-            header: "Direction",
+            header: Localizer["Direction"],
             value: r => r.Direction.ToString(),
             template: r =>
                 @<span class="badge @DirectionClass(r)">
@@ -135,7 +141,7 @@
                 </span>),
 
         new ReportColumn<PlanChangeRowDto>(
-            header: "Monthly Δ",
+            header: Localizer["Monthly Δ"],
             value: r => r.MonthlyDelta,
             align: ReportAlign.Right,
             template: r =>
@@ -148,10 +154,13 @@
     /// "Churned" and "Converted" are the two transitions worth naming separately - crossing the paid
     /// boundary matters more than the size of the step either side of it.
     /// </summary>
-    private static string DirectionText(PlanChangeRowDto row) => row switch
+    private string DirectionText(PlanChangeRowDto row) => row switch
     {
-        { ToIsFree: true, FromIsFree: false } => "Churned",
-        { FromIsFree: true, ToIsFree: false } => "Converted",
+        { ToIsFree: true, FromIsFree: false } => Localizer["Churned"],
+        { FromIsFree: true, ToIsFree: false } => Localizer["Converted"],
+        { Direction: PlanChangeDirection.Upgrade } => Localizer["Upgrade"],
+        { Direction: PlanChangeDirection.Downgrade } => Localizer["Downgrade"],
+        { Direction: PlanChangeDirection.Lateral } => Localizer["Lateral"],
         _ => row.Direction.ToString()
     };
 
