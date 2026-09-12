@@ -777,5 +777,21 @@
   "just now": "just now",
   "{0}m ago": "{0}m ago",
   "{0}h ago": "{0}h ago",
-  "{0}d ago": "{0}d ago"
+  "{0}d ago": "{0}d ago",
+  "Email Template": "Email Template",
+  "You don't have access to manage email templates.": "You don't have access to manage email templates.",
+  "Loading template...": "Loading template...",
+  "No such email template.": "No such email template.",
+  "Back to email templates": "Back to email templates",
+  "Email templates": "Email templates",
+  "Insert placeholder into whichever field you're editing:": "Insert placeholder into whichever field you're editing:",
+  "Hide": "Hide",
+  "Add or remove placeholders": "Add or remove placeholders",
+  "No placeholders are registered yet -": "No placeholders are registered yet -",
+  "manage them here": "manage them here",
+  "once a developer adds one.": "once a developer adds one.",
+  "HTML body": "HTML body",
+  "Preview": "Preview",
+  "e.g. {0}": "e.g. {0}",
+  "{0} (e.g. {1})": "{0} (e.g. {1})"
 }
