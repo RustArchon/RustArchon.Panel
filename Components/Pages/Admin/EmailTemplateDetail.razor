@@ -1,0 +1,442 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/EmailTemplates/{Code}"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Localization
+@using Microsoft.Extensions.Options
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@implements IDisposable
+@attribute [Authorize]
+@inject IEmailTemplateApiClient EmailTemplateClient
+@inject IEmailPlaceholderApiClient EmailPlaceholderClient
+@inject IOptions<RequestLocalizationOptions> LocalizationOptions
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject SiteBrandingService Branding
+@rendermode RenderModes.NonPrerenderedServer
+
+@*
+    One template, whole - the WYSIWYG body editor (Quill, via wwwroot/js/emailTemplateEditor.js), the
+    live preview alongside it (sample values standing in for each {{Token}}), and the "insert
+    placeholder" chips. Its own page/route rather than an expand-in-row or modal on the list, the same
+    shape as Admin/Organizations/{id} -> OrganizationDetail.razor - editing a whole template is enough
+    of its own task to deserve a page, not a panel bolted onto the list.
+
+    One language at a time, not one page per language (Scott's call): a dropdown here switches which
+    EmailTemplateTranslation the Subject/HTML editors below are showing/saving, sourced from the same
+    IOptions<RequestLocalizationOptions>.SupportedUICultures every other culture picker in this app reads
+    (see CultureSelector.razor and PlatformSettings.razor's DefaultCulture special case) - never a
+    separate "expected languages" list maintained here. Placeholder management above is unaffected by
+    which translation is selected, since a placeholder set belongs to the template, not the language.
+*@
+
+<PageTitle>@(template?.Name ?? Localizer["Email Template"])</PageTitle>
+
+@if (accessDenied == true)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage email templates."]
+    </div>
+}
+else if (loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Loading template..."]</div>
+}
+else if (template is null)
+{
+    <div class="alert alert-danger">@Localizer["No such email template."]</div>
+    <a class="btn btn-outline-secondary" href="Admin/EmailTemplates">@Localizer["Back to email templates"]</a>
+}
+else
+{
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb small">
+            <li class="breadcrumb-item"><a href="Admin/EmailTemplates">@Localizer["Email templates"]</a></li>
+            <li class="breadcrumb-item active" aria-current="page">@template.Name</li>
+        </ol>
+    </nav>
+
+    <h1 class="mb-1">@template.Name</h1>
+    @if (!string.IsNullOrEmpty(template.Description))
+    {
+        <p class="text-muted">@template.Description</p>
+    }
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    @if (template.Placeholders.Count > 0)
+    {
+        <div class="mb-3">
+            <div class="small text-muted mb-1">@Localizer["Insert placeholder into whichever field you're editing:"]</div>
+            @foreach (var placeholder in template.Placeholders)
+            {
+                <button type="button" class="btn btn-sm btn-outline-primary rounded-pill me-1 mb-1"
+                        title="@PlaceholderTooltip(placeholder)"
+                        @onclick="() => InsertTokenAsync(placeholder.Name)">
+                    @placeholder.Name
+                </button>
+            }
+        </div>
+    }
+
+    <div class="mb-3">
+        <button type="button" class="btn btn-sm btn-link ps-0" @onclick="() => managingPlaceholders = !managingPlaceholders">
+            @(managingPlaceholders ? Localizer["Hide"] : Localizer["Add or remove placeholders"])
+        </button>
+
+        @if (managingPlaceholders)
+        {
+            @if (allPlaceholders.Count == 0)
+            {
+                <div class="text-muted small">
+                    @Localizer["No placeholders are registered yet -"]
+                    <a href="Admin/EmailPlaceholders">@Localizer["manage them here"]</a> @Localizer["once a developer adds one."]
+                </div>
+            }
+            else
+            {
+                <div class="border rounded p-2">
+                    @foreach (var placeholder in allPlaceholders)
+                    {
+                        var used = template.Placeholders.Any(p => p.Name == placeholder.Name);
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="@("ph-" + placeholder.Name)"
+                                   checked="@used" disabled="@updatingPlaceholders"
+                                   @onchange="e => TogglePlaceholderAsync(placeholder, (bool)e.Value!)" />
+                            <label class="form-check-label" for="@("ph-" + placeholder.Name)">
+                                <code>{{@placeholder.Name}}</code>
+                                @if (!string.IsNullOrEmpty(placeholder.Description))
+                                {
+                                    <span class="text-muted small"> - @placeholder.Description</span>
+                                }
+                            </label>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </div>
+
+    @if (MissingCultures.Any())
+    {
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle"></i>
+            @Localizer["No translation yet for:"]
+            @string.Join(", ", MissingCultures.Select(c => c.NativeName))
+        </div>
+    }
+
+    <div class="mb-3" style="max-width: 320px">
+        <label class="form-label" for="email-template-culture">@Localizer["Language"]</label>
+        <select id="email-template-culture" class="form-select" value="@selectedCulture" @onchange="OnCultureChangedAsync">
+            @foreach (var culture in SupportedCultures)
+            {
+                <option value="@culture.Name">
+                    @culture.NativeName @(HasTranslation(culture.Name) ? "" : Localizer["(no translation yet)"])
+                </option>
+            }
+        </select>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="mb-3">
+                <label class="form-label" for="@SubjectInputId">@Localizer["Subject"]</label>
+                <input id="@SubjectInputId" class="form-control" value="@editForm.Subject"
+                       @oninput="OnSubjectInput" @onfocusin="() => activeField = Field.Subject" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">@Localizer["HTML body"]</label>
+                <div id="@BodyEditorId" style="background:#fff;" @onfocusin="() => activeField = Field.Body"></div>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-primary" disabled="@saving" @onclick="SaveAsync">
+                    @(saving ? Localizer["Saving..."] : Localizer["Save"])
+                </button>
+                <a class="btn btn-outline-secondary" href="Admin/EmailTemplates">@Localizer["Cancel"]</a>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="small text-muted mb-1">@Localizer["Preview"]</div>
+            @{ var (previewSubject, previewBody) = Preview(); }
+            <div class="border rounded bg-white text-dark p-3">
+                <div class="border-bottom pb-2 mb-2">
+                    <strong>@previewSubject</strong>
+                </div>
+                <div>@((MarkupString)previewBody)</div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string Code { get; set; } = string.Empty;
+
+    private const string SubjectInputId = "email-template-subject";
+    private const string BodyEditorId = "email-template-body-editor";
+
+    private enum Field { Subject, Body }
+
+    private EmailTemplateDto? template;
+    private List<EmailPlaceholderDto> allPlaceholders = [];
+    private bool managingPlaceholders;
+    private bool updatingPlaceholders;
+    private UpdateEmailTemplateTranslationDto editForm = new();
+    private string selectedCulture = string.Empty;
+    private Field activeField = Field.Body;
+    private bool editorPendingInit;
+    private DotNetObjectReference<EmailTemplateDetail>? dotNetRef;
+
+    private bool loading = true;
+    private bool saving;
+    private bool? accessDenied;
+    private string? errorMessage;
+    private string? successMessage;
+    private string siteName = "RustArchon";
+    private string siteUrl = "https://www.rustarchon.com";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var branding = await Branding.GetAsync();
+        siteName = branding.SiteName;
+        siteUrl = branding.SiteUrl;
+
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!editorPendingInit)
+        {
+            return;
+        }
+
+        editorPendingInit = false;
+        dotNetRef ??= DotNetObjectReference.Create(this);
+
+        try
+        {
+            await JS.InvokeVoidAsync("emailTemplateEditor.create", BodyEditorId, editForm.HtmlBody, dotNetRef);
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit dropped between the render that requested this and the render that would
+            // have wired it up - nothing to initialize into anymore.
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            template = await EmailTemplateClient.GetAsync(Code);
+
+            // The admin's own language if it already has a translation, otherwise whichever
+            // translation happens to exist (alphabetically first, per EmailTemplatesController's own
+            // ordering) - either way, opening the page never lands on a blank draft when real content
+            // already exists somewhere.
+            selectedCulture = template.Translations.Any(t => t.Culture == CultureInfo.CurrentUICulture.Name)
+                ? CultureInfo.CurrentUICulture.Name
+                : template.Translations.FirstOrDefault()?.Culture ?? CultureInfo.CurrentUICulture.Name;
+
+            LoadTranslationIntoForm(selectedCulture);
+            accessDenied = false;
+
+            allPlaceholders = await EmailPlaceholderClient.GetAllAsync();
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            template = null;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load this email template");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    /// <summary>The cultures this deployment's compiled-in resources actually offer - see
+    /// CultureSelector.razor's identical property and remarks. What the language dropdown above offers,
+    /// and what <see cref="MissingCultures"/> checks <see cref="template"/>'s translations against.</summary>
+    private IList<CultureInfo> SupportedCultures => LocalizationOptions.Value.SupportedUICultures ?? [];
+
+    /// <summary>Every supported culture with no saved translation yet - the warning banner's contents.
+    /// Recomputed from the live <see cref="template"/> on every render, so saving a translation clears
+    /// its own entry immediately.</summary>
+    private IEnumerable<CultureInfo> MissingCultures =>
+        SupportedCultures.Where(c => !HasTranslation(c.Name));
+
+    private bool HasTranslation(string culture) =>
+        template?.Translations.Any(t => t.Culture == culture) == true;
+
+    /// <summary>Loads <paramref name="culture"/>'s saved Subject/HtmlBody into <see cref="editForm"/> -
+    /// blank fields, ready to create one, if it has no translation yet. Any unsaved edit to whichever
+    /// translation was showing is discarded, the same tradeoff as navigating away without saving -
+    /// there is no per-language draft kept in memory.</summary>
+    private void LoadTranslationIntoForm(string culture)
+    {
+        var translation = template?.Translations.FirstOrDefault(t => t.Culture == culture);
+
+        editForm = new UpdateEmailTemplateTranslationDto
+        {
+            Culture = culture,
+            Subject = translation?.Subject ?? string.Empty,
+            HtmlBody = translation?.HtmlBody ?? string.Empty
+        };
+
+        // Re-initializes the Quill instance with the newly-selected translation's body - the same flag
+        // OnInitializedAsync sets for the very first load, picked up by OnAfterRenderAsync.
+        editorPendingInit = true;
+    }
+
+    private Task OnCultureChangedAsync(ChangeEventArgs e)
+    {
+        selectedCulture = e.Value?.ToString() ?? selectedCulture;
+        LoadTranslationIntoForm(selectedCulture);
+        errorMessage = null;
+        successMessage = null;
+        return Task.CompletedTask;
+    }
+
+    private void OnSubjectInput(ChangeEventArgs e) => editForm.Subject = e.Value?.ToString() ?? string.Empty;
+
+    /// <summary>Called from wwwroot/js/emailTemplateEditor.js, debounced to one call per pause in
+    /// typing rather than one per keystroke - see that file's remarks.</summary>
+    [JSInvokable]
+    public void OnBodyChanged(string html)
+    {
+        editForm.HtmlBody = html;
+        StateHasChanged();
+    }
+
+    private async Task InsertTokenAsync(string token)
+    {
+        var placeholder = "{{" + token + "}}";
+
+        try
+        {
+            if (activeField == Field.Subject)
+            {
+                await JS.InvokeVoidAsync("emailTemplateEditor.insertIntoInput", SubjectInputId, placeholder);
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("emailTemplateEditor.insertToken", BodyEditorId, placeholder);
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task TogglePlaceholderAsync(EmailPlaceholderDto placeholder, bool nowUsed)
+    {
+        if (template is null)
+        {
+            return;
+        }
+
+        var names = template.Placeholders.Select(p => p.Name).ToHashSet();
+
+        if (nowUsed)
+        {
+            names.Add(placeholder.Name);
+        }
+        else
+        {
+            names.Remove(placeholder.Name);
+        }
+
+        updatingPlaceholders = true;
+        errorMessage = null;
+
+        try
+        {
+            template = await EmailTemplateClient.UpdatePlaceholdersAsync(
+                Code, new UpdateEmailTemplatePlaceholdersDto { PlaceholderNames = [.. names] });
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "update this template's placeholders");
+        }
+        finally
+        {
+            updatingPlaceholders = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        saving = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            // Pulled fresh rather than trusting editForm.HtmlBody alone - the debounce in
+            // emailTemplateEditor.js means the very last keystrokes before a fast click on Save might
+            // not have reached OnBodyChanged yet.
+            editForm.HtmlBody = await JS.InvokeAsync<string>("emailTemplateEditor.getHtml", BodyEditorId);
+
+            // Stays on the page rather than navigating back to the list, unlike the old single-language
+            // Save - an admin translating a template into several languages in one sitting just picks
+            // the next one from the dropdown above, and MissingCultures/HasTranslation both need the
+            // refreshed template to reflect what was just saved.
+            template = await EmailTemplateClient.UpsertTranslationAsync(Code, editForm);
+            successMessage = Localizer["Saved the {0} translation.", CultureName(selectedCulture)];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "save this translation");
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private string CultureName(string culture) =>
+        SupportedCultures.FirstOrDefault(c => c.Name == culture)?.NativeName ?? culture;
+
+    private (string Subject, string HtmlBody) Preview() =>
+        EmailTemplatePreviewRenderer.Render(
+            editForm.Subject, editForm.HtmlBody, template?.Placeholders ?? [], siteName, siteUrl);
+
+    private string PlaceholderTooltip(EmailPlaceholderDto placeholder) =>
+        string.IsNullOrEmpty(placeholder.Description)
+            ? Localizer["e.g. {0}", placeholder.Sample]
+            : Localizer["{0} (e.g. {1})", placeholder.Description, placeholder.Sample];
+
+    public void Dispose() => dotNetRef?.Dispose();
+}

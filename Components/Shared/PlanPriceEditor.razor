@@ -21,7 +21,7 @@
     both discoverable and keyboard-navigable.
 *@
 <fieldset class="mb-3">
-    <legend class="form-label">Pricing model</legend>
+    <legend class="form-label">@Localizer["Pricing model"]</legend>
     <div class="row g-2">
         @foreach (var option in PricingOptions)
         {
@@ -32,9 +32,9 @@
                                name="pricing-model-@_id"
                                checked="@(Model == option.Value)"
                                @onchange="() => SetModel(option.Value)" />
-                        <strong>@option.Title</strong>
+                        <strong>@Localizer[option.Title]</strong>
                     </span>
-                    <span class="d-block small text-muted mt-1">@option.Description</span>
+                    <span class="d-block small text-muted mt-1">@Localizer[option.Description]</span>
                 </label>
             </div>
         }
@@ -58,13 +58,13 @@
     .pricing-model-option:hover { border-color: var(--bs-primary); }
 </style>
 
-<label class="form-label">Prices</label>
+<label class="form-label">@Localizer["Prices"]</label>
 
 @if (Prices.Count == 0)
 {
     <div class="alert alert-warning py-2">
         <i class="bi bi-exclamation-triangle"></i>
-        A plan must be sold on at least one term. Add one below.
+        @Localizer["A plan must be sold on at least one term. Add one below."]
     </div>
 }
 
@@ -72,14 +72,14 @@
     <table class="table table-sm align-middle">
         <thead>
             <tr>
-                <th style="width: 10rem;">Term</th>
-                <th>Base price</th>
+                <th style="width: 10rem;">@Localizer["Term"]</th>
+                <th>@Localizer["Base price"]</th>
                 @if (Model == PricingModel.PerUnit)
                 {
-                    <th>Included servers</th>
-                    <th>Per extra server</th>
+                    <th>@Localizer["Included servers"]</th>
+                    <th>@Localizer["Per extra server"]</th>
                 }
-                <th>Per month</th>
+                <th>@Localizer["Per month"]</th>
                 <th></th>
             </tr>
         </thead>
@@ -92,7 +92,7 @@
                             <input type="number" min="1" max="120" class="form-control"
                                    value="@price.TermMonths"
                                    @onchange="e => SetTerm(price, e.Value?.ToString())"
-                                   aria-label="Term length in months" />
+                                   aria-label="@Localizer["Term length in months"]" />
                             <span class="input-group-text">mo</span>
                         </div>
                         <div class="form-text">@BillingTerms.Describe(price.TermMonths)</div>
@@ -101,7 +101,7 @@
                         <input type="number" step="0.01" min="0" class="form-control form-control-sm"
                                value="@price.BaseAmount"
                                @onchange="e => SetDecimal(v => price.BaseAmount = v, e.Value?.ToString())"
-                               aria-label="Base price" />
+                               aria-label="@Localizer["Base price"]" />
                     </td>
                     @if (Model == PricingModel.PerUnit)
                     {
@@ -109,13 +109,13 @@
                             <input type="number" min="0" class="form-control form-control-sm"
                                    value="@price.IncludedUnits"
                                    @onchange="e => SetInt(v => price.IncludedUnits = v, e.Value?.ToString())"
-                                   aria-label="Included servers" />
+                                   aria-label="@Localizer["Included servers"]" />
                         </td>
                         <td>
                             <input type="number" step="0.01" min="0" class="form-control form-control-sm"
                                    value="@price.UnitAmount"
                                    @onchange="e => SetDecimal(v => price.UnitAmount = v, e.Value?.ToString())"
-                                   aria-label="Price per extra server" />
+                                   aria-label="@Localizer["Price per extra server"]" />
                         </td>
                     }
                     @* The comparison figure an admin actually reasons about when setting a longer term:
@@ -125,7 +125,7 @@
                     </td>
                     <td class="text-end">
                         <button type="button" class="btn btn-sm btn-outline-danger"
-                                @onclick="() => Remove(price)" aria-label="Remove this term">
+                                @onclick="() => Remove(price)" aria-label="@Localizer["Remove this term"]">
                             <i class="bi bi-x-lg"></i>
                         </button>
                     </td>
@@ -141,12 +141,12 @@
         @if (!Prices.Any(p => p.TermMonths == months))
         {
             <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => Add(months)">
-                <i class="bi bi-plus-lg"></i> @label
+                <i class="bi bi-plus-lg"></i> @Localizer[label]
             </button>
         }
     }
     <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => Add(NextFreeTerm())">
-        <i class="bi bi-plus-lg"></i> Other term
+        <i class="bi bi-plus-lg"></i> @Localizer["Other term"]
     </button>
 </div>
 
@@ -292,9 +292,9 @@
         {
             if (price.BaseAmount > monthly.BaseAmount * price.TermMonths)
             {
-                warnings.Add(
-                    $"The {BillingTerms.Describe(price.TermMonths)} price is more than {price.TermMonths}× the monthly price - "
-                    + "a subscriber would pay less just paying monthly.");
+                warnings.Add(Localizer[
+                    "The {0} price is more than {1}× the monthly price - a subscriber would pay less just paying monthly.",
+                    BillingTerms.Describe(price.TermMonths), price.TermMonths]);
             }
         }
 

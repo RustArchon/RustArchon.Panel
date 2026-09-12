@@ -1,5 +1,9 @@
 ﻿@inherits LayoutComponentBase
 @using JumpStart.Components
+@using RustArchon.Panel.Services
+@implements IDisposable
+@inject NavigationManager Navigation
+@inject AppGenerationService AppGeneration
 
 <div class="page">
     <div class="sidebar">
@@ -31,11 +35,68 @@
 </div>
 
 <div id="blazor-error-ui" data-nosnippet>
-    An unhandled error has occurred.
-    <a href="." class="reload">Reload</a>
+    @Localizer["An unhandled error has occurred."]
+    <a href="." class="reload">@Localizer["Reload"]</a>
     <span class="dismiss">🗙</span>
 </div>
 
 @* TenantSwitcher's @rendermode above uses RenderModes.NonPrerenderedServer (a single, shared,
    stable instance) rather than constructing a fresh InteractiveServerRenderMode inline - see that
    class's own remarks for why an inline `new` there would be a real, confirmed bug, not just style. *@
+
+@code {
+    /// <summary>
+    /// The app generation this circuit was actually rendered under - captured once, when the live
+    /// interactive instance starts, and compared against on every navigation attempt from then on.
+    /// See <see cref="OnLocationChangingAsync"/> and AppGenerationService's own remarks.
+    /// </summary>
+    private string? _bornGeneration;
+
+    private IDisposable? _locationChangingRegistration;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _bornGeneration = await AppGeneration.GetCurrentAsync();
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        // Registered here, not OnInitialized(Async): this component also runs once during static
+        // prerendering, before the real interactive circuit exists to intercept anything - OnAfterRender
+        // only fires for the live instance, the same guard EmailTemplateDetail.razor's editor
+        // initialization uses for the identical reason.
+        _locationChangingRegistration = Navigation.RegisterLocationChangingHandler(OnLocationChangingAsync);
+    }
+
+    /// <summary>
+    /// Upgrades this circuit's next navigation to a full page reload once the shared app generation no
+    /// longer matches the one this circuit was <see cref="_bornGeneration">born under</see> - see
+    /// AppGenerationService's remarks for why a Blazor Server circuit needs telling at all: it renders
+    /// its own page chrome once, at first load, and never re-runs that just because something it read
+    /// (the site name, eventually an active theme) changed on the server in the meantime.
+    /// </summary>
+    /// <remarks>
+    /// A <c>null</c> current generation - Valkey unreachable, or never configured - is treated as
+    /// "can't tell", not as a mismatch. Failing to answer the question is never itself a reason to
+    /// force a reload; see AppGenerationService's remarks.
+    /// </remarks>
+    private async ValueTask OnLocationChangingAsync(LocationChangingContext context)
+    {
+        var current = await AppGeneration.GetCurrentAsync();
+
+        if (current is null || current == _bornGeneration)
+        {
+            return;
+        }
+
+        context.PreventNavigation();
+        Navigation.NavigateTo(context.TargetLocation, forceLoad: true);
+    }
+
+    public void Dispose() => _locationChangingRegistration?.Dispose();
+}

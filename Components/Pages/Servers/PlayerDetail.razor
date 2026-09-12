@@ -3,48 +3,50 @@
 @page "/servers/{ServerId:guid}/players/{SteamId}"
 @using Microsoft.AspNetCore.Authorization
 @using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject IRustServerApiClient RustServerClient
+@inject SiteBrandingService Branding
 @rendermode RenderModes.NonPrerenderedServer
 
-<PageTitle>@(detail?.DisplayName ?? "Player") — RustArchon</PageTitle>
+<PageTitle>@(detail?.DisplayName ?? Localizer["Player"]) — @siteName</PageTitle>
 
 @if (loading)
 {
-    <p><em>Loading player...</em></p>
+    <p><em>@Localizer["Loading player..."]</em></p>
 }
 else if (detail is null)
 {
     <div class="alert alert-danger">
-        <i class="bi bi-exclamation-triangle"></i> This player has no history on this server.
+        <i class="bi bi-exclamation-triangle"></i> @Localizer["This player has no history on this server."]
     </div>
-    <a class="btn btn-outline-secondary" href="@BackHref"><i class="bi bi-arrow-left"></i> Back to Server</a>
+    <a class="btn btn-outline-secondary" href="@BackHref"><i class="bi bi-arrow-left"></i> @Localizer["Back to Server"]</a>
 }
 else
 {
-    <a href="@BackHref" class="link-arrow d-inline-block mb-2"><i class="bi bi-arrow-left"></i> Back to Server</a>
+    <a href="@BackHref" class="link-arrow d-inline-block mb-2"><i class="bi bi-arrow-left"></i> @Localizer["Back to Server"]</a>
 
     <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
         <div>
             <h1 class="mb-0">@detail.DisplayName</h1>
             <p class="text-muted mb-0">
                 <code>@detail.SteamId</code>
-                — <a href="@SteamProfileUrl" target="_blank" rel="noopener">Steam profile</a>
+                — <a href="@SteamProfileUrl" target="_blank" rel="noopener">@Localizer["Steam profile"]</a>
             </p>
         </div>
         @if (detail.IsCurrentlyConnected)
         {
-            <span class="badge status-badge status-connected"><i class="bi bi-check-circle-fill"></i> Currently connected</span>
+            <span class="badge status-badge status-connected"><i class="bi bi-check-circle-fill"></i> @Localizer["Currently connected"]</span>
         }
         else
         {
-            <span class="badge status-badge status-disconnected"><i class="bi bi-x-circle-fill"></i> Not connected</span>
+            <span class="badge status-badge status-disconnected"><i class="bi bi-x-circle-fill"></i> @Localizer["Not connected"]</span>
         }
     </div>
 
     <div class="card card-body mb-4">
-        <h2 class="h6 text-muted text-uppercase mb-3">Actions</h2>
+        <h2 class="h6 text-muted text-uppercase mb-3">@Localizer["Actions"]</h2>
 
         @if (actionError is not null)
         {
@@ -60,44 +62,44 @@ else
 
         <div class="d-flex flex-wrap gap-4">
             <div>
-                <label class="form-label small text-muted mb-1">Give Item</label>
+                <label class="form-label small text-muted mb-1">@Localizer["Give Item"]</label>
                 <div class="d-flex gap-2">
-                    <input type="text" class="form-control form-control-sm" style="width:10rem" placeholder="Item shortname" @bind="giveItemShortname" />
+                    <input type="text" class="form-control form-control-sm" style="width:10rem" placeholder="@Localizer["Item shortname"]" @bind="giveItemShortname" />
                     <input type="number" class="form-control form-control-sm" style="width:5rem" min="1" @bind="giveItemAmount" />
-                    <button class="btn btn-sm btn-outline-primary" @onclick="GiveItemAsync" disabled="@(actionBusy || string.IsNullOrWhiteSpace(giveItemShortname))">Give</button>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="GiveItemAsync" disabled="@(actionBusy || string.IsNullOrWhiteSpace(giveItemShortname))">@Localizer["Give"]</button>
                 </div>
             </div>
 
             <div>
-                <label class="form-label small text-muted mb-1">Teleport To</label>
+                <label class="form-label small text-muted mb-1">@Localizer["Teleport To"]</label>
                 <div class="d-flex gap-2">
                     <input type="number" class="form-control form-control-sm" style="width:5rem" placeholder="X" @bind="teleportX" />
                     <input type="number" class="form-control form-control-sm" style="width:5rem" placeholder="Y" @bind="teleportY" />
                     <input type="number" class="form-control form-control-sm" style="width:5rem" placeholder="Z" @bind="teleportZ" />
-                    <button class="btn btn-sm btn-outline-primary" @onclick="TeleportAsync" disabled="@actionBusy">Teleport</button>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="TeleportAsync" disabled="@actionBusy">@Localizer["Teleport"]</button>
                 </div>
             </div>
 
             <div>
-                <label class="form-label small text-muted mb-1">Kill</label>
+                <label class="form-label small text-muted mb-1">@Localizer["Kill"]</label>
                 <div>
-                    <button class="btn btn-sm btn-outline-danger" @onclick="KillAsync" disabled="@actionBusy">Kill Player</button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="KillAsync" disabled="@actionBusy">@Localizer["Kill Player"]</button>
                 </div>
             </div>
 
             <div>
-                <label class="form-label small text-muted mb-1">Kick</label>
+                <label class="form-label small text-muted mb-1">@Localizer["Kick"]</label>
                 <div class="d-flex gap-2">
-                    <input type="text" class="form-control form-control-sm" style="width:12rem" placeholder="Reason" @bind="kickReason" />
-                    <button class="btn btn-sm btn-outline-danger" @onclick="KickAsync" disabled="@actionBusy">Kick</button>
+                    <input type="text" class="form-control form-control-sm" style="width:12rem" placeholder="@Localizer["Reason"]" @bind="kickReason" />
+                    <button class="btn btn-sm btn-outline-danger" @onclick="KickAsync" disabled="@actionBusy">@Localizer["Kick"]</button>
                 </div>
             </div>
 
             <div>
-                <label class="form-label small text-muted mb-1">Ban</label>
+                <label class="form-label small text-muted mb-1">@Localizer["Ban"]</label>
                 <div class="d-flex gap-2">
-                    <input type="text" class="form-control form-control-sm" style="width:12rem" placeholder="Reason" @bind="banReason" />
-                    <button class="btn btn-sm btn-outline-danger" @onclick="BanAsync" disabled="@actionBusy">Ban + Kick</button>
+                    <input type="text" class="form-control form-control-sm" style="width:12rem" placeholder="@Localizer["Reason"]" @bind="banReason" />
+                    <button class="btn btn-sm btn-outline-danger" @onclick="BanAsync" disabled="@actionBusy">@Localizer["Ban + Kick"]</button>
                 </div>
             </div>
         </div>
@@ -106,19 +108,19 @@ else
     <div class="row g-3 mb-4">
         <div class="col-6 col-md-3">
             <div class="card card-body h-100">
-                <div class="text-muted small text-uppercase">Country</div>
+                <div class="text-muted small text-uppercase">@Localizer["Country"]</div>
                 <div class="fs-5">@CountrySummary(detail)</div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card card-body h-100">
-                <div class="text-muted small text-uppercase">VPN</div>
+                <div class="text-muted small text-uppercase">@Localizer["VPN"]</div>
                 <div class="fs-5">@VpnStatus(detail.IsVpn)</div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card card-body h-100">
-                <div class="text-muted small text-uppercase">VAC / Game Bans</div>
+                <div class="text-muted small text-uppercase">@Localizer["VAC / Game Bans"]</div>
                 <div class="fs-5 @(HasAnyBan(detail) ? "text-danger fw-semibold" : "")">
                     @(detail.VacBanned.HasValue ? $"{detail.NumberOfVacBans ?? 0} / {detail.NumberOfGameBans ?? 0}" : "—")
                 </div>
@@ -126,31 +128,31 @@ else
         </div>
         <div class="col-6 col-md-3">
             <div class="card card-body h-100">
-                <div class="text-muted small text-uppercase">Hours on Record</div>
+                <div class="text-muted small text-uppercase">@Localizer["Hours on Record"]</div>
                 <div class="fs-5">@FormatHoursOnRecord(detail.SteamMinutesPlayedForever)</div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card card-body h-100">
-                <div class="text-muted small text-uppercase">Hours on Server</div>
+                <div class="text-muted small text-uppercase">@Localizer["Hours on Server"]</div>
                 <div class="fs-5">@FormatDurationLong(detail.HoursOnServer)</div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card card-body h-100">
-                <div class="text-muted small text-uppercase">Sessions</div>
+                <div class="text-muted small text-uppercase">@Localizer["Sessions"]</div>
                 <div class="fs-5">@detail.SessionCount</div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card card-body h-100">
-                <div class="text-muted small text-uppercase">First Seen</div>
+                <div class="text-muted small text-uppercase">@Localizer["First Seen"]</div>
                 <div class="fs-5">@detail.FirstConnectedAtUtc.ToLocalTime().ToString("g")</div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card card-body h-100">
-                <div class="text-muted small text-uppercase">Last Seen</div>
+                <div class="text-muted small text-uppercase">@Localizer["Last Seen"]</div>
                 <div class="fs-5">@detail.LastConnectedAtUtc.ToLocalTime().ToString("g")</div>
             </div>
         </div>
@@ -158,14 +160,14 @@ else
 
     <div class="row g-4">
         <div class="col-lg-6">
-            <h2 class="h6 text-muted text-uppercase">Session history</h2>
+            <h2 class="h6 text-muted text-uppercase">@Localizer["Session history"]</h2>
             @if (loadingSessions && sessions.Count == 0)
             {
-                <p><em>Loading...</em></p>
+                <p><em>@Localizer["Loading..."]</em></p>
             }
             else if (sessions.Count == 0)
             {
-                <p class="text-muted">No sessions recorded.</p>
+                <p class="text-muted">@Localizer["No sessions recorded."]</p>
             }
             else
             {
@@ -173,9 +175,9 @@ else
                     <table class="table table-sm player-table">
                         <thead>
                             <tr>
-                                <th>Connected</th>
-                                <th>Duration</th>
-                                <th>IP address</th>
+                                <th>@Localizer["Connected"]</th>
+                                <th>@Localizer["Duration"]</th>
+                                <th>@Localizer["IP address"]</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -183,7 +185,7 @@ else
                             {
                                 <tr>
                                     <td>@s.ConnectedAtUtc.ToLocalTime().ToString("g")</td>
-                                    <td>@FormatDurationLong((s.DisconnectedAtUtc ?? DateTimeOffset.UtcNow) - s.ConnectedAtUtc)@(s.DisconnectedAtUtc is null ? " (ongoing)" : "")</td>
+                                    <td>@FormatDurationLong((s.DisconnectedAtUtc ?? DateTimeOffset.UtcNow) - s.ConnectedAtUtc)@(s.DisconnectedAtUtc is null ? " " + Localizer["(ongoing)"] : "")</td>
                                     <td><code>@s.IpAddress</code></td>
                                 </tr>
                             }
@@ -194,21 +196,21 @@ else
                 @if (sessions.Count < sessionsTotalCount)
                 {
                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => LoadSessionsAsync(append: true)" disabled="@loadingSessions">
-                        @(loadingSessions ? "Loading..." : $"Load more ({sessions.Count} of {sessionsTotalCount})")
+                        @(loadingSessions ? Localizer["Loading..."] : Localizer["Load more ({0} of {1})", sessions.Count, sessionsTotalCount])
                     </button>
                 }
             }
         </div>
 
         <div class="col-lg-6">
-            <h2 class="h6 text-muted text-uppercase">Kills</h2>
+            <h2 class="h6 text-muted text-uppercase">@Localizer["Kills"]</h2>
             @if (loadingKills && kills.Count == 0)
             {
-                <p><em>Loading...</em></p>
+                <p><em>@Localizer["Loading..."]</em></p>
             }
             else if (kills.Count == 0)
             {
-                <p class="text-muted">No kills recorded.</p>
+                <p class="text-muted">@Localizer["No kills recorded."]</p>
             }
             else
             {
@@ -225,7 +227,7 @@ else
                 @if (kills.Count < killsTotalCount)
                 {
                     <button class="btn btn-sm btn-outline-secondary mt-2" @onclick="() => LoadKillsAsync(append: true)" disabled="@loadingKills">
-                        @(loadingKills ? "Loading..." : $"Load more ({kills.Count} of {killsTotalCount})")
+                        @(loadingKills ? Localizer["Loading..."] : Localizer["Load more ({0} of {1})", kills.Count, killsTotalCount])
                     </button>
                 }
             }
@@ -244,6 +246,7 @@ else
     private string SteamProfileUrl => $"https://steamcommunity.com/profiles/{SteamId}";
 
     private PlayerDetailDto? detail;
+    private string siteName = "RustArchon";
     private bool loading = true;
 
     private readonly List<PlayerSessionDto> sessions = new();
@@ -275,6 +278,8 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        siteName = (await Branding.GetAsync()).SiteName;
+
         try
         {
             detail = await RustServerClient.GetPlayerDetailAsync(ServerId, SteamId);
@@ -379,23 +384,23 @@ else
             {
                 actionError = result.Error switch
                 {
-                    "NotConnected" => "This server isn't connected right now - the command wasn't sent.",
-                    _ => result.Error ?? "The command failed."
+                    "NotConnected" => Localizer["This server isn't connected right now - the command wasn't sent."],
+                    _ => result.Error ?? Localizer["The command failed."]
                 };
                 return false;
             }
 
-            actionSuccessMessage = $"Sent: {command}";
+            actionSuccessMessage = Localizer["Sent: {0}", command];
             return true;
         }
         catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
         {
-            actionError = "No worker responded in time - this server may not have an active connection.";
+            actionError = Localizer["No worker responded in time - this server may not have an active connection."];
             return false;
         }
         catch (Exception)
         {
-            actionError = "Something went wrong sending that command.";
+            actionError = Localizer["Something went wrong sending that command."];
             return false;
         }
         finally
@@ -442,10 +447,10 @@ else
         return !string.IsNullOrEmpty(p.CountryCode) ? $"{p.Country} ({p.CountryCode})" : p.Country;
     }
 
-    private static string VpnStatus(bool? isVpn) => isVpn switch
+    private string VpnStatus(bool? isVpn) => isVpn switch
     {
-        true => "Yes",
-        false => "No",
+        true => Localizer["Yes"],
+        false => Localizer["No"],
         null => "—"
     };
 
@@ -457,15 +462,15 @@ else
 
     // Mirrors ServerDetail.razor's own KillSummary - kept as a plain victim/killer summary rather than
     // "you" framing, since a reader lands here specifically because they already recognize this name.
-    private static string KillSummary(PlayerKillEventDto kill)
+    private string KillSummary(PlayerKillEventDto kill)
     {
         var weaponSuffix = string.IsNullOrEmpty(kill.Weapon) ? string.Empty : $" ({kill.Weapon})";
 
         if (string.IsNullOrEmpty(kill.KillerName))
         {
-            return $"{kill.VictimName} died{weaponSuffix}";
+            return Localizer["{0} died{1}", kill.VictimName, weaponSuffix];
         }
 
-        return $"{kill.VictimName} was killed by {kill.KillerName}{weaponSuffix}";
+        return Localizer["{0} was killed by {1}{2}", kill.VictimName, kill.KillerName, weaponSuffix];
     }
 }

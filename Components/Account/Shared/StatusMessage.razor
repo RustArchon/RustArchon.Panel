@@ -1,6 +1,10 @@
-﻿@if (!string.IsNullOrEmpty(DisplayMessage))
+﻿@* Every message this shows is now routed through Localizer somewhere upstream (see e.g. Login.razor's
+   "Error: {0}"), so the danger-vs-success check below compares against the CURRENT culture's own
+   translation of "Error" - not the English literal - or a translated message would start with the
+   translated word and silently render as a green "success" alert instead of red. *@
+@if (!string.IsNullOrEmpty(DisplayMessage))
 {
-    var statusMessageClass = DisplayMessage.StartsWith("Error") ? "danger" : "success";
+    var statusMessageClass = DisplayMessage.StartsWith(Localizer["Error"].Value, StringComparison.Ordinal) ? "danger" : "success";
     <div class="alert alert-@statusMessageClass" role="alert">
         @DisplayMessage
     </div>

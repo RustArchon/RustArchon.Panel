@@ -12,8 +12,8 @@
 @inject IReportApiClient ReportClient
 @rendermode RenderModes.NonPrerenderedServer
 
-<ReportPage Title="Delinquent Accounts"
-            Description="Organizations owing money, oldest debt first - with the aged breakdown and what each is worth per month if they stay."
+<ReportPage Title="@Localizer["Delinquent Accounts"]"
+            Description="@Localizer["Organizations owing money, oldest debt first - with the aged breakdown and what each is worth per month if they stay."]"
             Parameters="parameters"
             OnRun="RunAsync"
             Loading="loading"
@@ -27,7 +27,7 @@
                 Rows="rows"
                 Columns="columns"
                 FileName="delinquent-accounts"
-                EmptyMessage="Nobody is overdue. Nothing to chase." />
+                EmptyMessage="@Localizer["Nobody is overdue. Nothing to chase."]" />
 </ReportPage>
 
 @code {
@@ -40,19 +40,13 @@
 
     private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
 
-    private readonly DecimalParameter minOutstanding = new("minOutstanding", "Owing over", prefix: "$");
+    private DecimalParameter minOutstanding = null!;
 
     /// <summary>
     /// Overdue-only by default, and the option to widen it is second - this is the chase list, and
     /// somebody whose only invoice is due next week does not belong on it.
     /// </summary>
-    private readonly SelectParameter scope = new("overdueOnly", "Show", allLabel: "Overdue only")
-    {
-        Options =
-        [
-            new ReportFilterOptionDto { Value = "false", Label = "Anything outstanding" }
-        ]
-    };
+    private SelectParameter scope = null!;
 
     private IReadOnlyList<ReportParameter> parameters => [minOutstanding, scope];
 
@@ -60,7 +54,20 @@
 
     private IReadOnlyList<DelinquentAccountRowDto> rows => result?.Rows ?? [];
 
-    protected override void OnInitialized() => columns = BuildColumns();
+    protected override void OnInitialized()
+    {
+        minOutstanding = new DecimalParameter("minOutstanding", Localizer["Owing over"], prefix: "$");
+
+        scope = new SelectParameter("overdueOnly", Localizer["Show"], allLabel: Localizer["Overdue only"])
+        {
+            Options =
+            [
+                new ReportFilterOptionDto { Value = "false", Label = Localizer["Anything outstanding"] }
+            ]
+        };
+
+        columns = BuildColumns();
+    }
 
     private Task ExportAsync() => grid?.ExportCsvAsync() ?? Task.CompletedTask;
 
@@ -94,46 +101,46 @@
     private IReadOnlyList<ReportColumn<DelinquentAccountRowDto>> BuildColumns() =>
     [
         new ReportColumn<DelinquentAccountRowDto>(
-            header: "Organization",
+            header: Localizer["Organization"],
             value: r => r.OrganizationName,
             template: r =>
                 @<span>
                     @r.OrganizationName
                     @if (!r.IsActive)
                     {
-                        <span class="badge bg-secondary ms-1">Deactivated</span>
+                        <span class="badge bg-secondary ms-1">@Localizer["Deactivated"]</span>
                     }
                 </span>),
 
         new ReportColumn<DelinquentAccountRowDto>(
-            header: "Contact",
+            header: Localizer["Contact"],
             value: r => r.ContactEmail,
             template: r => @<span class="text-muted small">@r.ContactEmail</span>),
 
         new ReportColumn<DelinquentAccountRowDto>(
-            header: "Plan",
+            header: Localizer["Plan"],
             value: r => r.PlanName,
             template: r =>
                 @<span class="badge" style="background-color:@r.PlanColorCode">@r.PlanName</span>),
 
         new ReportColumn<DelinquentAccountRowDto>(
-            header: "Invoices",
+            header: Localizer["Invoices"],
             value: r => r.OpenInvoices,
             align: ReportAlign.Right),
 
         new ReportColumn<DelinquentAccountRowDto>(
-            header: "Oldest",
+            header: Localizer["Oldest"],
             value: r => r.OldestOverdueDays,
             align: ReportAlign.Right,
             template: r =>
                 @<span class="badge @BucketClass(r.WorstBucket)">
-                    @(r.OldestOverdueDays > 0 ? $"{r.OldestOverdueDays}d" : "not due")
+                    @(r.OldestOverdueDays > 0 ? Localizer["{0}d", r.OldestOverdueDays] : Localizer["not due"])
                 </span>),
 
         // The aged columns, in the order an accountant reads them. Blank rather than $0.00 where a
         // bucket is empty - a page of zeroes hides the two numbers that matter.
         new ReportColumn<DelinquentAccountRowDto>(
-            header: "Current", value: r => r.CurrentAmount,
+            header: Localizer["Current"], value: r => r.CurrentAmount,
             display: r => Blank(r.CurrentAmount), align: ReportAlign.Right),
 
         new ReportColumn<DelinquentAccountRowDto>(
@@ -154,14 +161,14 @@
             template: r => @<span class="@(r.Over90 > 0 ? "text-danger fw-semibold" : null)">@Blank(r.Over90)</span>),
 
         new ReportColumn<DelinquentAccountRowDto>(
-            header: "Outstanding",
+            header: Localizer["Outstanding"],
             value: r => r.TotalOutstanding,
             align: ReportAlign.Right,
             template: r => @<strong>@r.TotalOutstanding.ToString("C", Money)</strong>),
 
         // The other half of the collections decision: what you lose by pushing too hard.
         new ReportColumn<DelinquentAccountRowDto>(
-            header: "Monthly",
+            header: Localizer["Monthly"],
             value: r => r.MonthlyValue,
             display: r => r.MonthlyValue.ToString("C", Money),
             align: ReportAlign.Right)

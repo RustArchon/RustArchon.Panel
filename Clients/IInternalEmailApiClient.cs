@@ -1,5 +1,6 @@
 // Copyright ©2026 Scott Blomfield
 
+using System;
 using System.Threading.Tasks;
 using Refit;
 using RustArchon.Shared.DTOs;
@@ -17,4 +18,27 @@ public interface IInternalEmailApiClient
 {
     [Post("/internal/email")]
     Task SendAsync([Body] SendEmailRequestDto request);
+
+    /// <summary>Queues an email built from an admin-editable template - see
+    /// <c>RustArchon.Api.Infrastructure.EmailTemplateRegistry.Codes</c> for valid codes.</summary>
+    [Post("/internal/email/templated")]
+    Task SendTemplatedAsync([Body] SendTemplatedEmailRequestDto request);
+}
+
+/// <summary>
+/// Refit client for discarding the empty organization a half-finished registration left behind.
+/// </summary>
+/// <remarks>
+/// Same shared-secret channel and the same reasoning as <see cref="IInternalEmailApiClient"/>: there
+/// is nobody to authenticate as at that moment. The account that founded the organization is being
+/// deleted in the same breath, and it holds its permissions inside the very tenant being discarded.
+/// </remarks>
+public interface IInternalRegistrationApiClient
+{
+    /// <summary>
+    /// Discards the organization <paramref name="userId"/> just founded, if it is still empty.
+    /// </summary>
+    /// <returns>Whether one was discarded - <c>false</c> is ordinary, not a failure.</returns>
+    [Post("/internal/registrations/{userId}/discard-organization")]
+    Task<bool> DiscardOrganizationAsync(Guid userId);
 }

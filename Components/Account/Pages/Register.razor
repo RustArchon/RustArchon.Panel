@@ -2,6 +2,7 @@
 @layout MainLayout
 
 @using System.ComponentModel.DataAnnotations
+@using System.Globalization
 @using System.Text
 @using System.Text.Encodings.Web
 @using Microsoft.AspNetCore.Identity
@@ -20,10 +21,11 @@
 @inject IdentityRedirectManager RedirectManager
 @inject NewTenantBootstrapper TenantBootstrapper
 @inject IInvitationApiClient InvitationClient
+@inject IInternalRegistrationApiClient InternalRegistrationClient
 
-<PageTitle>Register</PageTitle>
+<PageTitle>@Localizer["Register"]</PageTitle>
 
-<h1>Register</h1>
+<h1>@Localizer["Register"]</h1>
 
 <div class="row">
     <div class="col-lg-6">
@@ -34,47 +36,47 @@
         }
         @if (invitationStatus == null)
         {
-            <p><em>Checking sign-up availability...</em></p>
+            <p><em>@Localizer["Checking sign-up availability..."]</em></p>
         }
         else
         {
             <EditForm Model="Input" method="post" OnValidSubmit="RegisterUser" FormName="register">
                 <DataAnnotationsValidator />
-                <h2>Create a new account.</h2>
+                <h2>@Localizer["Create a new account."]</h2>
                 <hr />
                 <ValidationSummary class="text-danger" role="alert" />
                 @if (invitationStatus.Enabled)
                 {
                     <div class="form-floating mb-3">
-                        <InputText @bind-Value="Input.InvitationCode" id="Input.InvitationCode" class="form-control" placeholder="Invitation code" />
-                        <label for="Input.InvitationCode">Invitation code</label>
+                        <InputText @bind-Value="Input.InvitationCode" id="Input.InvitationCode" class="form-control" placeholder="@Localizer["Invitation code"]" />
+                        <label for="Input.InvitationCode">@Localizer["Invitation code"]</label>
                         <ValidationMessage For="() => Input.InvitationCode" class="text-danger" />
                     </div>
                 }
                 <div class="form-floating mb-3">
                     <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
-                    <label for="Input.Email">Email</label>
+                    <label for="Input.Email">@Localizer["Email"]</label>
                     <ValidationMessage For="() => Input.Email" class="text-danger" />
                 </div>
                 <div class="form-floating mb-3">
-                    <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
-                    <label for="Input.Password">Password</label>
+                    <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="@Localizer["password"]" />
+                    <label for="Input.Password">@Localizer["Password"]</label>
                     <ValidationMessage For="() => Input.Password" class="text-danger" />
                 </div>
                 <div class="form-floating mb-3">
-                    <InputText type="password" @bind-Value="Input.ConfirmPassword" id="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
-                    <label for="Input.ConfirmPassword">Confirm Password</label>
+                    <InputText type="password" @bind-Value="Input.ConfirmPassword" id="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="@Localizer["password"]" />
+                    <label for="Input.ConfirmPassword">@Localizer["Confirm Password"]</label>
                     <ValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
                 </div>
                 <button type="submit" class="w-100 btn btn-lg btn-primary" disabled="@registering">
-                    @(registering ? "Registering..." : "Register")
+                    @(registering ? Localizer["Registering..."] : Localizer["Register"])
                 </button>
             </EditForm>
         }
     </div>
     <div class="col-lg-4 col-lg-offset-2">
         <section>
-            <h3>Use another service to register.</h3>
+            <h3>@Localizer["Use another service to register."]</h3>
             <hr />
             <ExternalLoginPicker />
         </section>
@@ -90,7 +92,9 @@
     [SupplyParameterFromQuery]
     private string? ReturnUrl { get; set; }
 
-    private string? Message => identityErrors is null ? null : $"Error: {string.Join(", ", identityErrors.Select(error => error.Description))}";
+    private string? Message => identityErrors is null
+        ? null
+        : Localizer["Error: {0}", string.Join(", ", identityErrors.Select(error => error.Description))];
 
     private InvitationStatusDto? invitationStatus;
     private string? invitationError;
@@ -120,20 +124,43 @@
 
         if (invitationStatus == null)
         {
-            invitationError = "Unable to verify invitation status right now. Please try again in a moment.";
+            invitationError = Localizer["Unable to verify invitation status right now. Please try again in a moment."];
             return;
         }
 
         if (invitationStatus.Enabled && string.IsNullOrWhiteSpace(Input.InvitationCode))
         {
-            invitationError = "An invitation code is required to register.";
+            invitationError = Localizer["An invitation code is required to register."];
             return;
+        }
+
+        // Checked, not consumed. A bad code is refused before anything is created, and a good one
+        // stays unspent until the registration has actually finished - see the redemption below.
+        if (invitationStatus.Enabled)
+        {
+            var usable = await InvitationClient.ValidateAsync(new RedeemInvitationCodeRequest
+            {
+                Code = Input.InvitationCode!.Trim(),
+                Email = Input.Email
+            });
+
+            if (!usable.Success)
+            {
+                invitationError = usable.Error ?? Localizer["That invitation code is not valid."];
+                return;
+            }
         }
 
         registering = true;
         try
         {
             var user = CreateUser();
+
+            // Captured at the moment of sign-up rather than left null until the switcher is first
+            // used - see ApplicationUser.PreferredCulture's remarks. CurrentUICulture is whatever
+            // UseRequestLocalization resolved for this request (cookie, browser Accept-Language, or the
+            // default), the same value the page itself was just rendered in.
+            user.PreferredCulture = CultureInfo.CurrentUICulture.Name;
 
             await UserStore.SetUserNameAsync(user, Input.Email, CancellationToken.None);
             var emailStore = GetEmailStore();
@@ -146,12 +173,34 @@
                 return;
             }
 
-            // The invitation gate is deliberately the last check before the account is considered
-            // real, run *after* UserManager.CreateAsync rather than before it: that way a rejected
-            // password or a duplicate email (both already caught above) never burns a single-use code
-            // for no reason. If redemption fails here - already used, invalid, bound to a different
-            // email, or lost a race to someone else redeeming the same code - the just-created
-            // Identity user is rolled back rather than leaving an unauthorized account behind.
+            Logger.LogInformation("User created a new account with password.");
+
+            // Every new user needs their own tenant and an Owner role before they can call any
+            // permission-gated API endpoint (see JumpStart ADR-012's bootstrapping note), so this
+            // provisions both right here rather than waiting for them to hit a 403 on their first
+            // request. Mirrors JumpStart's own DemoNewUserBootstrapper pattern.
+            //
+            // If it fails, the account goes and the code is simply never spent. An account with no
+            // organization can do nothing at all, so keeping one would be worse than keeping none.
+            if (!await TenantBootstrapper.ProvisionAsync(user.Id, Input.Email))
+            {
+                await UserManager.DeleteAsync(user);
+
+                invitationError = Localizer[
+                    "We couldn't finish setting up your organization, so nothing was created and "
+                    + "your invitation code has not been used. Please try again."];
+
+                return;
+            }
+
+            // Redeemed last, once there is an account and an organization for it to have bought.
+            // Everything above this line can fail without costing anybody a single-use code.
+            //
+            // Still the only thing that decides: the check before registration began asked about an
+            // instant that has since passed, so two people can both have been told yes, and this
+            // single guarded UPDATE is what makes exactly one of them the winner. The loser is
+            // rolled back - their organization is orphaned rather than deleted, since nothing can
+            // reach it once its only member is gone, and a site admin can cancel it.
             if (invitationStatus.Enabled)
             {
                 var redeemed = await InvitationClient.RedeemAsync(new RedeemInvitationCodeRequest
@@ -162,19 +211,29 @@
 
                 if (!redeemed.Success)
                 {
+                    Logger.LogWarning(
+                        "Invitation code was taken between validating and redeeming it for {Email}; "
+                        + "rolling the registration back.", Input.Email);
+
+                    // The organization goes too. It is seconds old and contains nothing but this
+                    // account, so leaving it would be leaving litter for a site admin to find - and
+                    // the Api refuses to discard it if that has stopped being true.
+                    try
+                    {
+                        await InternalRegistrationClient.DiscardOrganizationAsync(user.Id);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(
+                            ex, "Could not discard the organization provisioned for {Email}; it is "
+                            + "empty and can be cancelled by a site admin.", Input.Email);
+                    }
+
                     await UserManager.DeleteAsync(user);
-                    invitationError = redeemed.Error ?? "That invitation code is not valid.";
+                    invitationError = redeemed.Error ?? Localizer["That invitation code is not valid."];
                     return;
                 }
             }
-
-            Logger.LogInformation("User created a new account with password.");
-
-            // Every new user needs their own tenant and an Owner role before they can call any
-            // permission-gated API endpoint (see JumpStart ADR-012's bootstrapping note), so this
-            // provisions both right here rather than waiting for them to hit a 403 on their first
-            // request. Mirrors JumpStart's own DemoNewUserBootstrapper pattern.
-            await TenantBootstrapper.ProvisionAsync(user.Id, Input.Email);
 
             // By this point the account, tenant, and (if enabled) invitation redemption have all
             // already committed - there's nothing left to roll back, so a failure sending the

@@ -3,6 +3,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Refit;
+using RustArchon.Messaging.Contracts;
 using RustArchon.Shared.DTOs;
 
 namespace RustArchon.Panel.Clients;
@@ -22,4 +23,12 @@ public interface IPlatformSettingsApiClient
 
     [Put("/{key}")]
     Task<PlatformSettingDto> UpdateValueAsync(string key, [Body] UpdatePlatformSettingValueDto request);
+
+    /// <summary>
+    /// Sends one test email through whatever's currently configured and reports whether it worked -
+    /// see <c>PlatformSettingsController.TestEmail</c>'s remarks. Can take a few seconds (a real SMTP/
+    /// SendGrid round trip, not a local check) and 504s if no Worker instance is running to answer.
+    /// </summary>
+    [Post("/email/test")]
+    Task<SendTestEmailResult> TestEmailAsync([Body] SendTestEmailRequestDto request);
 }

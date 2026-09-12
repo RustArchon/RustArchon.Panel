@@ -1,0 +1,234 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@inject ICommunicationApiClient CommunicationClient
+
+@*
+    The permanent record of outbound email to one Organization, one member, or both - embedded in
+    Admin/OrganizationDetail.razor's Communications tab and Admin/UserDetail.razor. Self-contained,
+    same pattern as NoteList: injects its own client, loads its own data, either host just drops it in
+    with a TenantId or a UserId.
+
+    Nothing here is ever created or edited - this is a log, not a form. A row expands in place to show
+    the full record (same "click to expand" pattern ServerDetail's connection/command panels and
+    Organization.razor's role toggle already use), and offers Cancel only while still Queued.
+*@
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@if (loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Loading communications..."]</div>
+}
+else if (rows.Count == 0)
+{
+    <div class="alert alert-info">@Localizer["No communications yet."]</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>@Localizer["Queue Date"]</th>
+                    <th>@Localizer["Subject"]</th>
+                    <th>@Localizer["Status"]</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in rows)
+                {
+                    <tr @key="row.Id" role="button" @onclick="() => ToggleAsync(row)">
+                        <td class="small">@Date(row.QueuedOn)</td>
+                        <td>@row.Subject</td>
+                        <td><span class="badge @StatusBadge(row.Status)">@StatusText(row.Status)</span></td>
+                    </tr>
+
+                    @if (expandedId == row.Id)
+                    {
+                        <tr class="table-light">
+                            <td colspan="3">
+                                @if (detailLoading)
+                                {
+                                    <div class="text-muted small">
+                                        <span class="spinner-border spinner-border-sm"></span> @Localizer["Loading..."]
+                                    </div>
+                                }
+                                else if (detail is not null)
+                                {
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <div class="small text-muted">
+                                            @Localizer["To"] @detail.ToAddress
+                                            <br />@Localizer["Queued"] @DateAndTime(detail.QueuedOn)
+                                            @if (detail.SentOn is { } sentOn)
+                                            {
+                                                <text><br />@Localizer["Sent"] @DateAndTime(sentOn)</text>
+                                            }
+                                            @if (detail.ViewedOn is { } viewedOn)
+                                            {
+                                                <text><br />@Localizer["Viewed"] @DateAndTime(viewedOn)</text>
+                                            }
+                                            @if (detail.BouncedOn is { } bouncedOn)
+                                            {
+                                                <text><br />@Localizer["Bounced"] @DateAndTime(bouncedOn) - @detail.FailureReason</text>
+                                            }
+                                            @if (detail.CancelledOn is { } cancelledOn)
+                                            {
+                                                <text><br />@Localizer["Cancelled"] @DateAndTime(cancelledOn)</text>
+                                            }
+                                        </div>
+                                        @if (detail.CanCancel)
+                                        {
+                                            <button class="btn btn-sm btn-outline-danger" disabled="@busy"
+                                                    @onclick="CancelAsync" @onclick:stopPropagation="true">
+                                                @Localizer["Cancel"]
+                                            </button>
+                                        }
+                                    </div>
+                                    <div class="border rounded p-2 bg-white">
+                                        @((MarkupString)detail.HtmlBody)
+                                    </div>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid? TenantId { get; set; }
+    [Parameter] public Guid? UserId { get; set; }
+
+    private List<CommunicationSummaryDto> rows = [];
+    private Guid? expandedId;
+    private CommunicationDetailDto? detail;
+
+    private bool loading = true;
+    private bool detailLoading;
+    private bool busy;
+    private string? errorMessage;
+
+    private static readonly System.Globalization.CultureInfo Us =
+        System.Globalization.CultureInfo.GetCultureInfo("en-US");
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            rows = await CommunicationClient.ListAsync(TenantId, UserId);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load communications");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task ToggleAsync(CommunicationSummaryDto row)
+    {
+        if (expandedId == row.Id)
+        {
+            expandedId = null;
+            detail = null;
+            return;
+        }
+
+        expandedId = row.Id;
+        detail = null;
+        detailLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            detail = await CommunicationClient.GetAsync(row.Id);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load this communication");
+        }
+        finally
+        {
+            detailLoading = false;
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        if (detail is null)
+        {
+            return;
+        }
+
+        busy = true;
+        errorMessage = null;
+
+        try
+        {
+            detail = await CommunicationClient.CancelAsync(detail.Id);
+
+            var index = rows.FindIndex(r => r.Id == detail.Id);
+            if (index >= 0)
+            {
+                rows[index] = new CommunicationSummaryDto
+                {
+                    Id = detail.Id,
+                    Subject = detail.Subject,
+                    ToAddress = detail.ToAddress,
+                    QueuedOn = detail.QueuedOn,
+                    Status = detail.Status
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "cancel this communication");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private static string StatusBadge(CommunicationStatus status) => status switch
+    {
+        CommunicationStatus.Queued => "bg-secondary",
+        CommunicationStatus.Sent => "bg-info text-dark",
+        CommunicationStatus.Viewed => "bg-success",
+        CommunicationStatus.Bounced => "bg-danger",
+        CommunicationStatus.Cancelled => "bg-dark",
+        _ => "bg-light text-dark"
+    };
+
+    private string StatusText(CommunicationStatus status) => status switch
+    {
+        CommunicationStatus.Queued => Localizer["Queued"],
+        CommunicationStatus.Sent => Localizer["Sent"],
+        CommunicationStatus.Viewed => Localizer["Viewed"],
+        CommunicationStatus.Bounced => Localizer["Bounced"],
+        CommunicationStatus.Cancelled => Localizer["Cancelled"],
+        _ => status.ToString()
+    };
+
+    // UTC throughout, like every other admin screen - see Organizations.razor's own remarks.
+    private static string Date(DateTimeOffset value) => value.UtcDateTime.ToString("d MMM yyyy", Us);
+    private static string DateAndTime(DateTimeOffset value) => value.UtcDateTime.ToString("d MMM yyyy HH:mm", Us) + " UTC";
+}

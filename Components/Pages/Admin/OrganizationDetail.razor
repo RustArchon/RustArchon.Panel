@@ -23,22 +23,22 @@
     branch onto a deeply-nested one in this Razor version compiles the transition itself as literal
     markup text, which is how ServerDetail's Players tab once swallowed every tab added after it.
 *@
-<PageTitle>@(detail?.Summary.Name ?? "Organization")</PageTitle>
+<PageTitle>@(detail?.Summary.Name ?? Localizer["Organization"])</PageTitle>
 
 @if (accessDenied)
 {
     <div class="alert alert-warning">
-        <i class="bi bi-shield-lock"></i> You don't have access to manage organizations.
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage organizations."]
     </div>
 }
 else if (loading)
 {
-    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> Loading organization...</div>
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Loading organization..."]</div>
 }
 else if (detail is null)
 {
-    <div class="alert alert-danger">No such organization.</div>
-    <a class="btn btn-outline-secondary" href="Admin/Organizations">Back to organizations</a>
+    <div class="alert alert-danger">@Localizer["No such organization."]</div>
+    <a class="btn btn-outline-secondary" href="Admin/Organizations">@Localizer["Back to organizations"]</a>
 }
 else
 {
@@ -46,7 +46,7 @@ else
 
     <nav aria-label="breadcrumb">
         <ol class="breadcrumb small">
-            <li class="breadcrumb-item"><a href="Admin/Organizations">Organizations</a></li>
+            <li class="breadcrumb-item"><a href="Admin/Organizations">@Localizer["Organizations"]</a></li>
             <li class="breadcrumb-item active" aria-current="page">@summary.Name</li>
         </ol>
     </nav>
@@ -57,16 +57,16 @@ else
                 @summary.Name
                 @if (summary.CancelledOn is { } cancelled)
                 {
-                    <span class="badge bg-secondary align-middle ms-2">Cancelled @Date(cancelled)</span>
+                    <span class="badge bg-secondary align-middle ms-2">@Localizer["Cancelled {0}", Date(cancelled)]</span>
                 }
             </h1>
             <div class="text-muted small">
                 <span class="badge me-2" style="background-color:@summary.PlanColorCode">@summary.PlanName</span>
                 @BillingTerms.Describe(summary.TermMonths)
-                · signed up @Date(summary.CreatedOn)
+                · @Localizer["signed up {0}", Date(summary.CreatedOn)]
                 @if (summary.CancelledOn is null)
                 {
-                    <text>· on this plan since @Date(summary.OnPlanSince)</text>
+                    <text>· @Localizer["on this plan since {0}", Date(summary.OnPlanSince)]</text>
                 }
                 @if (!string.IsNullOrWhiteSpace(summary.ContactEmail))
                 {
@@ -75,7 +75,7 @@ else
             </div>
         </div>
         <button class="btn btn-outline-secondary btn-sm" @onclick="LoadAsync" disabled="@refreshing">
-            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh
+            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> @Localizer["Refresh"]
         </button>
     </div>
 
@@ -98,30 +98,30 @@ else
     <div class="row g-3 mb-4">
         <div class="col-6 col-md-3">
             <div class="card h-100"><div class="card-body py-2">
-                <div class="small text-muted">Monthly</div>
+                <div class="small text-muted">@Localizer["Monthly"]</div>
                 <div class="fs-5">@Money(summary.MonthlyValue)</div>
-                <div class="small text-muted">at list prices</div>
+                <div class="small text-muted">@Localizer["at list prices"]</div>
             </div></div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card h-100"><div class="card-body py-2">
-                <div class="small text-muted">Outstanding</div>
+                <div class="small text-muted">@Localizer["Outstanding"]</div>
                 <div class="fs-5 @(summary.Outstanding > 0 ? "text-danger" : null)">@Money(summary.Outstanding)</div>
-                <div class="small text-muted">@summary.OpenInvoiceCount open invoice(s)</div>
+                <div class="small text-muted">@Localizer["{0} open invoice(s)", summary.OpenInvoiceCount]</div>
             </div></div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card h-100"><div class="card-body py-2">
-                <div class="small text-muted">Servers</div>
+                <div class="small text-muted">@Localizer["Servers"]</div>
                 <div class="fs-5">@summary.ServerCount <span class="text-muted fs-6">/ @summary.Quantity</span></div>
-                <div class="small text-muted">running / slots bought</div>
+                <div class="small text-muted">@Localizer["running / slots bought"]</div>
             </div></div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card h-100"><div class="card-body py-2">
-                <div class="small text-muted">Renews</div>
+                <div class="small text-muted">@Localizer["Renews"]</div>
                 <div class="fs-5">@(summary.RenewsOn is { } on ? Date(on) : "—")</div>
-                <div class="small text-muted">@summary.MemberCount member(s)</div>
+                <div class="small text-muted">@Localizer["{0} member(s)", summary.MemberCount]</div>
             </div></div>
         </div>
     </div>
@@ -135,11 +135,11 @@ else
         <div class="card-body py-3">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
-                    <span class="me-2">Status:</span>
+                    <span class="me-2">@Localizer["Status:"]</span>
                     <span class="badge @StatusBadge(summary.Status)">@summary.Status</span>
                     @if (summary.CancelledOn is not null)
                     {
-                        <span class="text-muted small ms-2">This organization has been cancelled.</span>
+                        <span class="text-muted small ms-2">@Localizer["This organization has been cancelled."]</span>
                     }
                 </div>
 
@@ -150,31 +150,31 @@ else
                         {
                             <button class="btn btn-sm btn-outline-success" disabled="@busy"
                                     @onclick="() => SetStatusAsync(SubscriptionStatus.Active)">
-                                Mark active
+                                @Localizer["Mark active"]
                             </button>
                         }
                         @if (summary.Status != SubscriptionStatus.PastDue)
                         {
                             <button class="btn btn-sm btn-outline-secondary" disabled="@busy"
                                     @onclick="() => SetStatusAsync(SubscriptionStatus.PastDue)">
-                                Mark past due
+                                @Localizer["Mark past due"]
                             </button>
                         }
                         @if (summary.Status != SubscriptionStatus.Suspended)
                         {
                             <button class="btn btn-sm btn-outline-warning" disabled="@busy"
                                     @onclick="() => SetStatusAsync(SubscriptionStatus.Suspended)">
-                                Suspend
+                                @Localizer["Suspend"]
                             </button>
                         }
                         <button class="btn btn-sm btn-outline-danger" disabled="@busy" @onclick="BeginCancel">
-                            Cancel account
+                            @Localizer["Cancel account"]
                         </button>
                     }
                     else
                     {
                         <button class="btn btn-sm btn-outline-success" disabled="@busy" @onclick="BeginReopen">
-                            Reopen
+                            @Localizer["Reopen"]
                         </button>
                     }
                 </div>
@@ -185,21 +185,21 @@ else
                 <div class="mt-3 border-top pt-3">
                     <label class="form-label small text-muted mb-1">@pendingPrompt</label>
                     <div class="input-group input-group-sm">
-                        <input class="form-control" placeholder="Why?"
+                        <input class="form-control" placeholder="@Localizer["Why?"]"
                                value="@actionReason" @oninput="e => actionReason = e.Value?.ToString()" />
                         @if (pendingAction == "reopen")
                         {
                             <select class="form-select" style="max-width:12rem"
                                     value="@reopenPlanId" @onchange="e => reopenPlanId = e.Value?.ToString() ?? string.Empty">
-                                <option value="">Choose a plan...</option>
+                                <option value="">@Localizer["Choose a plan..."]</option>
                                 @foreach (var option in planOptions)
                                 {
                                     <option value="@option.Value">@option.Label</option>
                                 }
                             </select>
                         }
-                        <button class="btn btn-primary" disabled="@busy" @onclick="ConfirmActionAsync">Confirm</button>
-                        <button class="btn btn-outline-secondary" @onclick="() => pendingAction = null">Cancel</button>
+                        <button class="btn btn-primary" disabled="@busy" @onclick="ConfirmActionAsync">@Localizer["Confirm"]</button>
+                        <button class="btn btn-outline-secondary" @onclick="() => pendingAction = null">@Localizer["Cancel"]</button>
                     </div>
                 </div>
             }
@@ -207,19 +207,57 @@ else
             @if (summary.CancelledOn is null && !string.IsNullOrWhiteSpace(statusReason))
             {
                 <div class="mt-2 small text-muted">
-                    Last changed @(statusChangedOn is { } changed ? Date(changed) : "at an unrecorded time"):
+                    @Localizer["Last changed {0}:", statusChangedOn is { } changed ? Date(changed) : Localizer["at an unrecorded time"]]
                     &ldquo;@statusReason&rdquo;
                 </div>
             }
         </div>
     </div>
 
+    @if (showCancelModal)
+    {
+        <RustArchon.Panel.Components.Shared.ConfirmationModal
+            Title="@Localizer["Cancel account"]"
+            ConfirmButtonText="@Localizer["Cancel account"]"
+            CancelButtonText="@Localizer["Never mind"]"
+            ConfirmButtonClass="btn-danger"
+            OnClose="HandleCancelModalClose">
+            <Message>
+                <p>
+                    @Localizer["This closes the subscription, stops every one of {0}'s servers and retires the account. This can be undone later from Reopen.", summary.Name]
+                </p>
+                <div class="mb-2">
+                    <label class="form-label small text-muted mb-1" for="cancel-category">@Localizer["Reason category"]</label>
+                    <select id="cancel-category" class="form-select form-select-sm"
+                            value="@cancelCategory.ToString()"
+                            @onchange="e => cancelCategory = Enum.Parse<CancellationReasonCategory>(e.Value?.ToString() ?? nameof(CancellationReasonCategory.CustomerRequest))">
+                        <option value="@nameof(CancellationReasonCategory.CustomerRequest)">@Localizer["Customer request"]</option>
+                        <option value="@nameof(CancellationReasonCategory.NonPayment)">@Localizer["Non-payment"]</option>
+                        <option value="@nameof(CancellationReasonCategory.TosViolation)">@Localizer["Terms of Service violation"]</option>
+                        <option value="@nameof(CancellationReasonCategory.Other)">@Localizer["Other"]</option>
+                    </select>
+                    @if (cancelCategory == CancellationReasonCategory.TosViolation)
+                    {
+                        <div class="form-text">
+                            @Localizer["The Organization is sent a notice that their account was cancelled for a Terms of Service violation, instead of the ordinary cancellation notice."]
+                        </div>
+                    }
+                </div>
+                <div>
+                    <label class="form-label small text-muted mb-1" for="cancel-reason">@Localizer["Reason (optional)"]</label>
+                    <input id="cancel-reason" class="form-control form-control-sm" placeholder="@Localizer["Why?"]"
+                           value="@cancelReason" @oninput="e => cancelReason = e.Value?.ToString()" />
+                </div>
+            </Message>
+        </RustArchon.Panel.Components.Shared.ConfirmationModal>
+    }
+
     <ul class="nav nav-tabs mb-3">
         @foreach (var name in TabNames)
         {
             <li class="nav-item">
                 <button class="nav-link @(tab == name ? "active" : null)" @onclick="() => tab = name">
-                    @name
+                    @Localizer[name]
                     @if (name == "Servers" && detail.Servers.Count > 0)
                     {
                         <span class="badge bg-secondary ms-1">@detail.Servers.Count</span>
@@ -227,6 +265,10 @@ else
                     @if (name == "Invoices" && detail.Invoices.Count > 0)
                     {
                         <span class="badge bg-secondary ms-1">@detail.Invoices.Count</span>
+                    }
+                    @if (name == "Notes" && detail.NoteCount > 0)
+                    {
+                        <span class="badge bg-secondary ms-1">@detail.NoteCount</span>
                     }
                 </button>
             </li>
@@ -239,18 +281,18 @@ else
         {
             <div class="alert alert-info">
                 <i class="bi bi-clock-history"></i>
-                Scheduled change to <strong>@pending.PlanName</strong>
-                (@BillingTerms.Describe(pending.TermMonths), @pending.Quantity slot(s))
-                takes effect <strong>@Date(pending.EffectiveDate)</strong>,
-                requested @Date(pending.CreatedOn).
+                @Localizer["Scheduled change to"] <strong>@pending.PlanName</strong>
+                (@BillingTerms.Describe(pending.TermMonths), @Localizer["{0} slot(s)", pending.Quantity])
+                @Localizer["takes effect"] <strong>@Date(pending.EffectiveDate)</strong>,
+                @Localizer["requested {0}.", Date(pending.CreatedOn)]
             </div>
         }
 
-        <h2 class="h5">Plan history</h2>
+        <h2 class="h5">@Localizer["Plan history"]</h2>
         <div class="table-responsive mb-4">
             <table class="table table-sm align-middle">
                 <thead>
-                    <tr><th>Plan</th><th>From</th><th>To</th><th>Status</th><th class="text-end">Periods</th></tr>
+                    <tr><th>@Localizer["Plan"]</th><th>@Localizer["From"]</th><th>@Localizer["To"]</th><th>@Localizer["Status"]</th><th class="text-end">@Localizer["Periods"]</th></tr>
                 </thead>
                 <tbody>
                     @foreach (var interval in detail.History)
@@ -258,7 +300,7 @@ else
                         <tr>
                             <td><span class="badge" style="background-color:@interval.PlanColorCode">@interval.PlanName</span></td>
                             <td class="small">@Date(interval.StartDate)</td>
-                            <td class="small">@(interval.EndDate is { } end ? Date(end) : "current")</td>
+                            <td class="small">@(interval.EndDate is { } end ? Date(end) : Localizer["current"])</td>
                             <td class="small">@interval.Status</td>
                             <td class="text-end">@interval.PeriodCount</td>
                         </tr>
@@ -267,17 +309,16 @@ else
             </table>
         </div>
 
-        <h2 class="h5">Billing periods</h2>
+        <h2 class="h5">@Localizer["Billing periods"]</h2>
         <p class="text-muted small">
-            What was earned, over which dates. A period split by a mid-period change shows as two spans
-            sharing one period - see the invoice each was billed on.
+            @Localizer["What was earned, over which dates. A period split by a mid-period change shows as two spans sharing one period - see the invoice each was billed on."]
         </p>
         <div class="table-responsive">
             <table class="table table-sm align-middle">
                 <thead>
                     <tr>
-                        <th>Plan</th><th>Term</th><th class="text-end">Slots</th>
-                        <th>Span</th><th>Period</th><th class="text-end">Earned</th><th>Invoice</th>
+                        <th>@Localizer["Plan"]</th><th>@Localizer["Term"]</th><th class="text-end">@Localizer["Slots"]</th>
+                        <th>@Localizer["Span"]</th><th>@Localizer["Period"]</th><th class="text-end">@Localizer["Earned"]</th><th>@Localizer["Invoice"]</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -291,7 +332,7 @@ else
                                 @Date(period.StartDate) – @Date(period.EndDate)
                                 @if (!period.IsWholePeriod)
                                 {
-                                    <span class="badge bg-warning text-dark ms-1">part</span>
+                                    <span class="badge bg-warning text-dark ms-1">@Localizer["part"]</span>
                                 }
                             </td>
                             <td class="small text-muted">@Date(period.PeriodStart) – @Date(period.PeriodEnd)</td>
@@ -303,7 +344,7 @@ else
                                 }
                                 else
                                 {
-                                    <span class="text-muted">not billed</span>
+                                    <span class="text-muted">@Localizer["not billed"]</span>
                                 }
                             </td>
                         </tr>
@@ -317,20 +358,19 @@ else
     {
         @if (detail.Servers.Count == 0)
         {
-            <div class="alert alert-info">This organization has no servers.</div>
+            <div class="alert alert-info">@Localizer["This organization has no servers."]</div>
         }
         else
         {
             <p class="text-muted small">
-                Actions here are taken as you, not as the customer, and publish exactly the same messages
-                their own screens would - a worker cannot tell the difference, and shouldn't.
+                @Localizer["Actions here are taken as you, not as the customer, and publish exactly the same messages their own screens would - a worker cannot tell the difference, and shouldn't."]
             </p>
             <div class="table-responsive">
                 <table class="table table-sm align-middle">
                     <thead>
                         <tr>
-                            <th>Server</th><th>Address</th><th>Status</th>
-                            <th>Worker</th><th>Heartbeat</th><th></th>
+                            <th>@Localizer["Server"]</th><th>@Localizer["Address"]</th><th>@Localizer["Status"]</th>
+                            <th>@Localizer["Worker"]</th><th>@Localizer["Heartbeat"]</th><th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -341,12 +381,12 @@ else
                                     <div class="fw-semibold">@server.Name</div>
                                     @if (!server.IsEnabled)
                                     {
-                                        <span class="badge bg-secondary">Disabled</span>
+                                        <span class="badge bg-secondary">@Localizer["Disabled"]</span>
                                     }
                                 </td>
                                 <td class="small font-monospace">@server.Host:@server.Port</td>
                                 <td class="small">
-                                    <span class="@StatusClass(server)">@server.ConnectionStatus</span>
+                                    <span class="@StatusClass(server)">@StatusText(server)</span>
                                     @if (!string.IsNullOrWhiteSpace(server.ConnectionStatusDetail))
                                     {
                                         <div class="text-muted">@server.ConnectionStatusDetail</div>
@@ -361,55 +401,29 @@ else
                                        one and load their server under the wrong Organization. *@
                                     <a class="btn btn-sm btn-outline-primary"
                                        href="servers/@server.Id?tenantId=@TenantId" data-enhance="false">
-                                        Open
+                                        @Localizer["Open"]
                                     </a>
                                     @if (server.IsEnabled)
                                     {
                                         <button class="btn btn-sm btn-outline-warning" disabled="@busy"
-                                                @onclick="() => DisableServerAsync(server)">Disable</button>
+                                                @onclick="() => DisableServerAsync(server)">@Localizer["Disable"]</button>
                                     }
                                     else
                                     {
                                         <button class="btn btn-sm btn-outline-success" disabled="@busy"
-                                                @onclick="() => EnableServerAsync(server)">Enable</button>
+                                                @onclick="() => EnableServerAsync(server)">@Localizer["Enable"]</button>
                                     }
-                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleConnection(server)">
-                                        Connection
-                                    </button>
+                                    @* Its own page (OrganizationServerConnection.razor), not an expand-in-row
+                                       editor - see that page's own remarks. *@
+                                    <a class="btn btn-sm btn-outline-secondary"
+                                       href="Admin/Organizations/@TenantId/Servers/@server.Id">
+                                        @Localizer["Connection"]
+                                    </a>
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleCommand(server)">
-                                        Command
+                                        @Localizer["Command"]
                                     </button>
                                 </td>
                             </tr>
-
-                            @if (connectionFor == server.Id)
-                            {
-                                <tr class="table-light">
-                                    <td colspan="6">
-                                        <div class="row g-2 align-items-end">
-                                            <div class="col-md-4">
-                                                <label class="form-label small text-muted mb-1">Host</label>
-                                                <input class="form-control form-control-sm" @bind="editHost" />
-                                            </div>
-                                            <div class="col-md-2">
-                                                <label class="form-label small text-muted mb-1">Port</label>
-                                                <input type="number" class="form-control form-control-sm" @bind="editPort" />
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label class="form-label small text-muted mb-1">RCON password</label>
-                                                <input type="password" class="form-control form-control-sm"
-                                                       placeholder="Leave blank to keep the current one"
-                                                       @bind="editPassword" />
-                                            </div>
-                                            <div class="col-md-2">
-                                                <button class="btn btn-sm btn-primary" disabled="@busy"
-                                                        @onclick="() => SaveConnectionAsync(server)">Save</button>
-                                                <button class="btn btn-sm btn-link" @onclick="() => connectionFor = null">Cancel</button>
-                                            </div>
-                                        </div>
-                                    </td>
-                                </tr>
-                            }
 
                             @if (commandFor == server.Id)
                             {
@@ -420,8 +434,8 @@ else
                                             <input class="form-control font-monospace" placeholder="serverinfo"
                                                    @bind="commandText" @bind:event="oninput" />
                                             <button class="btn btn-primary" disabled="@busy"
-                                                    @onclick="() => SendCommandAsync(server)">Send</button>
-                                            <button class="btn btn-outline-secondary" @onclick="() => commandFor = null">Close</button>
+                                                    @onclick="() => SendCommandAsync(server)">@Localizer["Send"]</button>
+                                            <button class="btn btn-outline-secondary" @onclick="() => commandFor = null">@Localizer["Close"]</button>
                                         </div>
                                         @if (commandResult is { } result)
                                         {
@@ -442,24 +456,24 @@ else
         @if (detail.Invoices.Count == 0)
         {
             <div class="alert alert-info">
-                No invoices. A free plan produces none - nothing owed is not an invoice.
+                @Localizer["No invoices. A free plan produces none - nothing owed is not an invoice."]
             </div>
         }
         else
         {
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="text-muted small">Newest first.</span>
+                <span class="text-muted small">@Localizer["Newest first."]</span>
                 <a class="btn btn-sm btn-outline-secondary" href="Admin/Invoices">
-                    <i class="bi bi-receipt-cutoff" aria-hidden="true"></i> Settle invoices
+                    <i class="bi bi-receipt-cutoff" aria-hidden="true"></i> @Localizer["Settle invoices"]
                 </a>
             </div>
             <div class="table-responsive">
                 <table class="table table-sm align-middle">
                     <thead>
                         <tr>
-                            <th>Invoice</th><th>Issued</th><th>Due</th>
-                            <th class="text-end">Total</th><th class="text-end">Paid</th>
-                            <th class="text-end">Credited</th><th class="text-end">Outstanding</th><th>Status</th>
+                            <th>@Localizer["Invoice"]</th><th>@Localizer["Issued"]</th><th>@Localizer["Due"]</th>
+                            <th class="text-end">@Localizer["Total"]</th><th class="text-end">@Localizer["Paid"]</th>
+                            <th class="text-end">@Localizer["Credited"]</th><th class="text-end">@Localizer["Outstanding"]</th><th>@Localizer["Status"]</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -490,16 +504,16 @@ else
             <div class="card-body">
                 <div class="row g-2 align-items-end">
                     <div class="col-md-6">
-                        <label class="form-label small text-muted mb-1" for="add-member">Add a member</label>
+                        <label class="form-label small text-muted mb-1" for="add-member">@Localizer["Add a member"]</label>
                         <input id="add-member" class="form-control form-control-sm"
-                               placeholder="Their email address on this panel"
+                               placeholder="@Localizer["Their email address on this panel"]"
                                value="@addMemberEmail" @oninput="e => addMemberEmail = e.Value?.ToString()" />
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label small text-muted mb-1" for="add-member-role">With role</label>
+                        <label class="form-label small text-muted mb-1" for="add-member-role">@Localizer["With role"]</label>
                         <select id="add-member-role" class="form-select form-select-sm"
                                 value="@addMemberRoleId" @onchange="e => addMemberRoleId = e.Value?.ToString() ?? string.Empty">
-                            <option value="">No role</option>
+                            <option value="">@Localizer["No role"]</option>
                             @foreach (var role in detail.Roles)
                             {
                                 <option value="@role.Id">@role.Name</option>
@@ -508,32 +522,29 @@ else
                     </div>
                     <div class="col-md-2">
                         <button class="btn btn-sm btn-primary" disabled="@busy" @onclick="AddMemberAsync">
-                            <i class="bi bi-person-plus" aria-hidden="true"></i> Add
+                            <i class="bi bi-person-plus" aria-hidden="true"></i> @Localizer["Add"]
                         </button>
                     </div>
                 </div>
                 <div class="form-text">
-                    The account has to exist on this panel already - adding somebody here grants access to
-                    an organization, it doesn't create a login.
+                    @Localizer["The account has to exist on this panel already - adding somebody here grants access to an organization, it doesn't create a login."]
                 </div>
             </div>
         </div>
 
         @if (detail.Members.Count == 0)
         {
-            <div class="alert alert-info">Nobody belongs to this organization.</div>
+            <div class="alert alert-info">@Localizer["Nobody belongs to this organization."]</div>
         }
         else
         {
             <p class="text-muted small">
-                Identity lives in the Panel's own store and membership lives in the Api's - two databases,
-                joined here because the Panel is the only component that can see both. A blank name means
-                the membership refers to a user this Panel has no account for.
+                @Localizer["Identity lives in the Panel's own store and membership lives in the Api's - two databases, joined here because the Panel is the only component that can see both. A blank name means the membership refers to a user this Panel has no account for."]
             </p>
             <div class="table-responsive">
                 <table class="table table-sm align-middle">
                     <thead>
-                        <tr><th>User</th><th>Roles</th><th>Joined</th><th>Active</th><th></th></tr>
+                        <tr><th>@Localizer["User"]</th><th>@Localizer["Roles"]</th><th>@Localizer["Joined"]</th><th>@Localizer["Active"]</th><th></th></tr>
                     </thead>
                     <tbody>
                         @foreach (var member in detail.Members)
@@ -542,7 +553,7 @@ else
                                 <td>
                                     @if (memberNames.TryGetValue(member.UserId, out var name))
                                     {
-                                        <span>@name</span>
+                                        <a href="Admin/Users/@member.UserId">@name</a>
                                     }
                                     else
                                     {
@@ -563,28 +574,28 @@ else
                                 <td>
                                     @if (member.IsActive)
                                     {
-                                        <span class="badge bg-success">Yes</span>
+                                        <span class="badge bg-success">@Localizer["Yes"]</span>
                                     }
                                     else
                                     {
-                                        <span class="badge bg-secondary">No</span>
+                                        <span class="badge bg-secondary">@Localizer["No"]</span>
                                     }
                                 </td>
                                 <td class="text-end text-nowrap">
                                     <button class="btn btn-sm btn-outline-secondary"
-                                            @onclick="() => ToggleRoles(member)">Roles</button>
+                                            @onclick="() => ToggleRoles(member)">@Localizer["Roles"]</button>
                                     @if (member.IsActive)
                                     {
                                         <button class="btn btn-sm btn-outline-warning" disabled="@busy"
-                                                @onclick="() => SetMemberActiveAsync(member, false)">Suspend</button>
+                                                @onclick="() => SetMemberActiveAsync(member, false)">@Localizer["Suspend"]</button>
                                     }
                                     else
                                     {
                                         <button class="btn btn-sm btn-outline-success" disabled="@busy"
-                                                @onclick="() => SetMemberActiveAsync(member, true)">Restore</button>
+                                                @onclick="() => SetMemberActiveAsync(member, true)">@Localizer["Restore"]</button>
                                     }
                                     <button class="btn btn-sm btn-outline-danger" disabled="@busy"
-                                            @onclick="() => RemoveMemberAsync(member)">Remove</button>
+                                            @onclick="() => RemoveMemberAsync(member)">@Localizer["Remove"]</button>
                                 </td>
                             </tr>
 
@@ -595,12 +606,12 @@ else
                                         @if (detail.Roles.Count == 0)
                                         {
                                             <span class="text-muted small">
-                                                This organization has no roles of its own yet.
+                                                @Localizer["This organization has no roles of its own yet."]
                                             </span>
                                         }
                                         else
                                         {
-                                            <span class="small text-muted me-2">Roles in this organization:</span>
+                                            <span class="small text-muted me-2">@Localizer["Roles in this organization:"]</span>
                                             @foreach (var role in detail.Roles)
                                             {
                                                 var held = member.RoleIds.Contains(role.Id);
@@ -620,13 +631,29 @@ else
             </div>
         }
     }
+
+    @if (tab == "Notes")
+    {
+        <NoteList TenantId="TenantId" />
+    }
+
+    @if (tab == "Communications")
+    {
+        <CommunicationList TenantId="TenantId" />
+    }
 }
 
 @code {
     [Parameter]
     public Guid TenantId { get; set; }
 
-    private static readonly string[] TabNames = ["Overview", "Servers", "Invoices", "Members"];
+    /// <summary>Which tab to land on, e.g. returning from OrganizationServerConnection.razor after
+    /// editing a server - read once, not re-applied on every refresh, so a manual tab click afterwards
+    /// still wins.</summary>
+    [SupplyParameterFromQuery]
+    public string? Tab { get; set; }
+
+    private static readonly string[] TabNames = ["Overview", "Servers", "Invoices", "Members", "Notes", "Communications"];
     private static readonly CultureInfo Us = CultureInfo.GetCultureInfo("en-US");
 
     private OrganizationDetailDto? detail;
@@ -639,11 +666,6 @@ else
     private bool accessDenied;
     private string? errorMessage;
     private string? successMessage;
-
-    private Guid? connectionFor;
-    private string editHost = string.Empty;
-    private int editPort = 28016;
-    private string editPassword = string.Empty;
 
     private Guid? commandFor;
     private string commandText = string.Empty;
@@ -660,8 +682,20 @@ else
     private string reopenPlanId = string.Empty;
     private SubscriptionStatus pendingStatus;
 
+    private bool showCancelModal;
+    private CancellationReasonCategory cancelCategory;
+    private string? cancelReason;
+
     private string? statusReason => detail?.Summary.StatusReason;
     private DateTimeOffset? statusChangedOn => detail?.Summary.StatusChangedOn;
+
+    protected override void OnInitialized()
+    {
+        if (!string.IsNullOrEmpty(Tab))
+        {
+            tab = Tab;
+        }
+    }
 
     protected override async Task OnParametersSetAsync() => await LoadAsync();
 
@@ -690,7 +724,7 @@ else
         }
         catch (Refit.ApiException ex)
         {
-            errorMessage = $"Couldn't load this organization: {ex.StatusCode}";
+            errorMessage = Localizer["Couldn't load this organization: {0}", ex.StatusCode];
         }
         finally
         {
@@ -725,38 +759,12 @@ else
     private async Task EnableServerAsync(OrganizationServerDto server) =>
         await ServerActionAsync(
             () => OrganizationClient.EnableServerAsync(TenantId, server.Id),
-            $"Enabled {server.Name}. A worker will pick it up shortly.");
+            Localizer["Enabled {0}. A worker will pick it up shortly.", server.Name]);
 
     private async Task DisableServerAsync(OrganizationServerDto server) =>
         await ServerActionAsync(
             () => OrganizationClient.DisableServerAsync(TenantId, server.Id),
-            $"Disabled {server.Name}; its connection has been torn down.");
-
-    private async Task SaveConnectionAsync(OrganizationServerDto server)
-    {
-        if (string.IsNullOrWhiteSpace(editHost) || editPort is < 1 or > 65535)
-        {
-            errorMessage = "A host and a port between 1 and 65535 are required.";
-            return;
-        }
-
-        var changedPassword = !string.IsNullOrWhiteSpace(editPassword);
-
-        await ServerActionAsync(
-            () => OrganizationClient.UpdateServerConnectionAsync(
-                TenantId, server.Id,
-                new UpdateServerConnectionRequestDto
-                {
-                    Host = editHost.Trim(),
-                    Port = editPort,
-                    RconPassword = changedPassword ? editPassword : null
-                }),
-            $"Updated {server.Name}"
-                + (changedPassword ? " and replaced its RCON password." : "."));
-
-        connectionFor = null;
-        editPassword = string.Empty;
-    }
+            Localizer["Disabled {0}; its connection has been torn down.", server.Name]);
 
     private async Task SendCommandAsync(OrganizationServerDto server)
     {
@@ -782,7 +790,7 @@ else
         }
         catch (Refit.ApiException ex)
         {
-            errorMessage = $"Command failed: {ex.StatusCode}";
+            errorMessage = Localizer["Command failed: {0}", ex.StatusCode];
         }
         finally
         {
@@ -804,7 +812,7 @@ else
         }
         catch (Refit.ApiException ex)
         {
-            errorMessage = $"That didn't work: {ex.StatusCode}";
+            errorMessage = Localizer["That didn't work: {0}", ex.StatusCode];
         }
         finally
         {
@@ -812,36 +820,19 @@ else
         }
     }
 
-    private void ToggleConnection(OrganizationServerDto server)
-    {
-        commandFor = null;
-
-        if (connectionFor == server.Id)
-        {
-            connectionFor = null;
-            return;
-        }
-
-        connectionFor = server.Id;
-        editHost = server.Host;
-        editPort = server.Port;
-        editPassword = string.Empty;
-    }
-
     private void ToggleCommand(OrganizationServerDto server)
     {
-        connectionFor = null;
         commandResult = null;
         commandText = string.Empty;
         commandFor = commandFor == server.Id ? null : server.Id;
     }
 
-    private static string FormatResult(RconCommandResult result) =>
+    private string FormatResult(RconCommandResult result) =>
         result.Success
-            ? string.IsNullOrWhiteSpace(result.Message) ? "(no output)" : result.Message
+            ? string.IsNullOrWhiteSpace(result.Message) ? Localizer["(no output)"] : result.Message
             : result.Error == "NotConnected"
-                ? "Not connected - this server has no live RCON connection right now."
-                : $"Failed: {result.Error ?? "unknown error"}";
+                ? Localizer["Not connected - this server has no live RCON connection right now."]
+                : Localizer["Failed: {0}", result.Error ?? Localizer["unknown error"]];
 
     private static string StatusClass(OrganizationServerDto server) => server.ConnectionStatus switch
     {
@@ -849,6 +840,16 @@ else
         RconConnectionStatus.Error => "text-danger",
         RconConnectionStatus.Connecting or RconConnectionStatus.Reconnecting => "text-warning",
         _ => "text-muted"
+    };
+
+    // Reuses the exact same "Connected"/"Connecting"/... keys as ServersList.razor's own StatusText.
+    private string StatusText(OrganizationServerDto server) => server.ConnectionStatus switch
+    {
+        RconConnectionStatus.Connected => Localizer["Connected"],
+        RconConnectionStatus.Connecting => Localizer["Connecting"],
+        RconConnectionStatus.Reconnecting => Localizer["Reconnecting"],
+        RconConnectionStatus.Error => Localizer["Connection error"],
+        _ => Localizer["Disconnected"]
     };
 
     private void ToggleRoles(OrganizationMemberDto member) =>
@@ -862,14 +863,14 @@ else
     {
         if (string.IsNullOrWhiteSpace(addMemberEmail))
         {
-            errorMessage = "Enter the email address of an account on this panel.";
+            errorMessage = Localizer["Enter the email address of an account on this panel."];
             return;
         }
 
         var user = await UserManager.FindByEmailAsync(addMemberEmail.Trim());
         if (user is null)
         {
-            errorMessage = $"No account on this panel uses {addMemberEmail.Trim()}.";
+            errorMessage = Localizer["No account on this panel uses {0}.", addMemberEmail.Trim()];
             return;
         }
 
@@ -878,7 +879,7 @@ else
         await ActAsync(
             () => OrganizationClient.AddMemberAsync(
                 TenantId, new AddMemberRequestDto { UserId = user.Id, RoleId = roleId }),
-            $"Added {user.Email} to this organization.");
+            Localizer["Added {0} to this organization.", user.Email]);
 
         addMemberEmail = null;
         addMemberRoleId = string.Empty;
@@ -887,14 +888,14 @@ else
     private async Task RemoveMemberAsync(OrganizationMemberDto member) =>
         await ActAsync(
             () => OrganizationClient.RemoveMemberAsync(TenantId, member.UserId),
-            $"Removed {MemberLabel(member)} from this organization.");
+            Localizer["Removed {0} from this organization.", MemberLabel(member)]);
 
     private async Task SetMemberActiveAsync(OrganizationMemberDto member, bool active) =>
         await ActAsync(
             () => OrganizationClient.SetMemberActiveAsync(TenantId, member.UserId, active),
             active
-                ? $"Restored access for {MemberLabel(member)}."
-                : $"Suspended access for {MemberLabel(member)}.");
+                ? Localizer["Restored access for {0}.", MemberLabel(member)]
+                : Localizer["Suspended access for {0}.", MemberLabel(member)]);
 
     private async Task ToggleRoleAsync(OrganizationMemberDto member, OrganizationRoleDto role, bool held) =>
         await ActAsync(
@@ -902,8 +903,8 @@ else
                 ? OrganizationClient.UnassignRoleAsync(TenantId, member.UserId, role.Id)
                 : OrganizationClient.AssignRoleAsync(TenantId, member.UserId, role.Id),
             held
-                ? $"Took {role.Name} back from {MemberLabel(member)}."
-                : $"Granted {role.Name} to {MemberLabel(member)}.");
+                ? Localizer["Took {0} back from {1}.", role.Name, MemberLabel(member)]
+                : Localizer["Granted {0} to {1}.", role.Name, MemberLabel(member)]);
 
     private string MemberLabel(OrganizationMemberDto member) =>
         memberNames.GetValueOrDefault(member.UserId, member.UserId.ToString());
@@ -920,18 +921,34 @@ else
         pendingPrompt = status switch
         {
             SubscriptionStatus.Suspended =>
-                "Suspending stops every one of this organization's server connections. Why?",
+                Localizer["Suspending stops every one of this organization's server connections. Why?"],
             SubscriptionStatus.PastDue =>
-                "Marking past due leaves their servers running. Why?",
-            _ => "Why is this account being made active again?"
+                Localizer["Marking past due leaves their servers running. Why?"],
+            _ => Localizer["Why is this account being made active again?"]
         };
     }
 
     private void BeginCancel()
     {
-        pendingAction = "cancel";
-        actionReason = null;
-        pendingPrompt = "Cancelling closes the subscription, stops their servers and retires the account. Why?";
+        cancelCategory = CancellationReasonCategory.CustomerRequest;
+        cancelReason = null;
+        showCancelModal = true;
+    }
+
+    private async Task HandleCancelModalClose(bool confirmed)
+    {
+        showCancelModal = false;
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        await ActAsync(
+            () => OrganizationClient.CancelAsync(
+                TenantId,
+                new CancelOrganizationRequestDto { Category = cancelCategory, Reason = cancelReason }),
+            Localizer["This organization has been cancelled and its servers stopped."]);
     }
 
     private void BeginReopen()
@@ -939,7 +956,7 @@ else
         pendingAction = "reopen";
         actionReason = null;
         reopenPlanId = string.Empty;
-        pendingPrompt = "Reopening puts them back on a plan. It does not raise an invoice.";
+        pendingPrompt = Localizer["Reopening puts them back on a plan. It does not raise an invoice."];
     }
 
     private async Task ConfirmActionAsync()
@@ -949,7 +966,7 @@ else
             case "status":
                 if (pendingStatus == SubscriptionStatus.Suspended && string.IsNullOrWhiteSpace(actionReason))
                 {
-                    errorMessage = "A reason is required when suspending an organization.";
+                    errorMessage = Localizer["A reason is required when suspending an organization."];
                     return;
                 }
 
@@ -957,27 +974,20 @@ else
                     () => OrganizationClient.SetStatusAsync(
                         TenantId,
                         new SetOrganizationStatusRequestDto { Status = pendingStatus, Reason = actionReason }),
-                    $"This organization is now {pendingStatus}.");
-                break;
-
-            case "cancel":
-                await ActAsync(
-                    () => OrganizationClient.CancelAsync(
-                        TenantId, new CancelOrganizationRequestDto { Reason = actionReason }),
-                    "This organization has been cancelled and its servers stopped.");
+                    Localizer["This organization is now {0}.", pendingStatus]);
                 break;
 
             case "reopen":
                 if (!Guid.TryParse(reopenPlanId, out var planId))
                 {
-                    errorMessage = "Choose a plan to reopen them on.";
+                    errorMessage = Localizer["Choose a plan to reopen them on."];
                     return;
                 }
 
                 await ActAsync(
                     () => OrganizationClient.ReopenAsync(
                         TenantId, new ReopenOrganizationRequestDto { PlanId = planId }),
-                    "This organization has been reopened.");
+                    Localizer["This organization has been reopened."]);
                 break;
         }
 
@@ -1001,11 +1011,11 @@ else
             ex.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Conflict)
         {
             // The Api's own wording - it explains the refusal better than a status code would.
-            errorMessage = ex.Content?.Trim('"') ?? "That change was refused.";
+            errorMessage = ex.Content?.Trim('"') ?? Localizer["That change was refused."];
         }
         catch (Refit.ApiException ex)
         {
-            errorMessage = $"That didn't work: {ex.StatusCode}";
+            errorMessage = Localizer["That didn't work: {0}", ex.StatusCode];
         }
         finally
         {
@@ -1030,19 +1040,19 @@ else
         _ => "bg-light text-dark"
     };
 
-    private static string Ago(DateTimeOffset? at)
+    private string Ago(DateTimeOffset? at)
     {
         if (at is not { } value)
         {
-            return "never";
+            return Localizer["never"];
         }
 
         var span = DateTimeOffset.UtcNow - value;
 
-        return span.TotalMinutes < 2 ? "just now"
-            : span.TotalHours < 1 ? $"{(int)span.TotalMinutes}m ago"
-            : span.TotalDays < 1 ? $"{(int)span.TotalHours}h ago"
-            : $"{(int)span.TotalDays}d ago";
+        return span.TotalMinutes < 2 ? Localizer["just now"]
+            : span.TotalHours < 1 ? Localizer["{0}m ago", (int)span.TotalMinutes]
+            : span.TotalDays < 1 ? Localizer["{0}h ago", (int)span.TotalHours]
+            : Localizer["{0}d ago", (int)span.TotalDays];
     }
 
     // UTC throughout, like the reports - see Organizations.razor.

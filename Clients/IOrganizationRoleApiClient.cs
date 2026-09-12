@@ -69,3 +69,19 @@ public interface IOrganizationMemberApiClient
     [Delete("/{userId}")]
     Task RemoveAsync(Guid userId);
 }
+
+/// <summary>
+/// Refit client for <c>OrganizationSettingsController</c> - an Organization editing its own name and
+/// contact address.
+/// </summary>
+/// <remarks>Same tenant-from-the-token rule as <see cref="IOrganizationRoleApiClient"/> above.</remarks>
+public interface IOrganizationSettingsApiClient
+{
+    /// <summary>The Organization's own name and contact address.</summary>
+    [Get("/")]
+    Task<OrganizationSettingsDto> GetAsync();
+
+    /// <summary>Changes them.</summary>
+    [Put("/")]
+    Task UpdateAsync([Body] UpdateOrganizationSettingsRequestDto request);
+}

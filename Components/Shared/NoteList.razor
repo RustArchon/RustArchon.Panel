@@ -1,0 +1,239 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@using Microsoft.AspNetCore.Identity
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Data
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@inject INoteApiClient NoteClient
+@inject UserManager<ApplicationUser> UserManager
+
+@*
+    A site admin's own annotations on one Organization, one person, or both - embedded in
+    Admin/OrganizationDetail.razor's Notes tab and Admin/UserDetail.razor. Self-contained: it injects
+    its own client and loads its own data, so either host just drops it in with a TenantId or a UserId.
+
+    Author names are resolved the same way Organization.razor resolves member names - the Api
+    speaks only in user ids, identity lives in the Panel's own store, and the Panel is the only
+    component that can see both.
+*@
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@if (loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Loading notes..."]</div>
+}
+else
+{
+    @if (notes.Count == 0 && editing is null)
+    {
+        <div class="alert alert-info mb-3">@Localizer["No notes yet."]</div>
+    }
+    else if (notes.Count > 0)
+    {
+        <div class="list-group mb-3">
+            @foreach (var note in notes)
+            {
+                <div class="list-group-item" @key="note.Id">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            @if (!string.IsNullOrWhiteSpace(note.Title))
+                            {
+                                <div class="fw-semibold">@note.Title</div>
+                            }
+                            <div style="white-space: pre-wrap;">@note.Content</div>
+                        </div>
+                        @if (note.CanManage)
+                        {
+                            <div class="text-nowrap ms-2">
+                                <button class="btn btn-sm btn-outline-secondary" disabled="@busy"
+                                        @onclick="() => Edit(note)">@Localizer["Edit"]</button>
+                                <button class="btn btn-sm btn-outline-danger" disabled="@busy"
+                                        @onclick="() => DeleteAsync(note)">@Localizer["Delete"]</button>
+                            </div>
+                        }
+                    </div>
+                    <div class="small text-muted mt-1">
+                        @AuthorName(note.CreatedById) · @note.CreatedOn.ToLocalTime().ToString("d MMM yyyy")
+                        @if (note.IsPrivate)
+                        {
+                            <span class="badge bg-secondary ms-1">@Localizer["Private"]</span>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @if (editing is not null)
+    {
+        <div class="card mb-3">
+            <div class="card-header">@(editingId is null ? Localizer["New note"] : Localizer["Edit note"])</div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label small text-muted mb-1" for="note-title">@Localizer["Title (optional)"]</label>
+                    <input id="note-title" class="form-control form-control-sm" value="@editing.Title"
+                           @oninput="e => editing.Title = e.Value?.ToString()" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small text-muted mb-1" for="note-content">@Localizer["Note"]</label>
+                    <textarea id="note-content" class="form-control form-control-sm" rows="3"
+                              @oninput="e => editing.Content = e.Value?.ToString() ?? string.Empty">@editing.Content</textarea>
+                </div>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="note-private"
+                           checked="@editing.IsPrivate"
+                           @onchange="e => editing.IsPrivate = e.Value is true" />
+                    <label class="form-check-label small" for="note-private">
+                        @Localizer["Private - only I can see or change this note"]
+                    </label>
+                </div>
+                <button class="btn btn-sm btn-primary" disabled="@busy" @onclick="SaveAsync">@Localizer["Save"]</button>
+                <button class="btn btn-sm btn-outline-secondary" disabled="@busy"
+                        @onclick="() => editing = null">@Localizer["Cancel"]</button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <button class="btn btn-sm btn-outline-primary" disabled="@busy" @onclick="StartNew">
+            <i class="bi bi-plus-lg" aria-hidden="true"></i> @Localizer["Add note"]
+        </button>
+    }
+}
+
+@code {
+    [Parameter] public Guid? TenantId { get; set; }
+    [Parameter] public Guid? UserId { get; set; }
+
+    private List<NoteDto> notes = [];
+    private readonly Dictionary<Guid, string> authorNames = [];
+
+    private SaveNoteRequestDto? editing;
+    private Guid? editingId;
+
+    private bool loading = true;
+    private bool busy;
+    private string? errorMessage;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            notes = await NoteClient.ListAsync(TenantId, UserId);
+            await ResolveAuthorsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load notes");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task ResolveAuthorsAsync()
+    {
+        foreach (var authorId in notes.Select(n => n.CreatedById).Distinct())
+        {
+            if (authorNames.ContainsKey(authorId))
+            {
+                continue;
+            }
+
+            var account = await UserManager.FindByIdAsync(authorId.ToString());
+            authorNames[authorId] = account?.Email ?? account?.UserName ?? authorId.ToString()[..8];
+        }
+    }
+
+    private string AuthorName(Guid authorId) => authorNames.GetValueOrDefault(authorId, authorId.ToString()[..8]);
+
+    private void StartNew()
+    {
+        editing = new SaveNoteRequestDto { TenantId = TenantId, UserId = UserId };
+        editingId = null;
+    }
+
+    private void Edit(NoteDto note)
+    {
+        editing = new SaveNoteRequestDto
+        {
+            Title = note.Title,
+            Content = note.Content,
+            TenantId = note.TenantId,
+            UserId = note.UserId,
+            IsPrivate = note.IsPrivate
+        };
+
+        editingId = note.Id;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (editing is null || string.IsNullOrWhiteSpace(editing.Content))
+        {
+            errorMessage = Localizer["Enter something for the note to say."];
+            return;
+        }
+
+        busy = true;
+        errorMessage = null;
+
+        try
+        {
+            if (editingId is { } id)
+            {
+                await NoteClient.UpdateAsync(id, editing);
+            }
+            else
+            {
+                await NoteClient.CreateAsync(editing);
+            }
+
+            editing = null;
+            editingId = null;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "save this note");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task DeleteAsync(NoteDto note)
+    {
+        busy = true;
+        errorMessage = null;
+
+        try
+        {
+            await NoteClient.DeleteAsync(note.Id);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "delete this note");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

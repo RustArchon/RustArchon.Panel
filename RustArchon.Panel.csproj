@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>RustArchon.Panel</RootNamespace>
     <UserSecretsId>rustarchon-web-7a4d1e6b-9f2c-4b8a-8e5d-1c3f7a9b2d6e</UserSecretsId>
+    <Configurations>Debug;Release</Configurations>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,11 +19,28 @@
     </PackageReference>
     <!-- Client for RustArchon.Api's RconHub - see Services/RconHubClient.cs. -->
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.10" />
+    <!-- Not an Api reference - see the ItemGroup below's own remarks on why there is never one of
+         those. This is a direct connection to the same Valkey container RustArchon.Api's own
+         PlatformSettingsCache already writes through to, so a read here sees a save take effect
+         immediately instead of running an independent, second cache with its own invalidation to keep
+         in sync - see Infrastructure/ValkeyCache.cs. Version pinned to match RustArchon.Api's. -->
+    <PackageReference Include="StackExchange.Redis" Version="2.8.41" />
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Never the Api itself - the Panel talks to it exclusively over HTTP, through the clients in
+         Clients/, and RustArchon.Shared is what the two sides agree on. A direct reference here would
+         pull the Api's entire dependency graph (EF Core, Npgsql, MassTransit, Kestrel hosting) into a
+         Blazor Server app, and it is not a hypothetical risk: it once made Routes.razor's own `Program`
+         type ambiguous against the Api's top-level one, a warning today and a landmine tomorrow. -->
     <ProjectReference Include="..\RustArchon.Shared\RustArchon.Shared.csproj" />
     <ProjectReference Include="..\JumpStart\JumpStart\JumpStart.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Physical files copied next to the built app - read by JsonFileStringLocalizer
+         (Localization/JsonFileStringLocalizer.cs), not embedded. -->
+    <None Include="Resources\**\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

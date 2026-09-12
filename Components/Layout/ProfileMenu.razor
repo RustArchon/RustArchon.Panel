@@ -12,14 +12,14 @@
                 <span class="profile-name">@context.User.Identity?.Name</span>
             </a>
             <div class="profile-dropdown">
-                <span class="profile-dropdown-item disabled" aria-disabled="true" title="Coming soon">
-                    <i class="bi bi-gear" aria-hidden="true"></i> Preferences
+                <span class="profile-dropdown-item disabled" aria-disabled="true" title="@Localizer["Coming soon"]">
+                    <i class="bi bi-gear" aria-hidden="true"></i> @Localizer["Preferences"]
                 </span>
                 <form action="Account/Logout" method="post" data-enhance="false" class="profile-dropdown-form">
                     <AntiforgeryToken />
                     <input type="hidden" name="ReturnUrl" value="@currentUrl" />
                     <button type="submit" class="profile-dropdown-item profile-dropdown-button">
-                        <i class="bi bi-arrow-bar-left" aria-hidden="true"></i> Log Out
+                        <i class="bi bi-arrow-bar-left" aria-hidden="true"></i> @Localizer["Log Out"]
                     </button>
                 </form>
             </div>

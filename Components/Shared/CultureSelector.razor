@@ -1,0 +1,49 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@using System.Globalization
+@using Microsoft.AspNetCore.Localization
+@using Microsoft.Extensions.Options
+@inject IOptions<RequestLocalizationOptions> LocalizationOptions
+@inject NavigationManager Navigation
+
+@*
+    Redirect-based, per Microsoft's own documented pattern for Blazor Server/global Interactive Server
+    apps - a plain in-circuit culture change has nothing to actually re-render against, since
+    IStringLocalizer resolves CultureInfo.CurrentUICulture once per request, not once per component
+    render. See Program.cs's /Culture/Set endpoint, the only thing this ever calls.
+
+    Renders nothing when only one culture is configured - a selector offering no real choice is worse
+    than no selector. The day a second Resources/SharedResource.<culture>.json file ships, this starts
+    showing itself with no further code change - Program.cs derives its supportedCultures array from
+    whichever such files exist, and RequestLocalizationOptions is shared via DI rather than duplicated
+    here.
+*@
+@if (SupportedCultures.Count > 1)
+{
+    <select class="form-select form-select-sm culture-selector" style="width:auto"
+            value="@CultureInfo.CurrentUICulture.Name" @onchange="OnCultureChangedAsync"
+            aria-label="Choose a language">
+        @foreach (var culture in SupportedCultures)
+        {
+            <option value="@culture.Name">@culture.NativeName</option>
+        }
+    </select>
+}
+
+@code {
+    private IList<CultureInfo> SupportedCultures =>
+        LocalizationOptions.Value.SupportedUICultures ?? [];
+
+    private Task OnCultureChangedAsync(ChangeEventArgs args)
+    {
+        var culture = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(culture))
+        {
+            return Task.CompletedTask;
+        }
+
+        var redirectUri = Uri.EscapeDataString(Navigation.ToBaseRelativePath(Navigation.Uri));
+        Navigation.NavigateTo($"Culture/Set?culture={culture}&redirectUri=/{redirectUri}", forceLoad: true);
+        return Task.CompletedTask;
+    }
+}

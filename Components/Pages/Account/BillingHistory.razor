@@ -21,8 +21,8 @@
     JumpStart's global filter does the rest, which is the point of proving the components on this one:
     they behave the same inside the tenant boundary as outside it.
 *@
-<ReportPage Title="Billing History"
-            Description="Every billing period your organization has been charged for, newest first."
+<ReportPage Title="@Localizer["Billing History"]"
+            Description="@Localizer["Every billing period your organization has been charged for, newest first."]"
             OnRun="RunAsync"
             Loading="loading"
             ErrorMessage="@errorMessage"
@@ -31,7 +31,7 @@
             ExportDisabled="@(entries.Count == 0)">
     <Toolbar>
         <a class="btn btn-outline-secondary" href="Account/Subscription">
-            <i class="bi bi-credit-card" aria-hidden="true"></i> Subscription
+            <i class="bi bi-credit-card" aria-hidden="true"></i> @Localizer["Subscription"]
         </a>
     </Toolbar>
     <ChildContent>
@@ -40,7 +40,7 @@
                     Rows="entries"
                     Columns="columns"
                     FileName="billing-history"
-                    EmptyMessage="Nothing has been billed yet." />
+                    EmptyMessage="@Localizer["Nothing has been billed yet."]" />
     </ChildContent>
 </ReportPage>
 
@@ -89,27 +89,27 @@
                 [
                     new ReportSummaryValueDto
                     {
-                        Label = "Periods billed",
+                        Label = Localizer["Periods billed"],
                         Value = rows.Count.ToString("N0", Money),
                         Detail = rows.Count(r => !r.IsWholePeriod) is var partial && partial > 0
-                            ? $"{partial} prorated"
-                            : "all full periods"
+                            ? Localizer["{0} prorated", partial]
+                            : Localizer["all full periods"]
                     },
                     new ReportSummaryValueDto
                     {
-                        Label = "Total charged",
+                        Label = Localizer["Total charged"],
                         Value = rows.Sum(r => r.Amount).ToString("C", Money),
-                        Detail = "since sign-up"
+                        Detail = Localizer["since sign-up"]
                     },
                     // Real now that invoices exist: what's actually still owed, not every period ever
                     // earned. A period with no invoice - a free plan - contributes nothing.
                     new ReportSummaryValueDto
                     {
-                        Label = "Outstanding",
+                        Label = Localizer["Outstanding"],
                         Value = rows.Sum(r => r.Outstanding).ToString("C", Money),
                         Detail = rows.Count(r => r.Outstanding > 0m) is var unpaid && unpaid > 0
-                            ? $"across {unpaid} invoice(s)"
-                            : "nothing owed"
+                            ? Localizer["across {0} invoice(s)", unpaid]
+                            : Localizer["nothing owed"]
                     }
                 ]
             };
@@ -132,7 +132,7 @@
     private IReadOnlyList<ReportColumn<BillingHistoryEntryDto>> BuildColumns() =>
     [
         new ReportColumn<BillingHistoryEntryDto>(
-            header: "Period",
+            header: Localizer["Period"],
             value: r => r.StartDate,
             template: r =>
                 @<span>
@@ -144,63 +144,63 @@
                         @* Without this, a $1.61 line next to a $4.95 one looks like a billing error
                            rather than the partial period a mid-period plan change creates. *@
                         <span class="badge bg-secondary ms-1"
-                              title="A plan change part-way through this period split it in two.">
-                            Prorated
+                              title="@Localizer["A plan change part-way through this period split it in two."]">
+                            @Localizer["Prorated"]
                         </span>
                     }
                 </span>),
 
         new ReportColumn<BillingHistoryEntryDto>(
-            header: "Plan",
+            header: Localizer["Plan"],
             value: r => r.PlanName),
 
         new ReportColumn<BillingHistoryEntryDto>(
-            header: "Term",
+            header: Localizer["Term"],
             value: r => r.TermMonths,
             display: r => BillingTerms.Describe(r.TermMonths)),
 
         new ReportColumn<BillingHistoryEntryDto>(
-            header: "Slots",
+            header: Localizer["Slots"],
             value: r => r.Quantity,
             align: ReportAlign.Right),
 
         new ReportColumn<BillingHistoryEntryDto>(
-            header: "Amount",
+            header: Localizer["Amount"],
             value: r => r.Amount,
             display: r => r.Amount.ToString("C", Money),
             align: ReportAlign.Right),
 
         new ReportColumn<BillingHistoryEntryDto>(
-            header: "Invoice",
+            header: Localizer["Invoice"],
             value: r => r.InvoiceNumber),
 
         new ReportColumn<BillingHistoryEntryDto>(
-            header: "Due",
+            header: Localizer["Due"],
             value: r => r.DueOn,
             display: r => r.DueOn is { } on ? on.UtcDateTime.ToString("d MMM yyyy", Dates) : string.Empty),
 
         // Screen furniture - no raw value, so it stays out of the CSV. Everything it summarises is
         // exported by the columns either side of it.
         new ReportColumn<BillingHistoryEntryDto>(
-            header: "Status",
+            header: Localizer["Status"],
             template: r =>
                 @<span>
                     @if (r.InvoiceStatus is null)
                     {
                         @* A free period raises no document at all - see IInvoiceService. Saying so beats
                            an empty cell that reads like something went missing. *@
-                        <span class="text-muted small">No charge</span>
+                        <span class="text-muted small">@Localizer["No charge"]</span>
                     }
                     else if (r.InvoiceStatus == RustArchon.Shared.DTOs.InvoiceStatus.Paid)
                     {
                         <span class="badge bg-success">
-                            <i class="bi bi-check-circle" aria-hidden="true"></i> Paid
+                            <i class="bi bi-check-circle" aria-hidden="true"></i> @Localizer["Paid"]
                         </span>
                     }
                     else if (r.InvoiceStatus == RustArchon.Shared.DTOs.InvoiceStatus.Open)
                     {
                         <span class="badge @(r.DueOn < DateTimeOffset.UtcNow ? "bg-danger" : "bg-warning text-dark")">
-                            @(r.DueOn < DateTimeOffset.UtcNow ? "Overdue" : "Due")
+                            @(r.DueOn < DateTimeOffset.UtcNow ? Localizer["Overdue"] : Localizer["Due"])
                         </span>
                     }
                     else
@@ -210,7 +210,7 @@
                 </span>),
 
         new ReportColumn<BillingHistoryEntryDto>(
-            header: "Outstanding",
+            header: Localizer["Outstanding"],
             value: r => r.Outstanding,
             display: r => r.Outstanding == 0m ? string.Empty : r.Outstanding.ToString("C", Money),
             align: ReportAlign.Right)

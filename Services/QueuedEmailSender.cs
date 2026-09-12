@@ -1,5 +1,6 @@
 // Copyright ©2026 Scott Blomfield
 
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Identity;
 using RustArchon.Panel.Clients;
@@ -10,10 +11,9 @@ namespace RustArchon.Panel.Services;
 
 /// <summary>
 /// Replaces <c>IdentityNoOpEmailSender</c> (removed) as the registered <see cref="IEmailSender{TUser}"/>
-/// - see <c>Program.cs</c>. Every call queues an <c>EmailRequested</c> message via
-/// <c>RustArchon.Api</c>'s internal endpoint rather than sending anything itself; a
-/// <c>RustArchon.Worker</c> instance picks it up and does the actual send (currently still a logged
-/// placeholder - see <c>NoOpEmailDeliveryProvider</c> - until a real provider is chosen).
+/// - see <c>Program.cs</c>. Every call queues an email through one of RustArchon.Api's admin-editable
+/// <c>EmailTemplate</c>s (see <see cref="IdentityEmailTemplates"/>) rather than building HTML here - a
+/// <c>RustArchon.Worker</c> instance picks up the resulting message and does the actual send.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -35,14 +35,33 @@ namespace RustArchon.Panel.Services;
 public class QueuedEmailSender(IInternalEmailApiClient client) : IEmailSender<ApplicationUser>
 {
     public Task SendConfirmationLinkAsync(ApplicationUser user, string email, string confirmationLink) =>
-        SendAsync(email, "Confirm your email", $"Please confirm your account by <a href='{confirmationLink}'>clicking here</a>.");
+        SendAsync(
+            user, email, IdentityEmailTemplates.EmailConfirmation,
+            new Dictionary<string, string> { [IdentityEmailTemplates.ConfirmationLink] = confirmationLink });
 
     public Task SendPasswordResetLinkAsync(ApplicationUser user, string email, string resetLink) =>
-        SendAsync(email, "Reset your password", $"Please reset your password by <a href='{resetLink}'>clicking here</a>.");
+        SendAsync(
+            user, email, IdentityEmailTemplates.PasswordResetLink,
+            new Dictionary<string, string> { [IdentityEmailTemplates.ResetLink] = resetLink });
 
     public Task SendPasswordResetCodeAsync(ApplicationUser user, string email, string resetCode) =>
-        SendAsync(email, "Reset your password", $"Please reset your password using the following code: {resetCode}");
+        SendAsync(
+            user, email, IdentityEmailTemplates.PasswordResetCode,
+            new Dictionary<string, string> { [IdentityEmailTemplates.ResetCode] = resetCode });
 
-    private Task SendAsync(string email, string subject, string htmlMessage) =>
-        client.SendAsync(new SendEmailRequestDto { To = email, Subject = subject, HtmlBody = htmlMessage });
+    // UserId threaded through on every call - account-level, so never a TenantId (that's only for an
+    // organization-level communication - see Communication.TenantId's remarks). user.Id is always
+    // real here: every IEmailSender<TUser> method hands us the actual account, even when nobody is
+    // signed in to this circuit (see this class's own remarks on the several auth states it's called
+    // from) - the account this email is *about* is never in question, only who's asking for it.
+    private Task SendAsync(
+        ApplicationUser user, string email, string templateCode, Dictionary<string, string> tokens) =>
+        client.SendTemplatedAsync(new SendTemplatedEmailRequestDto
+        {
+            To = email,
+            TemplateCode = templateCode,
+            Tokens = tokens,
+            UserId = user.Id,
+            Culture = user.PreferredCulture
+        });
 }

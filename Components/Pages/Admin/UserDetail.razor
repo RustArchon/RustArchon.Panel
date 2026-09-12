@@ -1,0 +1,118 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/Users/{UserId:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Data
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IPlatformUserApiClient PlatformUserClient
+@inject UserManager<ApplicationUser> UserManager
+@rendermode RenderModes.NonPrerenderedServer
+
+@*
+    One account, whole - the per-user counterpart to Admin/Users.razor's directory, and to
+    Admin/OrganizationDetail.razor's per-organization page. Same join as the directory (Identity here,
+    membership and site-admin status at the Api), just narrowed to one id instead of listing everyone.
+*@
+<PageTitle>@(account?.Email ?? Localizer["User"])</PageTitle>
+
+@if (accessDenied)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage users."]
+    </div>
+}
+else if (loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Loading user..."]</div>
+}
+else if (account is null && known is null)
+{
+    <div class="alert alert-danger">@Localizer["No such user."]</div>
+    <a class="btn btn-outline-secondary" href="Admin/Users">@Localizer["Back to users"]</a>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="mb-0">@(account?.Email ?? account?.UserName ?? Localizer["(no account on this panel)"])</h1>
+            <div class="text-muted small font-monospace">@UserId</div>
+        </div>
+        <a class="btn btn-outline-secondary" href="Admin/Users">
+            <i class="bi bi-people" aria-hidden="true"></i> @Localizer["All users"]
+        </a>
+    </div>
+
+    @if (known?.IsSiteAdmin == true)
+    {
+        <span class="badge bg-danger mb-3">@Localizer["Site Admin"]</span>
+    }
+
+    <h2 class="h5">@Localizer["Organizations"]</h2>
+    @if (known is null || known.Organizations.Count == 0)
+    {
+        <div class="alert alert-info">@Localizer["This person belongs to no organization."]</div>
+    }
+    else
+    {
+        <ul class="list-group mb-4">
+            @foreach (var org in known.Organizations)
+            {
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <a href="Admin/Organizations/@org.TenantId">@org.TenantName</a>
+                        @if (org.Roles.Count > 0)
+                        {
+                            <span class="text-muted small"> · @string.Join(", ", org.Roles)</span>
+                        }
+                    </div>
+                    @if (!org.IsActive)
+                    {
+                        <span class="badge bg-secondary">@Localizer["Suspended"]</span>
+                    }
+                </li>
+            }
+        </ul>
+    }
+
+    <h2 class="h5">@Localizer["Notes"]</h2>
+    <NoteList UserId="UserId" />
+
+    <h2 class="h5 mt-4">@Localizer["Communications"]</h2>
+    <CommunicationList UserId="UserId" />
+}
+
+@code {
+    [Parameter]
+    public Guid UserId { get; set; }
+
+    private ApplicationUser? account;
+    private PlatformUserDto? known;
+
+    private bool loading = true;
+    private bool accessDenied;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // The same directory call Admin/Users.razor makes, narrowed to one id - simpler than a
+            // second Api endpoint purely for a detail view when the directory already carries
+            // everything this page needs.
+            var directory = await PlatformUserClient.GetDirectoryAsync();
+            known = directory.FirstOrDefault(d => d.UserId == UserId);
+
+            account = await UserManager.FindByIdAsync(UserId.ToString());
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized)
+        {
+            accessDenied = true;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+}

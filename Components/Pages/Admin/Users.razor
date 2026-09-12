@@ -19,19 +19,19 @@
     live in the Panel's Identity store; membership and the Site Admin role live in the Api's. Neither
     side can render this table alone, which is why the join happens here rather than behind an endpoint.
 *@
-<PageTitle>Users</PageTitle>
+<PageTitle>@Localizer["Users"]</PageTitle>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h1 class="mb-0">Users</h1>
+    <h1 class="mb-0">@Localizer["Users"]</h1>
     <a class="btn btn-outline-secondary" href="Admin/Organizations">
-        <i class="bi bi-buildings" aria-hidden="true"></i> Organizations
+        <i class="bi bi-buildings" aria-hidden="true"></i> @Localizer["Organizations"]
     </a>
 </div>
 
 @if (accessDenied)
 {
     <div class="alert alert-warning">
-        <i class="bi bi-shield-lock"></i> You don't have access to manage organizations.
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage organizations."]
     </div>
 }
 else
@@ -54,23 +54,23 @@ else
 
     @if (loading)
     {
-        <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> Loading users...</div>
+        <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Loading users..."]</div>
     }
     else
     {
         <div class="d-flex gap-4 mb-3 small text-muted">
-            <span><strong class="text-body">@rows.Count</strong> accounts</span>
-            <span><strong class="text-body">@rows.Count(r => r.IsSiteAdmin)</strong> site admins</span>
-            <span><strong class="text-body">@rows.Count(r => r.Organizations.Count == 0)</strong> with no organization</span>
+            <span><strong class="text-body">@rows.Count</strong> @Localizer["accounts"]</span>
+            <span><strong class="text-body">@rows.Count(r => r.IsSiteAdmin)</strong> @Localizer["site admins"]</span>
+            <span><strong class="text-body">@rows.Count(r => r.Organizations.Count == 0)</strong> @Localizer["with no organization"]</span>
         </div>
 
         <div class="table-responsive">
             <table class="table table-sm align-middle">
                 <thead>
                     <tr>
-                        <th>Account</th>
-                        <th>Organizations</th>
-                        <th>Site admin</th>
+                        <th>@Localizer["Account"]</th>
+                        <th>@Localizer["Organizations"]</th>
+                        <th>@Localizer["Site admin"]</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -79,8 +79,7 @@ else
                     {
                         <tr @key="row.UserId">
                             <td>
-                                <div class="fw-semibold">@row.Display</div>
-                                <div class="small text-muted font-monospace">@row.UserId</div>
+                                <a class="fw-semibold" href="Admin/Users/@row.UserId">@row.Display</a>
                             </td>
                             <td class="small">
                                 @if (row.Organizations.Count == 0)
@@ -99,7 +98,7 @@ else
                                             }
                                             @if (!org.IsActive)
                                             {
-                                                <span class="badge bg-secondary ms-1">Suspended</span>
+                                                <span class="badge bg-secondary ms-1">@Localizer["Suspended"]</span>
                                             }
                                         </div>
                                     }
@@ -108,7 +107,7 @@ else
                             <td>
                                 @if (row.IsSiteAdmin)
                                 {
-                                    <span class="badge bg-danger">Site Admin</span>
+                                    <span class="badge bg-danger">@Localizer["Site Admin"]</span>
                                 }
                                 else
                                 {
@@ -116,18 +115,21 @@ else
                                 }
                             </td>
                             <td class="text-end">
+                                <a class="btn btn-sm btn-outline-secondary" href="Admin/Users/@row.UserId">
+                                    @Localizer["View"]
+                                </a>
                                 @if (row.IsSiteAdmin)
                                 {
                                     <button class="btn btn-sm btn-outline-danger" disabled="@busy"
                                             @onclick="() => RevokeAsync(row)">
-                                        Revoke site admin
+                                        @Localizer["Revoke site admin"]
                                     </button>
                                 }
                                 else
                                 {
                                     <button class="btn btn-sm btn-outline-secondary" disabled="@busy"
                                             @onclick="() => GrantAsync(row)">
-                                        Make site admin
+                                        @Localizer["Make site admin"]
                                     </button>
                                 }
                             </td>
@@ -138,8 +140,7 @@ else
         </div>
 
         <p class="text-muted small">
-            Site Admin grants every platform permission at once, including the one that grants it. The
-            last holder can't be removed - there would be nobody left able to put it back.
+            @Localizer["Site Admin grants every platform permission at once, including the one that grants it. The last holder can't be removed - there would be nobody left able to put it back."]
         </p>
     }
 }
@@ -208,7 +209,7 @@ else
         }
         catch (Refit.ApiException ex)
         {
-            errorMessage = $"Couldn't load users: {ex.StatusCode}";
+            errorMessage = Localizer["Couldn't load users: {0}", ex.StatusCode];
         }
         finally
         {
@@ -219,12 +220,12 @@ else
     private async Task GrantAsync(Row row) =>
         await ActAsync(
             () => PlatformUserClient.GrantSiteAdminAsync(row.UserId),
-            $"{row.Display} is now a site admin.");
+            Localizer["{0} is now a site admin.", row.Display]);
 
     private async Task RevokeAsync(Row row) =>
         await ActAsync(
             () => PlatformUserClient.RevokeSiteAdminAsync(row.UserId),
-            $"{row.Display} is no longer a site admin.");
+            Localizer["{0} is no longer a site admin.", row.Display]);
 
     private async Task ActAsync(Func<Task> action, string success)
     {
@@ -241,11 +242,11 @@ else
         catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
         {
             // The last-admin guard, in the Api's own words rather than a paraphrase.
-            errorMessage = ex.Content?.Trim('"') ?? "That change was refused.";
+            errorMessage = ex.Content?.Trim('"') ?? Localizer["That change was refused."];
         }
         catch (Refit.ApiException ex)
         {
-            errorMessage = $"That didn't work: {ex.StatusCode}";
+            errorMessage = Localizer["That didn't work: {0}", ex.StatusCode];
         }
         finally
         {

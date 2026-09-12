@@ -12,8 +12,8 @@
 @inject IReportApiClient ReportClient
 @rendermode RenderModes.NonPrerenderedServer
 
-<ReportPage Title="Scheduled Changes"
-            Description="Plan and term changes organizations have already accepted that haven't taken effect yet. Nothing about a current subscription reflects one of these until the day it lands."
+<ReportPage Title="@Localizer["Scheduled Changes"]"
+            Description="@Localizer["Plan and term changes organizations have already accepted that haven't taken effect yet. Nothing about a current subscription reflects one of these until the day it lands."]"
             Parameters="parameters"
             OnRun="RunAsync"
             Loading="loading"
@@ -27,7 +27,7 @@
                 Rows="rows"
                 Columns="columns"
                 FileName="scheduled-changes"
-                EmptyMessage="No changes are queued to take effect in this window." />
+                EmptyMessage="@Localizer["No changes are queued to take effect in this window."]" />
 </ReportPage>
 
 @code {
@@ -46,21 +46,7 @@
     /// extending an annual term pushes a downgrade out with it - so a 30-day default would hide most
     /// of what this report exists to show. "Overdue" catches any the scheduler has failed to apply.
     /// </summary>
-    private readonly IReadOnlyList<ReportParameter> parameters =
-    [
-        new DateRangeParameter(
-            key: "effective",
-            label: "Takes effect",
-            from: DateRangeParameter.Today,
-            to: DateRangeParameter.Today.AddDays(365),
-            presets:
-            [
-                new DateRangePreset("Next 30 days", 0, 30),
-                new DateRangePreset("Next 90 days", 0, 90),
-                new DateRangePreset("Next year", 0, 365),
-                new DateRangePreset("Overdue", -365, -1)
-            ])
-    ];
+    private IReadOnlyList<ReportParameter> parameters = [];
 
     private IReadOnlyList<ReportColumn<ScheduledChangeRowDto>> columns = [];
 
@@ -68,7 +54,25 @@
 
     private IReadOnlyList<ScheduledChangeRowDto> rows => result?.Rows ?? [];
 
-    protected override void OnInitialized() => columns = BuildColumns();
+    protected override void OnInitialized()
+    {
+        parameters =
+        [
+            new DateRangeParameter(
+                key: "effective",
+                label: Localizer["Takes effect"],
+                from: DateRangeParameter.Today,
+                to: DateRangeParameter.Today.AddDays(365),
+                presets:
+                [
+                    new DateRangePreset(Localizer["Next 30 days"], 0, 30),
+                    new DateRangePreset(Localizer["Next 90 days"], 0, 90),
+                    new DateRangePreset(Localizer["Next year"], 0, 365),
+                    new DateRangePreset(Localizer["Overdue"], -365, -1)
+                ])
+        ];
+        columns = BuildColumns();
+    }
 
     private Task ExportAsync() => grid?.ExportCsvAsync() ?? Task.CompletedTask;
 
@@ -99,11 +103,11 @@
     private IReadOnlyList<ReportColumn<ScheduledChangeRowDto>> BuildColumns() =>
     [
         new ReportColumn<ScheduledChangeRowDto>(
-            header: "Organization",
+            header: Localizer["Organization"],
             value: r => r.OrganizationName),
 
         new ReportColumn<ScheduledChangeRowDto>(
-            header: "Change",
+            header: Localizer["Change"],
             value: r => $"{r.CurrentPlanName} {BillingTerms.Describe(r.CurrentTermMonths)} → {r.ScheduledPlanName} {BillingTerms.Describe(r.ScheduledTermMonths)}",
             template: r =>
                 @<span>
@@ -115,26 +119,26 @@
                 </span>),
 
         new ReportColumn<ScheduledChangeRowDto>(
-            header: "Accepted",
+            header: Localizer["Accepted"],
             value: r => r.AcceptedOn,
             display: r => r.AcceptedOn.UtcDateTime.ToString("d MMM yyyy", Dates)),
 
         new ReportColumn<ScheduledChangeRowDto>(
-            header: "Takes effect",
+            header: Localizer["Takes effect"],
             value: r => r.EffectiveDate,
             display: r => r.EffectiveDate.UtcDateTime.ToString("d MMM yyyy", Dates)),
 
         new ReportColumn<ScheduledChangeRowDto>(
-            header: "In",
+            header: Localizer["In"],
             value: r => r.DaysUntilEffective,
             align: ReportAlign.Right,
             template: r =>
                 @<span class="@(r.DaysUntilEffective < 0 ? "text-danger fw-semibold" : r.DaysUntilEffective <= 30 ? "fw-semibold" : null)">
-                    @(r.DaysUntilEffective < 0 ? $"{-r.DaysUntilEffective}d overdue" : $"{r.DaysUntilEffective}d")
+                    @(r.DaysUntilEffective < 0 ? Localizer["{0}d overdue", -r.DaysUntilEffective] : Localizer["{0}d", r.DaysUntilEffective])
                 </span>),
 
         new ReportColumn<ScheduledChangeRowDto>(
-            header: "Monthly Δ",
+            header: Localizer["Monthly Δ"],
             value: r => r.MonthlyDelta,
             align: ReportAlign.Right,
             template: r =>
@@ -142,7 +146,7 @@
                     @(r.MonthlyDelta > 0 ? "+" : null)@r.MonthlyDelta.ToString("C", Money)
                     @if (r.ScheduledIsFree)
                     {
-                        <span class="badge bg-danger ms-1">To free</span>
+                        <span class="badge bg-danger ms-1">@Localizer["To free"]</span>
                     }
                 </span>)
     ];

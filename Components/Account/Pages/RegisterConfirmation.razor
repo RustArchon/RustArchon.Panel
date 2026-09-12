@@ -6,13 +6,13 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject IdentityRedirectManager RedirectManager
 
-<PageTitle>Register confirmation</PageTitle>
+<PageTitle>@Localizer["Register confirmation"]</PageTitle>
 
-<h1>Register confirmation</h1>
+<h1>@Localizer["Register confirmation"]</h1>
 
 <StatusMessage Message="@statusMessage" />
 
-<p role="alert">Please check your email to confirm your account.</p>
+<p role="alert">@Localizer["Please check your email to confirm your account."]</p>
 
 @code {
     private string? statusMessage;
@@ -38,7 +38,7 @@
         if (user is null)
         {
             HttpContext.Response.StatusCode = StatusCodes.Status404NotFound;
-            statusMessage = "Error finding user for unspecified email";
+            statusMessage = Localizer["Error finding user for unspecified email"];
         }
     }
 }

@@ -9,12 +9,11 @@
 @inject IOrganizationCreationApiClient CreationClient
 @rendermode RenderModes.NonPrerenderedServer
 
-<PageTitle>New organization</PageTitle>
+<PageTitle>@Localizer["New organization"]</PageTitle>
 
-<h1>New organization</h1>
+<h1>@Localizer["New organization"]</h1>
 <p class="text-muted">
-    A separate organization with its own servers, members, plan and billing. Nothing is shared with
-    the ones you already belong to.
+    @Localizer["A separate organization with its own servers, members, plan and billing. Nothing is shared with the ones you already belong to."]
 </p>
 
 @if (!string.IsNullOrEmpty(errorMessage))
@@ -28,29 +27,29 @@
 @if (created is not null)
 {
     <div class="alert alert-success">
-        <strong>@created.Name</strong> is ready.
+        <strong>@created.Name</strong> @Localizer["is ready."]
     </div>
     @* A real navigation, not an enhanced one: their organization list just changed, and the
        switcher reads it when the circuit starts. *@
-    <a class="btn btn-primary" href="servers" data-enhance="false">Go to your servers</a>
+    <a class="btn btn-primary" href="servers" data-enhance="false">@Localizer["Go to your servers"]</a>
 }
 
 @if (loading)
 {
-    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> Loading plans...</div>
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Loading plans..."]</div>
 }
 
 @if (!loading && created is null)
 {
     <div class="card mb-4">
         <div class="card-body">
-            <label class="form-label" for="org-name">Name</label>
+            <label class="form-label" for="org-name">@Localizer["Name"]</label>
             <input id="org-name" class="form-control" placeholder="e.g. Rusty Ravens"
                    value="@name" @oninput="e => name = e.Value?.ToString() ?? string.Empty" />
         </div>
     </div>
 
-    <h2 class="h5">Plan</h2>
+    <h2 class="h5">@Localizer["Plan"]</h2>
     <div class="row g-3 mb-4">
         @foreach (var plan in plans)
         {
@@ -65,11 +64,11 @@
                             @MonthlyPrice(plan)
                         </div>
                         <ul class="list-unstyled small text-muted mb-3">
-                            <li>@(plan.MaximumServers?.ToString() ?? "Unlimited") server(s)</li>
-                            <li>@plan.MaximumUsers member(s)</li>
+                            <li>@Localizer["{0} server(s)", plan.MaximumServers?.ToString() ?? Localizer["Unlimited"]]</li>
+                            <li>@Localizer["{0} member(s)", plan.MaximumUsers]</li>
                             @if (plan.HasRoles)
                             {
-                                <li>Role separation</li>
+                                <li>@Localizer["Role separation"]</li>
                             }
                         </ul>
 
@@ -78,18 +77,17 @@
                             @* Shown disabled with the reason rather than hidden - somebody looking
                                for the free tier and not finding it assumes the page is broken. *@
                             <button class="btn btn-sm btn-outline-secondary w-100" disabled>
-                                Already used
+                                @Localizer["Already used"]
                             </button>
                             <div class="form-text">
-                                Only one organization per account can be on @plan.Name, and one of
-                                yours already is.
+                                @Localizer["Only one organization per account can be on {0}, and one of yours already is.", plan.Name]
                             </div>
                         }
                         else
                         {
                             <button class="btn btn-sm w-100 @(selectedPlanId == plan.Id ? "btn-primary" : "btn-outline-primary")"
                                     @onclick="() => selectedPlanId = plan.Id">
-                                @(selectedPlanId == plan.Id ? "Selected" : "Choose")
+                                @(selectedPlanId == plan.Id ? Localizer["Selected"] : Localizer["Choose"])
                             </button>
                         }
                     </div>
@@ -103,14 +101,14 @@
         {
             <span class="spinner-border spinner-border-sm me-1"></span>
         }
-        Create organization
+        @Localizer["Create organization"]
     </button>
-    <a class="btn btn-outline-secondary" href="servers">Cancel</a>
+    <a class="btn btn-outline-secondary" href="servers">@Localizer["Cancel"]</a>
 }
 
 @if (!loading && founded.Count > 0 && created is null)
 {
-    <h2 class="h5 mt-4">Organizations you've created</h2>
+    <h2 class="h5 mt-4">@Localizer["Organizations you've created"]</h2>
     <ul class="list-unstyled text-muted small">
         @foreach (var organization in founded)
         {
@@ -165,7 +163,7 @@
     {
         if (string.IsNullOrWhiteSpace(name))
         {
-            errorMessage = "Give the organization a name.";
+            errorMessage = Localizer["Give the organization a name."];
             return;
         }
 
@@ -193,15 +191,15 @@
     private static decimal MonthlyAmount(NewOrganizationPlanDto plan) =>
         plan.Prices.FirstOrDefault(p => p.TermMonths == 1)?.BaseAmount ?? decimal.MaxValue;
 
-    private static string MonthlyPrice(NewOrganizationPlanDto plan)
+    private string MonthlyPrice(NewOrganizationPlanDto plan)
     {
         var monthly = plan.Prices.FirstOrDefault(p => p.TermMonths == 1);
 
         if (monthly is null)
         {
-            return "Not sold monthly";
+            return Localizer["Not sold monthly"];
         }
 
-        return monthly.BaseAmount == 0 ? "Free" : $"{monthly.BaseAmount:C} / month";
+        return monthly.BaseAmount == 0 ? Localizer["Free"] : Localizer["{0} / month", monthly.BaseAmount.ToString("C")];
     }
 }

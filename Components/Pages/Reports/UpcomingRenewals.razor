@@ -12,8 +12,8 @@
 @inject IReportApiClient ReportClient
 @rendermode RenderModes.NonPrerenderedServer
 
-<ReportPage Title="Upcoming Renewals"
-            Description="Organizations whose billing period ends in the selected window - what renews, when, and for how much."
+<ReportPage Title="@Localizer["Upcoming Renewals"]"
+            Description="@Localizer["Organizations whose billing period ends in the selected window - what renews, when, and for how much."]"
             Parameters="parameters"
             OnRun="RunAsync"
             Loading="loading"
@@ -27,7 +27,7 @@
                 Rows="rows"
                 Columns="columns"
                 FileName="upcoming-renewals"
-                EmptyMessage="No organizations renew in this window." />
+                EmptyMessage="@Localizer["No organizations renew in this window."]" />
 </ReportPage>
 
 @code {
@@ -44,23 +44,10 @@
     /// The window this report covers. Defaults to the next 30 days - far enough ahead to act on a
     /// renewal that needs a conversation, close enough that the list stays short enough to work through.
     /// </summary>
-    private readonly DateRangeParameter window = new(
-        key: "renews",
-        label: "Renews",
-        from: DateRangeParameter.Today,
-        to: DateRangeParameter.Today.AddDays(30),
-        presets:
-        [
-            new DateRangePreset("Next 7 days", 0, 7),
-            new DateRangePreset("Next 30 days", 0, 30),
-            new DateRangePreset("Next 90 days", 0, 90),
-            // Periods whose end has passed without the scheduler rolling them over. Normally empty,
-            // and worth a click precisely because it should be.
-            new DateRangePreset("Overdue", -365, -1)
-        ]);
+    private DateRangeParameter window = null!;
 
     /// <summary>Populated on init, and the target of the drill-down from the Subscriptions report.</summary>
-    private readonly SelectParameter planFilter = new("planId", "Plan", allLabel: "All plans");
+    private SelectParameter planFilter = null!;
 
     private IReadOnlyList<ReportParameter> parameters => [window, planFilter];
 
@@ -75,6 +62,23 @@
 
     protected override async Task OnInitializedAsync()
     {
+        window = new DateRangeParameter(
+            key: "renews",
+            label: Localizer["Renews"],
+            from: DateRangeParameter.Today,
+            to: DateRangeParameter.Today.AddDays(30),
+            presets:
+            [
+                new DateRangePreset(Localizer["Next 7 days"], 0, 7),
+                new DateRangePreset(Localizer["Next 30 days"], 0, 30),
+                new DateRangePreset(Localizer["Next 90 days"], 0, 90),
+                // Periods whose end has passed without the scheduler rolling them over. Normally
+                // empty, and worth a click precisely because it should be.
+                new DateRangePreset(Localizer["Overdue"], -365, -1)
+            ]);
+
+        planFilter = new SelectParameter("planId", Localizer["Plan"], allLabel: Localizer["All plans"]);
+
         columns = BuildColumns();
 
         try
@@ -126,16 +130,16 @@
     private IReadOnlyList<ReportColumn<UpcomingRenewalRowDto>> BuildColumns() =>
     [
         new ReportColumn<UpcomingRenewalRowDto>(
-            header: "Organization",
+            header: Localizer["Organization"],
             value: r => r.OrganizationName),
 
         new ReportColumn<UpcomingRenewalRowDto>(
-            header: "Contact",
+            header: Localizer["Contact"],
             value: r => r.ContactEmail,
             template: r => @<span class="text-muted small">@r.ContactEmail</span>),
 
         new ReportColumn<UpcomingRenewalRowDto>(
-            header: "Plan",
+            header: Localizer["Plan"],
             value: r => r.PlanName,
             template: r =>
                 @<span>
@@ -148,20 +152,20 @@
                 </span>),
 
         new ReportColumn<UpcomingRenewalRowDto>(
-            header: "Term",
+            header: Localizer["Term"],
             value: r => r.TermMonths,
             display: r => BillingTerms.Describe(r.TermMonths)),
 
         // Servers over bought slots - the renewal is priced against the slots, so showing only the
         // server count would make a per-unit plan's amount look wrong.
         new ReportColumn<UpcomingRenewalRowDto>(
-            header: "Servers",
+            header: Localizer["Servers"],
             value: r => r.ServerCount,
             align: ReportAlign.Right,
             template: r => @<span>@r.ServerCount / @r.Quantity</span>),
 
         new ReportColumn<UpcomingRenewalRowDto>(
-            header: "Slots",
+            header: Localizer["Slots"],
             value: r => r.Quantity,
             align: ReportAlign.Right),
 
@@ -170,21 +174,21 @@
         // rendering local would show a renewal dated the 4th as the 3rd while still counting it as
         // inside a window ending on the 4th.
         new ReportColumn<UpcomingRenewalRowDto>(
-            header: "Renews",
+            header: Localizer["Renews"],
             value: r => r.RenewsOn,
             display: r => r.RenewsOn.UtcDateTime.ToString("d MMM yyyy", CultureInfo.InvariantCulture)),
 
         new ReportColumn<UpcomingRenewalRowDto>(
-            header: "In",
+            header: Localizer["In"],
             value: r => r.DaysUntilRenewal,
             align: ReportAlign.Right,
             template: r =>
                 @<span class="@DaysClass(r.DaysUntilRenewal)">
-                    @(r.DaysUntilRenewal < 0 ? $"{-r.DaysUntilRenewal}d overdue" : $"{r.DaysUntilRenewal}d")
+                    @(r.DaysUntilRenewal < 0 ? Localizer["{0}d overdue", -r.DaysUntilRenewal] : Localizer["{0}d", r.DaysUntilRenewal])
                 </span>),
 
         new ReportColumn<UpcomingRenewalRowDto>(
-            header: "Current",
+            header: Localizer["Current"],
             value: r => r.CurrentAmount,
             display: r => r.CurrentAmount.ToString("C", Money),
             align: ReportAlign.Right),
@@ -192,7 +196,7 @@
         // Null rather than zero when the plan has no price for the term, so the column sorts and
         // exports as "no figure" instead of contributing a $0 that looks like a real one.
         new ReportColumn<UpcomingRenewalRowDto>(
-            header: "At renewal",
+            header: Localizer["At renewal"],
             value: r => r.RenewalAmountUnknown ? null : r.RenewalAmount,
             align: ReportAlign.Right,
             template: r =>
@@ -200,8 +204,8 @@
                     @if (r.RenewalAmountUnknown)
                     {
                         <span class="badge bg-danger"
-                              title="This plan has no price for the term this organization is billed on.">
-                            No price
+                              title="@Localizer["This plan has no price for the term this organization is billed on."]">
+                            @Localizer["No price"]
                         </span>
                     }
                     else

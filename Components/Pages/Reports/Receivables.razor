@@ -12,8 +12,8 @@
 @inject IReportApiClient ReportClient
 @rendermode RenderModes.NonPrerenderedServer
 
-<ReportPage Title="Receivables"
-            Description="Every open invoice with a balance, oldest due first. One row per document - see Delinquent Accounts for the same money grouped per customer."
+<ReportPage Title="@Localizer["Receivables"]"
+            Description="@Localizer["Every open invoice with a balance, oldest due first. One row per document - see Delinquent Accounts for the same money grouped per customer."]"
             Parameters="parameters"
             OnRun="RunAsync"
             Loading="loading"
@@ -27,7 +27,7 @@
                 Rows="rows"
                 Columns="columns"
                 FileName="receivables"
-                EmptyMessage="Nothing is outstanding. Every invoice raised has been settled." />
+                EmptyMessage="@Localizer["Nothing is outstanding. Every invoice raised has been settled."]" />
 </ReportPage>
 
 @code {
@@ -41,19 +41,13 @@
     private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
     private static readonly CultureInfo Dates = CultureInfo.InvariantCulture;
 
-    private readonly DecimalParameter minOutstanding = new("minOutstanding", "Balance over", prefix: "$");
+    private DecimalParameter minOutstanding = null!;
 
     /// <summary>
     /// Defaults to everything rather than overdue-only - this report is the register, and "what do we
     /// expect to come in" is as much its job as "who is late". The chase list is the other report.
     /// </summary>
-    private readonly SelectParameter dueFilter = new("overdueOnly", "Show", allLabel: "All open")
-    {
-        Options =
-        [
-            new ReportFilterOptionDto { Value = "true", Label = "Overdue only" }
-        ]
-    };
+    private SelectParameter dueFilter = null!;
 
     private IReadOnlyList<ReportParameter> parameters => [minOutstanding, dueFilter];
 
@@ -61,7 +55,20 @@
 
     private IReadOnlyList<ReceivableRowDto> rows => result?.Rows ?? [];
 
-    protected override void OnInitialized() => columns = BuildColumns();
+    protected override void OnInitialized()
+    {
+        minOutstanding = new DecimalParameter("minOutstanding", Localizer["Balance over"], prefix: "$");
+
+        dueFilter = new SelectParameter("overdueOnly", Localizer["Show"], allLabel: Localizer["All open"])
+        {
+            Options =
+            [
+                new ReportFilterOptionDto { Value = "true", Label = Localizer["Overdue only"] }
+            ]
+        };
+
+        columns = BuildColumns();
+    }
 
     private Task ExportAsync() => grid?.ExportCsvAsync() ?? Task.CompletedTask;
 
@@ -93,14 +100,14 @@
     private IReadOnlyList<ReportColumn<ReceivableRowDto>> BuildColumns() =>
     [
         new ReportColumn<ReceivableRowDto>(
-            header: "Invoice",
+            header: Localizer["Invoice"],
             value: r => r.InvoiceNumber),
 
         // No drill target: Delinquent Accounts can't be filtered to one organization, so a link there
         // would drop the reader on the whole list and call it a drill-down. It gets one when there is
         // somewhere that actually narrows to this customer.
         new ReportColumn<ReceivableRowDto>(
-            header: "Organization",
+            header: Localizer["Organization"],
             value: r => r.OrganizationName,
             template: r =>
                 @<span>
@@ -108,48 +115,48 @@
                     @if (r.IsPartiallyPaid)
                     {
                         <span class="badge bg-info text-dark ms-1"
-                              title="Some of this invoice has been paid.">Part paid</span>
+                              title="@Localizer["Some of this invoice has been paid."]">@Localizer["Part paid"]</span>
                     }
                 </span>),
 
         new ReportColumn<ReceivableRowDto>(
-            header: "Plan",
+            header: Localizer["Plan"],
             value: r => r.PlanName,
             template: r =>
                 @<span class="badge" style="background-color:@r.PlanColorCode">@r.PlanName</span>),
 
         new ReportColumn<ReceivableRowDto>(
-            header: "Issued",
+            header: Localizer["Issued"],
             value: r => r.IssuedOn,
             display: r => r.IssuedOn is { } on ? on.UtcDateTime.ToString("d MMM yyyy", Dates) : string.Empty),
 
         new ReportColumn<ReceivableRowDto>(
-            header: "Due",
+            header: Localizer["Due"],
             value: r => r.DueOn,
             display: r => r.DueOn is { } on ? on.UtcDateTime.ToString("d MMM yyyy", Dates) : string.Empty),
 
         // Sorted on the raw day count so the order is by lateness, not by the bucket's label.
         new ReportColumn<ReceivableRowDto>(
-            header: "Age",
+            header: Localizer["Age"],
             value: r => r.DaysOverdue,
             align: ReportAlign.Right,
             template: r =>
                 @<span class="badge @BucketClass(r.Bucket)">@BucketText(r)</span>),
 
         new ReportColumn<ReceivableRowDto>(
-            header: "Total",
+            header: Localizer["Total"],
             value: r => r.Total,
             display: r => r.Total.ToString("C", Money),
             align: ReportAlign.Right),
 
         new ReportColumn<ReceivableRowDto>(
-            header: "Paid",
+            header: Localizer["Paid"],
             value: r => r.AmountPaid,
             display: r => r.AmountPaid == 0m ? string.Empty : r.AmountPaid.ToString("C", Money),
             align: ReportAlign.Right),
 
         new ReportColumn<ReceivableRowDto>(
-            header: "Outstanding",
+            header: Localizer["Outstanding"],
             value: r => r.Outstanding,
             align: ReportAlign.Right,
             template: r =>
@@ -158,10 +165,10 @@
                 </strong>)
     ];
 
-    private static string BucketText(ReceivableRowDto row) => row.Bucket switch
+    private string BucketText(ReceivableRowDto row) => row.Bucket switch
     {
-        AgingBucket.Current => row.DaysOverdue < 0 ? $"in {-row.DaysOverdue}d" : "due today",
-        _ => $"{row.DaysOverdue}d late"
+        AgingBucket.Current => row.DaysOverdue < 0 ? Localizer["in {0}d", -row.DaysOverdue] : Localizer["due today"],
+        _ => Localizer["{0}d late", row.DaysOverdue]
     };
 
     /// <summary>Colours by how far gone the debt is - the same ordering the aging summary uses.</summary>

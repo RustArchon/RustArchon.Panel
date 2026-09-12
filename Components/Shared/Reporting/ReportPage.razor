@@ -25,12 +25,12 @@
             {
                 <button type="button" class="btn btn-outline-secondary" disabled="@(Loading || ExportDisabled)"
                         @onclick="ExportAsync">
-                    <i class="bi bi-download" aria-hidden="true"></i> Export CSV
+                    <i class="bi bi-download" aria-hidden="true"></i> @Localizer["Export CSV"]
                 </button>
             }
             <button type="button" class="btn btn-outline-secondary" disabled="@Loading" @onclick="RefreshAsync"
-                    title="Run this report again">
-                <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh
+                    title="@Localizer["Run this report again"]">
+                <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> @Localizer["Refresh"]
             </button>
         </div>
     }
@@ -39,7 +39,7 @@
 @if (AccessDenied)
 {
     <div class="alert alert-warning">
-        <i class="bi bi-shield-lock" aria-hidden="true"></i> You don't have access to reports.
+        <i class="bi bi-shield-lock" aria-hidden="true"></i> @Localizer["You don't have access to reports."]
     </div>
 }
 else
@@ -59,7 +59,7 @@ else
                             @if (range.Presets.Count > 0)
                             {
                                 <div>
-                                    <label class="form-label small text-muted mb-1">Quick range</label>
+                                    <label class="form-label small text-muted mb-1">@Localizer["Quick range"]</label>
                                     <div class="btn-group d-block" role="group">
                                         @foreach (var preset in range.Presets)
                                         {
@@ -75,7 +75,7 @@ else
 
                             <div>
                                 <label class="form-label small text-muted mb-1" for="@($"{range.FromKey}-input")">
-                                    @range.Label from
+                                    @range.Label @Localizer["from"]
                                 </label>
                                 <input id="@($"{range.FromKey}-input")" type="date" class="form-control form-control-sm"
                                        value="@DateRangeParameter.Format(range.From)"
@@ -84,7 +84,7 @@ else
 
                             <div>
                                 <label class="form-label small text-muted mb-1" for="@($"{range.ToKey}-input")">
-                                    to
+                                    @Localizer["to"]
                                 </label>
                                 <input id="@($"{range.ToKey}-input")" type="date" class="form-control form-control-sm"
                                        value="@DateRangeParameter.Format(range.To)"
@@ -151,7 +151,7 @@ else
 
                     <div>
                         <button type="button" class="btn btn-primary btn-sm" disabled="@Loading" @onclick="Apply">
-                            Apply
+                            @Localizer["Apply"]
                         </button>
                     </div>
                 </div>
@@ -168,8 +168,7 @@ else
     {
         <div class="alert alert-warning" role="alert">
             <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
-            This report stopped at @Result.RowLimit.ToString("N0") rows and there are more. Narrow the
-            range - the totals and the export cover only what's shown.
+            @Localizer["This report stopped at {0} rows and there are more. Narrow the range - the totals and the export cover only what's shown.", Result.RowLimit.ToString("N0")]
         </div>
     }
 
@@ -194,7 +193,7 @@ else
 
     @if (Loading)
     {
-        <p><em>Running report...</em></p>
+        <p><em>@Localizer["Running report..."]</em></p>
     }
     else
     {
@@ -206,7 +205,7 @@ else
                the server's timezone rather than the reader's - so a local timestamp would be neither
                the reader's time nor the one the window was filtered against. *@
             <p class="text-muted small mt-3 mb-0">
-                Generated @Result.GeneratedOn.UtcDateTime.ToString("dddd, d MMMM yyyy HH:mm", CultureInfo.InvariantCulture) UTC
+                @Localizer["Generated {0} UTC", Result.GeneratedOn.UtcDateTime.ToString("dddd, d MMMM yyyy HH:mm", CultureInfo.InvariantCulture)]
             </p>
         }
     }
