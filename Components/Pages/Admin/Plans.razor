@@ -11,14 +11,14 @@
 @inject IPlanApiClient PlanClient
 @rendermode RenderModes.NonPrerenderedServer
 
-<PageTitle>Plans</PageTitle>
+<PageTitle>@Localizer["Plans"]</PageTitle>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h1>Plans</h1>
+    <h1>@Localizer["Plans"]</h1>
     @if (accessDenied != true)
     {
         <button class="btn btn-primary" @onclick="ShowCreateForm">
-            <i class="bi bi-plus-circle"></i> New Plan
+            <i class="bi bi-plus-circle"></i> @Localizer["New Plan"]
         </button>
     }
 </div>
@@ -26,7 +26,7 @@
 @if (accessDenied == true)
 {
     <div class="alert alert-warning">
-        <i class="bi bi-shield-lock"></i> You don't have access to manage plans.
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage plans."]
     </div>
 }
 else
@@ -50,7 +50,7 @@ else
     @if (creating)
     {
         <div class="card mb-4">
-            <div class="card-header">New Plan</div>
+            <div class="card-header">@Localizer["New Plan"]</div>
             <div class="card-body">
                 <EditForm Model="createForm" OnValidSubmit="SaveCreate">
                     <DataAnnotationsValidator />
@@ -58,11 +58,11 @@ else
 
                     <div class="row g-3">
                         <div class="col-md-8">
-                            <label class="form-label" for="create-name">Name</label>
+                            <label class="form-label" for="create-name">@Localizer["Name"]</label>
                             <InputText id="create-name" class="form-control" @bind-Value="createForm.Name" placeholder="e.g. Wood, Starter, Pro" />
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label" for="create-color">Color</label>
+                            <label class="form-label" for="create-color">@Localizer["Color"]</label>
                             <input id="create-color" type="color" class="form-control form-control-color" @bind="createForm.ColorCode" @bind:event="oninput" />
                         </div>
                     </div>
@@ -81,38 +81,37 @@ else
 
                     <div class="row g-3">
                         <div class="col-md-4">
-                            <label class="form-label" for="create-retention">Retention (days)</label>
+                            <label class="form-label" for="create-retention">@Localizer["Retention (days)"]</label>
                             <InputNumber id="create-retention" class="form-control" @bind-Value="createForm.RetentionHistory" />
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label" for="create-servers">Maximum Servers</label>
-                            <InputNumber id="create-servers" class="form-control" @bind-Value="createForm.MaximumServers" placeholder="No limit" />
-                            <div class="form-text">Leave blank for no ceiling (per-server plans).</div>
+                            <label class="form-label" for="create-servers">@Localizer["Maximum Servers"]</label>
+                            <InputNumber id="create-servers" class="form-control" @bind-Value="createForm.MaximumServers" placeholder="@Localizer["No limit"]" />
+                            <div class="form-text">@Localizer["Leave blank for no ceiling (per-server plans)."]</div>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label" for="create-users">Maximum Users</label>
+                            <label class="form-label" for="create-users">@Localizer["Maximum Users"]</label>
                             <InputNumber id="create-users" class="form-control" @bind-Value="createForm.MaximumUsers" />
                         </div>
                         <div class="col-md-6">
                             <div class="form-check">
                                 <InputCheckbox id="create-roles" class="form-check-input" @bind-Value="createForm.HasRoles" />
-                                <label class="form-check-label" for="create-roles">Role separation</label>
+                                <label class="form-check-label" for="create-roles">@Localizer["Role separation"]</label>
                             </div>
                             <div class="form-check">
                                 <InputCheckbox id="create-one-per-owner" class="form-check-input" @bind-Value="createForm.OnePerOwner" />
                                 <label class="form-check-label" for="create-one-per-owner">
-                                    One organization per owner
+                                    @Localizer["One organization per owner"]
                                 </label>
                                 <div class="form-text">
-                                    Someone may only ever create one organization on this plan. Set it
-                                    on a free or trial tier, so it isn't an unlimited supply of servers.
+                                    @Localizer["Someone may only ever create one organization on this plan. Set it on a free or trial tier, so it isn't an unlimited supply of servers."]
                                 </div>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="form-check">
                                 <InputCheckbox id="create-active" class="form-check-input" @bind-Value="createForm.Active" />
-                                <label class="form-check-label" for="create-active">Active</label>
+                                <label class="form-check-label" for="create-active">@Localizer["Active"]</label>
                             </div>
                         </div>
                     </div>
@@ -120,17 +119,16 @@ else
                     @if (createForm.Active)
                     {
                         <div class="alert alert-info mt-3 mb-0">
-                            <i class="bi bi-info-circle"></i> Marking this Active will deactivate any other
-                            active plan named "@createForm.Name".
+                            <i class="bi bi-info-circle"></i> @Localizer["Marking this Active will deactivate any other active plan named \"{0}\".", createForm.Name]
                         </div>
                     }
 
                     <div class="mt-3">
                         <button type="submit" class="btn btn-primary" disabled="@saving">
-                            @(saving ? "Creating..." : "Create Plan")
+                            @(saving ? Localizer["Creating..."] : Localizer["Create Plan"])
                         </button>
                         <button type="button" class="btn btn-secondary" @onclick="CancelCreate" disabled="@saving">
-                            Cancel
+                            @Localizer["Cancel"]
                         </button>
                     </div>
                 </EditForm>
@@ -143,16 +141,16 @@ else
         <div class="card mb-4">
             <div class="card-header">
                 <span class="plan-color-dot" style="background-color: @editingPlan.ColorCode"></span>
-                Edit @editingPlan.Name Plan
+                @Localizer["Edit {0} Plan", editingPlan.Name]
             </div>
             <div class="card-body">
                 @if (editingPlan.SubscriberCount > 0)
                 {
                     <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> @editingPlan.SubscriberCount organization(s) have been
-                        on this plan. Saving changes here will create a new "@editingPlan.Name" plan with these
-                        terms and deactivate the current one - existing subscribers stay on their current
-                        terms, and past subscribers keep the terms they were billed under.
+                        <i class="bi bi-info-circle"></i>
+                        @Localizer[
+                            "{0} organization(s) have been on this plan. Saving changes here will create a new \"{1}\" plan with these terms and deactivate the current one - existing subscribers stay on their current terms, and past subscribers keep the terms they were billed under.",
+                            editingPlan.SubscriberCount, editingPlan.Name]
                     </div>
                 }
 
@@ -162,7 +160,7 @@ else
 
                     <div class="row g-3">
                         <div class="col-md-4">
-                            <label class="form-label" for="edit-color">Color</label>
+                            <label class="form-label" for="edit-color">@Localizer["Color"]</label>
                             <input id="edit-color" type="color" class="form-control form-control-color" @bind="editForm.ColorCode" @bind:event="oninput" />
                         </div>
                     </div>
@@ -178,44 +176,44 @@ else
 
                     <div class="row g-3">
                         <div class="col-md-4">
-                            <label class="form-label" for="edit-retention">Retention (days)</label>
+                            <label class="form-label" for="edit-retention">@Localizer["Retention (days)"]</label>
                             <InputNumber id="edit-retention" class="form-control" @bind-Value="editForm.RetentionHistory" />
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label" for="edit-servers">Maximum Servers</label>
-                            <InputNumber id="edit-servers" class="form-control" @bind-Value="editForm.MaximumServers" placeholder="No limit" />
-                            <div class="form-text">Leave blank for no ceiling (per-server plans).</div>
+                            <label class="form-label" for="edit-servers">@Localizer["Maximum Servers"]</label>
+                            <InputNumber id="edit-servers" class="form-control" @bind-Value="editForm.MaximumServers" placeholder="@Localizer["No limit"]" />
+                            <div class="form-text">@Localizer["Leave blank for no ceiling (per-server plans)."]</div>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label" for="edit-users">Maximum Users</label>
+                            <label class="form-label" for="edit-users">@Localizer["Maximum Users"]</label>
                             <InputNumber id="edit-users" class="form-control" @bind-Value="editForm.MaximumUsers" />
                         </div>
                         <div class="col-md-6">
                             <div class="form-check">
                                 <InputCheckbox id="edit-roles" class="form-check-input" @bind-Value="editForm.HasRoles" />
-                                <label class="form-check-label" for="edit-roles">Role separation</label>
+                                <label class="form-check-label" for="edit-roles">@Localizer["Role separation"]</label>
                             </div>
                             <div class="form-check">
                                 <InputCheckbox id="edit-one-per-owner" class="form-check-input" @bind-Value="editForm.OnePerOwner" />
                                 <label class="form-check-label" for="edit-one-per-owner">
-                                    One organization per owner
+                                    @Localizer["One organization per owner"]
                                 </label>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="form-check">
                                 <InputCheckbox id="edit-active" class="form-check-input" @bind-Value="editForm.Active" />
-                                <label class="form-check-label" for="edit-active">Active</label>
+                                <label class="form-check-label" for="edit-active">@Localizer["Active"]</label>
                             </div>
                         </div>
                     </div>
 
                     <div class="mt-3">
                         <button type="submit" class="btn btn-primary" disabled="@saving">
-                            @(saving ? "Saving..." : "Save")
+                            @(saving ? Localizer["Saving..."] : Localizer["Save"])
                         </button>
                         <button type="button" class="btn btn-secondary" @onclick="CancelEdit" disabled="@saving">
-                            Cancel
+                            @Localizer["Cancel"]
                         </button>
                     </div>
                 </EditForm>
@@ -225,13 +223,13 @@ else
 
     @if (loading)
     {
-        <p><em>Loading plans...</em></p>
+        <p><em>@Localizer["Loading plans..."]</em></p>
     }
     else if (plans != null)
     {
         <div class="form-check mb-3">
             <input class="form-check-input" type="checkbox" id="show-inactive-plans" @bind="showInactive" />
-            <label class="form-check-label" for="show-inactive-plans">Show inactive plans</label>
+            <label class="form-check-label" for="show-inactive-plans">@Localizer["Show inactive plans"]</label>
         </div>
 
         @if (VisiblePlans.Any())
@@ -240,20 +238,20 @@ else
                 <table class="table table-striped table-hover">
                     <thead>
                         <tr>
-                            <th>Status</th>
-                            <th>Name</th>
-                            <th>Pricing</th>
-                            <th>Retention</th>
-                            <th>Roles</th>
-                            <th title="At most one organization per person may be on this plan - set on the free tier so it isn't an unlimited supply of free servers">One&nbsp;per&nbsp;owner</th>
-                            <th>Max Servers</th>
-                            <th>Max Users</th>
+                            <th>@Localizer["Status"]</th>
+                            <th>@Localizer["Name"]</th>
+                            <th>@Localizer["Pricing"]</th>
+                            <th>@Localizer["Retention"]</th>
+                            <th>@Localizer["Roles"]</th>
+                            <th title="@Localizer["At most one organization per person may be on this plan - set on the free tier so it isn't an unlimited supply of free servers"]">@((MarkupString)Localizer["One&nbsp;per&nbsp;owner"].Value)</th>
+                            <th>@Localizer["Max Servers"]</th>
+                            <th>@Localizer["Max Users"]</th>
                             @* "Ever", not "currently" - a plan every subscriber has since moved off
                                still counts them, because that's what locks the plan against edits.
                                See PlanDto.SubscriberCount. *@
-                            <th title="Organizations that have ever been on this plan, including any that have since moved off it">Subscribers</th>
-                            <th>Created</th>
-                            <th>Actions</th>
+                            <th title="@Localizer["Organizations that have ever been on this plan, including any that have since moved off it"]">@Localizer["Subscribers"]</th>
+                            <th>@Localizer["Created"]</th>
+                            <th>@Localizer["Actions"]</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -263,11 +261,11 @@ else
                                 <td>
                                     @if (plan.Active)
                                     {
-                                        <span class="badge text-bg-success">Active</span>
+                                        <span class="badge text-bg-success">@Localizer["Active"]</span>
                                     }
                                     else
                                     {
-                                        <span class="badge text-bg-secondary">Inactive</span>
+                                        <span class="badge text-bg-secondary">@Localizer["Inactive"]</span>
                                     }
                                 </td>
                                 <td>
@@ -282,7 +280,7 @@ else
                                 <td>
                                     @if (!plan.Prices.Any())
                                     {
-                                        <span class="text-danger small">No prices set</span>
+                                        <span class="text-danger small">@Localizer["No prices set"]</span>
                                     }
                                     else
                                     {
@@ -293,28 +291,28 @@ else
                                                 <span class="text-muted">@BillingTerms.Describe(price.TermMonths)</span>
                                                 @if (price.UnitAmount > 0)
                                                 {
-                                                    <span class="text-muted">&middot; @price.UnitAmount.ToString("C") per extra server</span>
+                                                    <span class="text-muted">@Localizer["· {0} per extra server", price.UnitAmount.ToString("C")]</span>
                                                 }
                                             </div>
                                         }
                                     }
                                 </td>
-                                <td>@plan.RetentionHistory days</td>
-                                <td>@(plan.HasRoles ? "Yes" : "No")</td>
-                                <td>@(plan.OnePerOwner ? "Yes" : "No")</td>
-                                <td>@(plan.MaximumServers?.ToString() ?? "No limit")</td>
+                                <td>@Localizer["{0} days", plan.RetentionHistory]</td>
+                                <td>@(plan.HasRoles ? Localizer["Yes"] : Localizer["No"])</td>
+                                <td>@(plan.OnePerOwner ? Localizer["Yes"] : Localizer["No"])</td>
+                                <td>@(plan.MaximumServers?.ToString() ?? Localizer["No limit"])</td>
                                 <td>@plan.MaximumUsers</td>
                                 <td>@plan.SubscriberCount</td>
                                 <td>@plan.CreatedOn.LocalDateTime.ToString("g")</td>
                                 <td>
                                     <div class="btn-group" role="group">
                                         <button class="btn btn-sm btn-outline-secondary" @onclick="() => ShowEditForm(plan)">
-                                            <i class="bi bi-pencil"></i> Edit
+                                            <i class="bi bi-pencil"></i> @Localizer["Edit"]
                                         </button>
                                         @if (plan.SubscriberCount == 0)
                                         {
                                             <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(plan)">
-                                                <i class="bi bi-trash"></i> Delete
+                                                <i class="bi bi-trash"></i> @Localizer["Delete"]
                                             </button>
                                         }
                                     </div>
@@ -328,16 +326,14 @@ else
         else if (!plans.Any())
         {
             <div class="alert alert-info">
-                <i class="bi bi-info-circle"></i> No plans yet. Create one to get started - every new
-                Organization needs at least one active plan to sign up (new signups land on the cheapest
-                active plan, or the site's configured default).
+                <i class="bi bi-info-circle"></i>
+                @Localizer["No plans yet. Create one to get started - every new Organization needs at least one active plan to sign up (new signups land on the cheapest active plan, or the site's configured default)."]
             </div>
         }
         else
         {
             <div class="alert alert-info">
-                <i class="bi bi-info-circle"></i> No active plans. Check "Show inactive plans" above to
-                see historical ones.
+                <i class="bi bi-info-circle"></i> @Localizer["No active plans. Check \"Show inactive plans\" above to see historical ones."]
             </div>
         }
     }
@@ -345,14 +341,14 @@ else
     @if (showSupersedeConfirmation && editingPlan != null)
     {
         <RustArchon.Panel.Components.Shared.ConfirmationModal
-            Title="Create New Plan?"
-            ConfirmButtonText="Create and Deactivate Current"
+            Title="@Localizer["Create New Plan?"]"
+            ConfirmButtonText="@Localizer["Create and Deactivate Current"]"
             ConfirmButtonClass="btn-primary"
             OnClose="HandleSupersedeModalClose">
             <Message>
-                @editingPlan.SubscriberCount organization(s) have been on the current "@editingPlan.Name"
-                plan. Saving will create a new "@editingPlan.Name" plan with these terms and deactivate the
-                current one. Existing subscribers keep their current terms. Proceed?
+                @Localizer[
+                    "{0} organization(s) have been on the current \"{1}\" plan. Saving will create a new \"{1}\" plan with these terms and deactivate the current one. Existing subscribers keep their current terms. Proceed?",
+                    editingPlan.SubscriberCount, editingPlan.Name]
             </Message>
         </RustArchon.Panel.Components.Shared.ConfirmationModal>
     }
@@ -360,14 +356,14 @@ else
     @if (showDeleteConfirmation && planToDelete != null)
     {
         <RustArchon.Panel.Components.Shared.ConfirmationModal
-            Title="Delete Plan"
-            ConfirmButtonText="Delete"
+            Title="@Localizer["Delete Plan"]"
+            ConfirmButtonText="@Localizer["Delete"]"
             ConfirmButtonClass="btn-danger"
             OnClose="HandleDeleteModalClose">
             <Message>
-                Are you sure you want to permanently delete this "@planToDelete.Name" plan
-                (@DescribeCheapest(planToDelete), created @planToDelete.CreatedOn.LocalDateTime.ToString("g"))?
-                This cannot be undone.
+                @Localizer[
+                    "Are you sure you want to permanently delete this \"{0}\" plan ({1}, created {2})? This cannot be undone.",
+                    planToDelete.Name, DescribeCheapest(planToDelete), planToDelete.CreatedOn.LocalDateTime.ToString("g")]
             </Message>
         </RustArchon.Panel.Components.Shared.ConfirmationModal>
     }
@@ -452,7 +448,7 @@ else
     /// A one-line price summary for a plan whose terms aren't known in advance - the cheapest per-month
     /// rate it's sold at, named by its term.
     /// </summary>
-    private static string DescribeCheapest(PlanDto plan)
+    private string DescribeCheapest(PlanDto plan)
     {
         var cheapest = plan.Prices
             .Where(p => p.TermMonths > 0)
@@ -460,7 +456,7 @@ else
             .FirstOrDefault();
 
         return cheapest is null
-            ? "no prices set"
+            ? Localizer["no prices set"]
             : $"{cheapest.BaseAmount.ToString("C")} {BillingTerms.Describe(cheapest.TermMonths)}";
     }
 
@@ -489,7 +485,7 @@ else
                 MaximumUsers = createForm.MaximumUsers,
                 Active = createForm.Active
             });
-            successMessage = $"{created.Name} plan created.";
+            successMessage = Localizer["{0} plan created.", created.Name];
             creating = false;
             await LoadPlans();
         }
@@ -580,7 +576,7 @@ else
                 MaximumUsers = editForm.MaximumUsers,
                 Active = editForm.Active
             });
-            successMessage = $"{editingPlan.Name} plan updated.";
+            successMessage = Localizer["{0} plan updated.", editingPlan.Name];
             editingPlan = null;
             await LoadPlans();
         }
@@ -620,7 +616,7 @@ else
                 MaximumServers = editForm.MaximumServers,
                 MaximumUsers = editForm.MaximumUsers
             });
-            successMessage = $"A new {superseded.Name} plan was created and the previous one deactivated.";
+            successMessage = Localizer["A new {0} plan was created and the previous one deactivated.", superseded.Name];
             editingPlan = null;
             await LoadPlans();
         }
@@ -656,12 +652,12 @@ else
         try
         {
             await PlanClient.DeleteAsync(planToDelete.Id);
-            successMessage = $"{planToDelete.Name} plan deleted.";
+            successMessage = Localizer["{0} plan deleted.", planToDelete.Name];
             await LoadPlans();
         }
         catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
         {
-            errorMessage = ex.Content ?? "That plan has subscribers and can't be deleted. Deactivate it instead.";
+            errorMessage = ex.Content ?? Localizer["That plan has subscribers and can't be deleted. Deactivate it instead."];
         }
         catch (Exception ex)
         {
