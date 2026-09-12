@@ -339,6 +339,11 @@ builder.Services.AddApiClient<IInvitationAcceptApiClient>($"{apiBaseUrl}/api/inv
 builder.Services.AddApiClient<ISiteBrandingApiClient>($"{apiBaseUrl}/api/public/branding");
 builder.Services.AddSingleton<SiteBrandingService>();
 
+// Same relationship to RustArchon.Api's IAppGenerationCache that SiteBrandingService above has to
+// PlatformSettingsCache - reads the same Valkey key that class writes, no Panel-local state to keep in
+// sync. See MainLayout.razor for the only caller (the circuit-staleness check on every navigation).
+builder.Services.AddSingleton<AppGenerationService>();
+
 // Same Valkey container RustArchon.Api's own PlatformSettingsCache writes through to on every admin
 // save - reading it directly here, rather than keeping a second Panel-local cache with its own
 // invalidation to keep in sync, is what makes a saved change visible immediately everywhere: there is
