@@ -5,29 +5,27 @@
 @attribute [Authorize]
 @rendermode RenderModes.NonPrerenderedServer
 
-<PageTitle>Reports</PageTitle>
+<PageTitle>@Localizer["Reports"]</PageTitle>
 
 <div class="mb-4">
-    <h1 class="mb-1">Reports</h1>
-    <p class="text-muted mb-0">Platform-wide operational reports. Each one opens on its own page, with
-        its parameters in the address bar - so a report narrowed down to what you care about is a link
-        you can bookmark or send to someone.</p>
+    <h1 class="mb-1">@Localizer["Reports"]</h1>
+    <p class="text-muted mb-0">@Localizer["Platform-wide operational reports. Each one opens on its own page, with its parameters in the address bar - so a report narrowed down to what you care about is a link you can bookmark or send to someone."]</p>
 </div>
 
 <div class="row g-3">
     @foreach (var group in Reports.GroupBy(r => r.Group))
     {
         <div class="col-12">
-            <h6 class="text-muted text-uppercase small mb-2">@group.Key</h6>
+            <h6 class="text-muted text-uppercase small mb-2">@Localizer[group.Key]</h6>
             <div class="list-group">
                 @foreach (var report in group)
                 {
                     <a class="list-group-item list-group-item-action" href="@report.Route">
                         <div class="d-flex align-items-center gap-2">
                             <i class="bi @report.Icon" aria-hidden="true"></i>
-                            <span class="fw-semibold">@report.Title</span>
+                            <span class="fw-semibold">@Localizer[report.Title]</span>
                         </div>
-                        <div class="text-muted small">@report.Description</div>
+                        <div class="text-muted small">@Localizer[report.Description]</div>
                     </a>
                 }
             </div>
