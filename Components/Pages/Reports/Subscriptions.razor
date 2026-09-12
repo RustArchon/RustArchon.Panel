@@ -12,8 +12,8 @@
 @inject IReportApiClient ReportClient
 @rendermode RenderModes.NonPrerenderedServer
 
-<ReportPage Title="Subscriptions"
-            Description="Every organization currently on a plan, with what it's worth per month. The register the plan mix and MRR come out of."
+<ReportPage Title="@Localizer["Subscriptions"]"
+            Description="@Localizer["Every organization currently on a plan, with what it's worth per month. The register the plan mix and MRR come out of."]"
             Parameters="parameters"
             OnRun="RunAsync"
             Loading="loading"
@@ -27,7 +27,7 @@
                 Rows="rows"
                 Columns="columns"
                 FileName="subscriptions"
-                EmptyMessage="No subscriptions match this filter." />
+                EmptyMessage="@Localizer["No subscriptions match this filter."]" />
 </ReportPage>
 
 @code {
@@ -45,7 +45,7 @@
     /// No date window: this is a snapshot of what is true now, and a range would only raise the
     /// question of what a subscription "in" a window would mean.
     /// </summary>
-    private readonly SelectParameter planFilter = new("planId", "Plan", allLabel: "All plans");
+    private SelectParameter planFilter = null!;
 
     private IReadOnlyList<ReportParameter> parameters => [planFilter];
 
@@ -55,6 +55,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        planFilter = new SelectParameter("planId", Localizer["Plan"], allLabel: Localizer["All plans"]);
         columns = BuildColumns();
 
         try
@@ -101,14 +102,14 @@
     private IReadOnlyList<ReportColumn<SubscriptionRegisterRowDto>> BuildColumns() =>
     [
         new ReportColumn<SubscriptionRegisterRowDto>(
-            header: "Organization",
+            header: Localizer["Organization"],
             value: r => r.OrganizationName,
             template: r =>
                 @<span>
                     @r.OrganizationName
                     @if (!r.IsActive)
                     {
-                        <span class="badge bg-secondary ms-1">Deactivated</span>
+                        <span class="badge bg-secondary ms-1">@Localizer["Deactivated"]</span>
                     }
                 </span>),
 
@@ -116,7 +117,7 @@
         // reports, so it is just another report URL - which is the whole reason parameters live in the
         // query string.
         new ReportColumn<SubscriptionRegisterRowDto>(
-            header: "Plan",
+            header: Localizer["Plan"],
             value: r => r.PlanName,
             drillTo: r => $"/Reports/UpcomingRenewals?planId={r.PlanId}"
                           + $"&renewsFrom={DateRangeParameter.Format(DateRangeParameter.Today)}"
@@ -127,20 +128,20 @@
                     @if (r.HasScheduledChange)
                     {
                         <i class="bi bi-clock-history text-muted ms-1"
-                           title="A plan or term change is already queued for this organization."
+                           title="@Localizer["A plan or term change is already queued for this organization."]"
                            aria-hidden="true"></i>
                     }
                 </span>),
 
         new ReportColumn<SubscriptionRegisterRowDto>(
-            header: "Term",
+            header: Localizer["Term"],
             value: r => r.TermMonths,
             display: r => BillingTerms.Describe(r.TermMonths)),
 
         // Servers against bought capacity, not against the plan's ceiling - slots are what gate adding
         // one, and on a per-unit plan a tenant can hold more than they're using.
         new ReportColumn<SubscriptionRegisterRowDto>(
-            header: "Servers",
+            header: Localizer["Servers"],
             value: r => r.ServerCount,
             align: ReportAlign.Right,
             template: r =>
@@ -149,25 +150,25 @@
                 </span>),
 
         new ReportColumn<SubscriptionRegisterRowDto>(
-            header: "Slots",
+            header: Localizer["Slots"],
             value: r => r.Quantity,
             align: ReportAlign.Right),
 
         new ReportColumn<SubscriptionRegisterRowDto>(
-            header: "On plan",
+            header: Localizer["On plan"],
             value: r => r.DaysOnPlan,
             display: r => $"{r.DaysOnPlan}d",
             align: ReportAlign.Right),
 
         new ReportColumn<SubscriptionRegisterRowDto>(
-            header: "Renews",
+            header: Localizer["Renews"],
             value: r => r.PeriodEnd,
             display: r => r.PeriodEnd == default
                 ? string.Empty
                 : r.PeriodEnd.UtcDateTime.ToString("d MMM yyyy", Dates)),
 
         new ReportColumn<SubscriptionRegisterRowDto>(
-            header: "Period",
+            header: Localizer["Period"],
             value: r => r.PeriodAmount,
             display: r => r.PeriodAmount.ToString("C", Money),
             align: ReportAlign.Right),
@@ -175,7 +176,7 @@
         // Null rather than zero when the plan carries no price for the term, matching the MRR total
         // in the summary, which leaves those rows out rather than counting them as free.
         new ReportColumn<SubscriptionRegisterRowDto>(
-            header: "Monthly",
+            header: Localizer["Monthly"],
             value: r => r.MonthlyValueUnknown ? null : r.MonthlyValue,
             align: ReportAlign.Right,
             template: r =>
@@ -183,8 +184,8 @@
                     @if (r.MonthlyValueUnknown)
                     {
                         <span class="badge bg-danger"
-                              title="This plan has no price for the term this organization is billed on.">
-                            No price
+                              title="@Localizer["This plan has no price for the term this organization is billed on."]">
+                            @Localizer["No price"]
                         </span>
                     }
                     else

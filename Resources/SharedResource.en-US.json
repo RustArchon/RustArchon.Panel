@@ -390,5 +390,21 @@
   "In": "In",
   "{0}d overdue": "{0}d overdue",
   "{0}d": "{0}d",
-  "To free": "To free"
+  "To free": "To free",
+  "Every organization currently on a plan, with what it's worth per month. The register the plan mix and MRR come out of.": "Every organization currently on a plan, with what it's worth per month. The register the plan mix and MRR come out of.",
+  "No subscriptions match this filter.": "No subscriptions match this filter.",
+  "All plans": "All plans",
+  "A plan or term change is already queued for this organization.": "A plan or term change is already queued for this organization.",
+  "Slots": "Slots",
+  "On plan": "On plan",
+  "Renews": "Renews",
+  "Period": "Period",
+  "Monthly": "Monthly",
+  "This plan has no price for the term this organization is billed on.": "This plan has no price for the term this organization is billed on.",
+  "No price": "No price",
+  "Organizations whose billing period ends in the selected window - what renews, when, and for how much.": "Organizations whose billing period ends in the selected window - what renews, when, and for how much.",
+  "No organizations renew in this window.": "No organizations renew in this window.",
+  "Next 7 days": "Next 7 days",
+  "Current": "Current",
+  "At renewal": "At renewal"
 }
