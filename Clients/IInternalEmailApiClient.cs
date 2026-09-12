@@ -18,6 +18,11 @@ public interface IInternalEmailApiClient
 {
     [Post("/internal/email")]
     Task SendAsync([Body] SendEmailRequestDto request);
+
+    /// <summary>Queues an email built from an admin-editable template - see
+    /// <c>RustArchon.Api.Infrastructure.EmailTemplateRegistry.Codes</c> for valid codes.</summary>
+    [Post("/internal/email/templated")]
+    Task SendTemplatedAsync([Body] SendTemplatedEmailRequestDto request);
 }
 
 /// <summary>

@@ -103,6 +103,13 @@ public interface IPlatformUserApiClient
     [Get("/")]
     Task<List<PlatformUserDto>> GetDirectoryAsync();
 
+    /// <summary>
+    /// Whether the caller is a Site Admin - a 403 (caught by the caller) means no. See
+    /// <see cref="PlatformAdminStatusDto"/>'s remarks.
+    /// </summary>
+    [Get("/me")]
+    Task<PlatformAdminStatusDto> GetMyStatusAsync();
+
     /// <summary>Grants the platform-wide "Site Admin" role.</summary>
     [Post("/{userId}/site-admin")]
     Task GrantSiteAdminAsync(Guid userId);
