@@ -430,5 +430,20 @@
   "Anything outstanding": "Anything outstanding",
   "Invoices": "Invoices",
   "Oldest": "Oldest",
-  "not due": "not due"
+  "not due": "not due",
+  "Billing History": "Billing History",
+  "Every billing period your organization has been charged for, newest first.": "Every billing period your organization has been charged for, newest first.",
+  "Nothing has been billed yet.": "Nothing has been billed yet.",
+  "Periods billed": "Periods billed",
+  "{0} prorated": "{0} prorated",
+  "all full periods": "all full periods",
+  "Total charged": "Total charged",
+  "since sign-up": "since sign-up",
+  "across {0} invoice(s)": "across {0} invoice(s)",
+  "nothing owed": "nothing owed",
+  "Period": "Period",
+  "A plan change part-way through this period split it in two.": "A plan change part-way through this period split it in two.",
+  "Prorated": "Prorated",
+  "Amount": "Amount",
+  "No charge": "No charge"
 }
