@@ -73,5 +73,17 @@
   "Unable to verify invitation status right now. Please try again in a moment.": "Unable to verify invitation status right now. Please try again in a moment.",
   "An invitation code is required to register.": "An invitation code is required to register.",
   "That invitation code is not valid.": "That invitation code is not valid.",
-  "We couldn't finish setting up your organization, so nothing was created and your invitation code has not been used. Please try again.": "We couldn't finish setting up your organization, so nothing was created and your invitation code has not been used. Please try again."
+  "We couldn't finish setting up your organization, so nothing was created and your invitation code has not been used. Please try again.": "We couldn't finish setting up your organization, so nothing was created and your invitation code has not been used. Please try again.",
+  "Access denied": "Access denied",
+  "You do not have access to this resource.": "You do not have access to this resource.",
+  "Locked out": "Locked out",
+  "This account has been locked out, please try again later.": "This account has been locked out, please try again later.",
+  "Invalid user": "Invalid user",
+  "Invalid password reset": "Invalid password reset",
+  "The password reset link is invalid.": "The password reset link is invalid.",
+  "Forgot password confirmation": "Forgot password confirmation",
+  "Please check your email to reset your password.": "Please check your email to reset your password.",
+  "Reset password confirmation": "Reset password confirmation",
+  "Your password has been reset. Please": "Your password has been reset. Please",
+  "click here to log in": "click here to log in"
 }
