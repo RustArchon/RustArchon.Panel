@@ -21,17 +21,16 @@
 @inject NewTenantBootstrapper TenantBootstrapper
 @inject IInvitationApiClient InvitationClient
 
-<PageTitle>Register</PageTitle>
+<PageTitle>@Localizer["Register"]</PageTitle>
 
 <StatusMessage Message="@message" />
-<h1>Register</h1>
-<h2>Associate your @ProviderDisplayName account.</h2>
+<h1>@Localizer["Register"]</h1>
+<h2>@Localizer["Associate your {0} account.", ProviderDisplayName]</h2>
 <hr />
 
 <div  class="alert alert-info">
-    You've successfully authenticated with <strong>@ProviderDisplayName</strong>.
-    Please enter an email address for this site below and click the Register button to finish
-    logging in.
+    @Localizer["You've successfully authenticated with"] <strong>@ProviderDisplayName</strong>.
+    @Localizer["Please enter an email address for this site below and click the Register button to finish logging in."]
 </div>
 
 @if (invitationError != null)
@@ -47,17 +46,17 @@
             @if (invitationStatus?.Enabled == true)
             {
                 <div class="form-floating mb-3">
-                    <InputText @bind-Value="Input.InvitationCode" id="Input.InvitationCode" class="form-control" placeholder="Invitation code" />
-                    <label for="Input.InvitationCode" class="form-label">Invitation code</label>
+                    <InputText @bind-Value="Input.InvitationCode" id="Input.InvitationCode" class="form-control" placeholder="@Localizer["Invitation code"]" />
+                    <label for="Input.InvitationCode" class="form-label">@Localizer["Invitation code"]</label>
                     <ValidationMessage For="() => Input.InvitationCode" />
                 </div>
             }
             <div class="form-floating mb-3">
-                <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control" autocomplete="email" placeholder="Please enter your email." />
-                <label for="Input.Email" class="form-label">Email</label>
+                <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control" autocomplete="email" placeholder="@Localizer["Please enter your email."]" />
+                <label for="Input.Email" class="form-label">@Localizer["Email"]</label>
                 <ValidationMessage For="() => Input.Email" />
             </div>
-            <button type="submit" class="w-100 btn btn-lg btn-primary" disabled="@(invitationStatus == null)">Register</button>
+            <button type="submit" class="w-100 btn btn-lg btn-primary" disabled="@(invitationStatus == null)">@Localizer["Register"]</button>
         </EditForm>
     </div>
 </div>
@@ -104,14 +103,14 @@
 
         if (RemoteError is not null)
         {
-            RedirectManager.RedirectToWithStatus("Account/Login", $"Error from external provider: {RemoteError}", HttpContext);
+            RedirectManager.RedirectToWithStatus("Account/Login", Localizer["Error from external provider: {0}", RemoteError], HttpContext);
             return;
         }
 
         var info = await SignInManager.GetExternalLoginInfoAsync();
         if (info is null)
         {
-            RedirectManager.RedirectToWithStatus("Account/Login", "Error loading external login information.", HttpContext);
+            RedirectManager.RedirectToWithStatus("Account/Login", Localizer["Error loading external login information."], HttpContext);
             return;
         }
 
@@ -135,7 +134,7 @@
     {
         if (externalLoginInfo is null)
         {
-            RedirectManager.RedirectToWithStatus("Account/Login", "Error loading external login information.", HttpContext);
+            RedirectManager.RedirectToWithStatus("Account/Login", Localizer["Error loading external login information."], HttpContext);
             return;
         }
 
@@ -172,7 +171,7 @@
     {
         if (externalLoginInfo is null)
         {
-            RedirectManager.RedirectToWithStatus("Account/Login", "Error loading external login information during confirmation.", HttpContext);
+            RedirectManager.RedirectToWithStatus("Account/Login", Localizer["Error loading external login information during confirmation."], HttpContext);
             return;
         }
 
@@ -181,13 +180,13 @@
         // Fail closed - see OnInitializedAsync's remarks.
         if (invitationStatus == null)
         {
-            invitationError = "Unable to verify invitation status right now. Please try again in a moment.";
+            invitationError = Localizer["Unable to verify invitation status right now. Please try again in a moment."];
             return;
         }
 
         if (invitationStatus.Enabled && string.IsNullOrWhiteSpace(Input.InvitationCode))
         {
-            invitationError = "An invitation code is required to register.";
+            invitationError = Localizer["An invitation code is required to register."];
             return;
         }
 
@@ -220,7 +219,7 @@
                         // Deleting the user cascades to its AspNetUserLogins row too - no separate
                         // RemoveLoginAsync needed.
                         await UserManager.DeleteAsync(user);
-                        invitationError = redeemed.Error ?? "That invitation code is not valid.";
+                        invitationError = redeemed.Error ?? Localizer["That invitation code is not valid."];
                         return;
                     }
                 }
@@ -264,7 +263,7 @@
         }
         else
         {
-            message = $"Error: {string.Join(",", result.Errors.Select(error => error.Description))}";
+            message = Localizer["Error: {0}", string.Join(",", result.Errors.Select(error => error.Description))];
         }
     }
 
