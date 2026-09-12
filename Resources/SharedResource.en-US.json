@@ -22,5 +22,7 @@
   "Logout": "Logout",
   "Source": "Source",
   "Register": "Register",
-  "Login": "Login"
+  "Login": "Login",
+  "An unhandled error has occurred.": "An unhandled error has occurred.",
+  "Reload": "Reload"
 }
