@@ -9,6 +9,7 @@
 @inject IInvitationPreviewApiClient PreviewClient
 @inject IInvitationAcceptApiClient AcceptClient
 @inject NavigationManager Navigation
+@inject SiteBrandingService Branding
 @rendermode RenderModes.NonPrerenderedServer
 
 @*
@@ -18,20 +19,20 @@
     them to sign in or register - with a return URL that brings them back here to finish.
 *@
 
-<PageTitle>Invitation</PageTitle>
+<PageTitle>@Localizer["Invitation"]</PageTitle>
 
 <div class="row justify-content-center">
     <div class="col-md-7">
         <div class="card">
             <div class="card-header">
-                <i class="bi bi-envelope-open" aria-hidden="true"></i> Invitation
+                <i class="bi bi-envelope-open" aria-hidden="true"></i> @Localizer["Invitation"]
             </div>
             <div class="card-body">
 
                 @if (loading)
                 {
                     <div class="text-muted">
-                        <span class="spinner-border spinner-border-sm"></span> Looking up this invitation...
+                        <span class="spinner-border spinner-border-sm"></span> @Localizer["Looking up this invitation..."]
                     </div>
                 }
 
@@ -39,8 +40,7 @@
                 {
                     <div class="alert alert-warning mb-0">
                         <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
-                        We can't find this invitation. The link may have been mistyped, or it may have
-                        been withdrawn. Ask whoever invited you to send a new one.
+                        @Localizer["We can't find this invitation. The link may have been mistyped, or it may have been withdrawn. Ask whoever invited you to send a new one."]
                     </div>
                 }
 
@@ -49,21 +49,17 @@
                     @* Spent, withdrawn or expired. The Api will say which if they try, but there is
                        no reason to make them click to find out. *@
                     <div class="alert alert-warning mb-0">
-                        This invitation to join <strong>@preview.OrganizationName</strong> is no longer
-                        valid - it may already have been used, withdrawn, or run out. Ask them to send
-                        a new one.
+                        @Localizer["This invitation to join"] <strong>@preview.OrganizationName</strong> @Localizer["is no longer valid - it may already have been used, withdrawn, or run out. Ask them to send a new one."]
                     </div>
                 }
 
                 @if (!loading && preview is not null && preview.IsPending && result is null)
                 {
                     <p>
-                        You've been invited to join <strong>@preview.OrganizationName</strong> on
-                        RustArchon.
+                        @Localizer["You've been invited to join"] <strong>@preview.OrganizationName</strong> @Localizer["on {0}.", siteName]
                     </p>
                     <p class="text-muted small">
-                        This invitation was sent to <strong>@preview.Email</strong>, and only works for
-                        that address. It expires @preview.ExpiresOn.ToLocalTime().ToString("d MMM yyyy").
+                        @Localizer["This invitation was sent to"] <strong>@preview.Email</strong>@Localizer[", and only works for that address. It expires {0}.", preview.ExpiresOn.ToLocalTime().ToString("d MMM yyyy")]
                     </p>
 
                     <AuthorizeView>
@@ -72,23 +68,22 @@
                                people get stuck on, and seeing both addresses side by side explains
                                it before they click rather than after. *@
                             <p class="small text-muted">
-                                You're signed in as <strong>@context.User.Identity?.Name</strong>.
+                                @Localizer["You're signed in as"] <strong>@context.User.Identity?.Name</strong>.
                             </p>
                             <button class="btn btn-primary" disabled="@busy" @onclick="AcceptAsync">
                                 @if (busy)
                                 {
                                     <span class="spinner-border spinner-border-sm me-1"></span>
                                 }
-                                Join @preview.OrganizationName
+                                @Localizer["Join {0}", preview.OrganizationName]
                             </button>
                         </Authorized>
                         <NotAuthorized>
                             <p class="small">
-                                Sign in with <strong>@preview.Email</strong> to accept, or create an
-                                account with that address if you don't have one yet.
+                                @Localizer["Sign in with"] <strong>@preview.Email</strong> @Localizer["to accept, or create an account with that address if you don't have one yet."]
                             </p>
-                            <a class="btn btn-primary" href="@LoginUrl">Sign in</a>
-                            <a class="btn btn-outline-secondary" href="@RegisterUrl">Create an account</a>
+                            <a class="btn btn-primary" href="@LoginUrl">@Localizer["Sign in"]</a>
+                            <a class="btn btn-outline-secondary" href="@RegisterUrl">@Localizer["Create an account"]</a>
                         </NotAuthorized>
                     </AuthorizeView>
                 }
@@ -105,7 +100,7 @@
                            plain navigation does that where an enhanced one would keep the stale
                            circuit and its cached tenant. *@
                         <a class="btn btn-primary" href="servers" data-enhance="false">
-                            Go to @result.OrganizationName
+                            @Localizer["Go to {0}", result.OrganizationName]
                         </a>
                     }
                 }
@@ -129,6 +124,7 @@
     private string? errorMessage;
     private bool loading = true;
     private bool busy;
+    private string siteName = "RustArchon";
 
     /// <summary>Round trip back to this exact link, token and all, once they have signed in.</summary>
     private string ReturnUrl =>
@@ -140,6 +136,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        siteName = (await Branding.GetAsync()).SiteName;
+
         if (string.IsNullOrWhiteSpace(Token))
         {
             loading = false;

@@ -632,5 +632,21 @@
   "What this role can do": "What this role can do",
   "You can only grant what you hold yourself - anything missing from this list is something your own roles don't include.": "You can only grant what you hold yourself - anything missing from this list is something your own roles don't include.",
   "Saved '{0}'.": "Saved '{0}'.",
-  "Deleted '{0}'. Anyone who held it no longer does.": "Deleted '{0}'. Anyone who held it no longer does."
+  "Deleted '{0}'. Anyone who held it no longer does.": "Deleted '{0}'. Anyone who held it no longer does.",
+  "Invitation": "Invitation",
+  "Looking up this invitation...": "Looking up this invitation...",
+  "We can't find this invitation. The link may have been mistyped, or it may have been withdrawn. Ask whoever invited you to send a new one.": "We can't find this invitation. The link may have been mistyped, or it may have been withdrawn. Ask whoever invited you to send a new one.",
+  "This invitation to join": "This invitation to join",
+  "is no longer valid - it may already have been used, withdrawn, or run out. Ask them to send a new one.": "is no longer valid - it may already have been used, withdrawn, or run out. Ask them to send a new one.",
+  "You've been invited to join": "You've been invited to join",
+  "on {0}.": "on {0}.",
+  "This invitation was sent to": "This invitation was sent to",
+  ", and only works for that address. It expires {0}.": ", and only works for that address. It expires {0}.",
+  "You're signed in as": "You're signed in as",
+  "Join {0}": "Join {0}",
+  "Sign in with": "Sign in with",
+  "to accept, or create an account with that address if you don't have one yet.": "to accept, or create an account with that address if you don't have one yet.",
+  "Sign in": "Sign in",
+  "Create an account": "Create an account",
+  "Go to {0}": "Go to {0}"
 }
