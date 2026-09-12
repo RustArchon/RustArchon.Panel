@@ -12,8 +12,8 @@
 @inject IReportApiClient ReportClient
 @rendermode RenderModes.NonPrerenderedServer
 
-<ReportPage Title="New Signups"
-            Description="Organizations created in the selected window, and whether each one ever got a server running. A signup that never activates was never a customer."
+<ReportPage Title="@Localizer["New Signups"]"
+            Description="@Localizer["Organizations created in the selected window, and whether each one ever got a server running. A signup that never activates was never a customer."]"
             Parameters="parameters"
             OnRun="RunAsync"
             Loading="loading"
@@ -27,7 +27,7 @@
                 Rows="rows"
                 Columns="columns"
                 FileName="new-signups"
-                EmptyMessage="No organizations signed up in this window." />
+                EmptyMessage="@Localizer["No organizations signed up in this window."]" />
 </ReportPage>
 
 @code {
@@ -44,21 +44,10 @@
     /// Looks backwards, unlike the renewals report. Defaults to the last 30 days, and the presets run
     /// into the past for the same reason - a signup is something that already happened.
     /// </summary>
-    private readonly IReadOnlyList<ReportParameter> parameters =
-    [
-        new DateRangeParameter(
-            key: "signedUp",
-            label: "Signed up",
-            from: DateRangeParameter.Today.AddDays(-30),
-            to: DateRangeParameter.Today,
-            presets:
-            [
-                new DateRangePreset("Last 7 days", -7, 0),
-                new DateRangePreset("Last 30 days", -30, 0),
-                new DateRangePreset("Last 90 days", -90, 0),
-                new DateRangePreset("Last year", -365, 0)
-            ])
-    ];
+    /// <remarks>Built in <see cref="OnInitialized"/>, not a field initializer - @inject properties like
+    /// Localizer aren't populated yet when field initializers run (see ConfirmationModal.razor for the
+    /// same pattern).</remarks>
+    private IReadOnlyList<ReportParameter> parameters = [];
 
     private IReadOnlyList<ReportColumn<NewSignupRowDto>> columns = [];
 
@@ -66,7 +55,25 @@
 
     private IReadOnlyList<NewSignupRowDto> rows => result?.Rows ?? [];
 
-    protected override void OnInitialized() => columns = BuildColumns();
+    protected override void OnInitialized()
+    {
+        parameters =
+        [
+            new DateRangeParameter(
+                key: "signedUp",
+                label: Localizer["Signed up"],
+                from: DateRangeParameter.Today.AddDays(-30),
+                to: DateRangeParameter.Today,
+                presets:
+                [
+                    new DateRangePreset(Localizer["Last 7 days"], -7, 0),
+                    new DateRangePreset(Localizer["Last 30 days"], -30, 0),
+                    new DateRangePreset(Localizer["Last 90 days"], -90, 0),
+                    new DateRangePreset(Localizer["Last year"], -365, 0)
+                ])
+        ];
+        columns = BuildColumns();
+    }
 
     private Task ExportAsync() => grid?.ExportCsvAsync() ?? Task.CompletedTask;
 
@@ -97,48 +104,48 @@
     private IReadOnlyList<ReportColumn<NewSignupRowDto>> BuildColumns() =>
     [
         new ReportColumn<NewSignupRowDto>(
-            header: "Organization",
+            header: Localizer["Organization"],
             value: r => r.OrganizationName,
             template: r =>
                 @<span>
                     @r.OrganizationName
                     @if (!r.IsActive)
                     {
-                        <span class="badge bg-secondary ms-1">Deactivated</span>
+                        <span class="badge bg-secondary ms-1">@Localizer["Deactivated"]</span>
                     }
                 </span>),
 
         new ReportColumn<NewSignupRowDto>(
-            header: "Contact",
+            header: Localizer["Contact"],
             value: r => r.ContactEmail,
             template: r => @<span class="text-muted small">@r.ContactEmail</span>),
 
         new ReportColumn<NewSignupRowDto>(
-            header: "Signed up",
+            header: Localizer["Signed up"],
             value: r => r.SignedUpOn,
             display: r => r.SignedUpOn.UtcDateTime.ToString("d MMM yyyy", Dates)),
 
         new ReportColumn<NewSignupRowDto>(
-            header: "Age",
+            header: Localizer["Age"],
             value: r => r.DaysSinceSignup,
             display: r => $"{r.DaysSinceSignup}d",
             align: ReportAlign.Right),
 
         new ReportColumn<NewSignupRowDto>(
-            header: "Plan",
+            header: Localizer["Plan"],
             value: r => r.PlanName,
             template: r =>
                 @<span class="badge" style="background-color:@r.PlanColorCode">@r.PlanName</span>),
 
         new ReportColumn<NewSignupRowDto>(
-            header: "Servers",
+            header: Localizer["Servers"],
             value: r => r.ServerCount,
             align: ReportAlign.Right),
 
         // The point of the report. Null rather than 0 for a signup that never activated, so the column
         // sorts the never-activated apart from the same-day ones instead of mixing them together.
         new ReportColumn<NewSignupRowDto>(
-            header: "Activated in",
+            header: Localizer["Activated in"],
             value: r => r.DaysToActivate,
             align: ReportAlign.Right,
             template: r =>
@@ -149,12 +156,12 @@
                     }
                     else
                     {
-                        <span class="badge bg-warning text-dark">Never</span>
+                        <span class="badge bg-warning text-dark">@Localizer["Never"]</span>
                     }
                 </span>),
 
         new ReportColumn<NewSignupRowDto>(
-            header: "First server",
+            header: Localizer["First server"],
             value: r => r.ActivatedOn,
             display: r => r.ActivatedOn is { } on ? on.UtcDateTime.ToString("d MMM yyyy", Dates) : string.Empty)
     ];
