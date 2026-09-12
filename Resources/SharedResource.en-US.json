@@ -127,5 +127,17 @@
   "Please enter your email.": "Please enter your email.",
   "Error from external provider: {0}": "Error from external provider: {0}",
   "Error loading external login information.": "Error loading external login information.",
-  "Error loading external login information during confirmation.": "Error loading external login information during confirmation."
+  "Error loading external login information during confirmation.": "Error loading external login information during confirmation.",
+  "Recovery codes": "Recovery codes",
+  "Put these codes in a safe place.": "Put these codes in a safe place.",
+  "If you lose your device and don't have the recovery codes you will lose access to your account.": "If you lose your device and don't have the recovery codes you will lose access to your account.",
+  "There are no external authentication services configured. See this": "There are no external authentication services configured. See this",
+  "article about setting up this ASP.NET application to support logging in via external services": "article about setting up this ASP.NET application to support logging in via external services",
+  "Log in using your {0} account": "Log in using your {0} account",
+  "Profile": "Profile",
+  "External logins": "External logins",
+  "Passkeys": "Passkeys",
+  "Personal data": "Personal data",
+  "Manage your account": "Manage your account",
+  "Change your account settings": "Change your account settings"
 }
