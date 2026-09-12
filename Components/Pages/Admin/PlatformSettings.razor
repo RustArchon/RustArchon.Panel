@@ -3,6 +3,8 @@
 @page "/Admin/PlatformSettings"
 @using System.Net
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using RustArchon.Messaging.Contracts
 @using RustArchon.Panel.Clients
 @using RustArchon.Panel.Services
 @using RustArchon.Shared.DTOs
@@ -11,16 +13,16 @@
 @inject IPlanApiClient PlanClient
 @rendermode RenderModes.NonPrerenderedServer
 
-<PageTitle>Platform Settings</PageTitle>
+<PageTitle>@Localizer["Platform Settings"]</PageTitle>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h1>Platform Settings</h1>
+    <h1>@Localizer["Platform Settings"]</h1>
 </div>
 
 @if (accessDenied == true)
 {
     <div class="alert alert-warning">
-        <i class="bi bi-shield-lock"></i> You don't have access to manage platform settings.
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage platform settings."]
     </div>
 }
 else
@@ -43,96 +45,214 @@ else
 
     @if (loading)
     {
-        <p><em>Loading settings...</em></p>
+        <p><em>@Localizer["Loading settings..."]</em></p>
     }
     else if (settings != null)
     {
         @if (!settings.Any())
         {
             <div class="alert alert-info">
-                <i class="bi bi-info-circle"></i> No settings registered yet.
+                <i class="bi bi-info-circle"></i> @Localizer["No settings registered yet."]
             </div>
         }
         else
         {
-            <div class="list-group">
-                @foreach (var setting in settings)
-                {
-                    <div class="list-group-item">
-                        <div class="d-flex justify-content-between align-items-start gap-3">
-                            <div>
-                                <div class="fw-semibold">@setting.DisplayName</div>
-                                @if (!string.IsNullOrEmpty(setting.Description))
-                                {
-                                    <div class="text-muted small">@setting.Description</div>
-                                }
-                            </div>
+            @foreach (var category in OrderedCategories())
+            {
+                <div class="card mb-4">
+                    <div class="card-header">@Localizer[category]</div>
+                    <div class="card-body">
+                        <div class="list-group list-group-flush">
+                            @foreach (var setting in SettingsIn(category))
+                            {
+                                <div class="list-group-item">
+                                    <div class="d-flex justify-content-between align-items-start gap-3">
+                                        <div>
+                                            <div class="fw-semibold">@setting.DisplayName</div>
+                                            @if (!string.IsNullOrEmpty(setting.Description))
+                                            {
+                                                <div class="text-muted small">@setting.Description</div>
+                                            }
+                                        </div>
 
-                            <div class="flex-shrink-0">
-                                @if (setting.ValueType == PlatformSettingValueType.Boolean)
+                                        <div class="flex-shrink-0">
+                                            @if (setting.ValueType == PlatformSettingValueType.Boolean)
+                                            {
+                                                <div class="form-check form-switch">
+                                                    <input class="form-check-input" type="checkbox" role="switch"
+                                                           id="@($"setting-{setting.Key}")"
+                                                           checked="@IsTrue(setting.Value)"
+                                                           disabled="@savingKeys.Contains(setting.Key)"
+                                                           @onchange="e => SaveBoolean(setting, (bool)e.Value!)" />
+                                                </div>
+                                            }
+                                            else if (setting.ValueType == PlatformSettingValueType.PlanReference)
+                                            {
+                                                @if (plans == null)
+                                                {
+                                                    <span class="text-muted small">@Localizer["Loading plans..."]</span>
+                                                }
+                                                else if (plansLoadFailed)
+                                                {
+                                                    <span class="text-muted small">
+                                                        @Localizer["Couldn't load plans to pick from (current value:"] <code>@(string.IsNullOrEmpty(setting.Value) ? Localizer["unset"] : setting.Value)</code>).
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <select class="form-select" style="max-width: 260px"
+                                                            disabled="@savingKeys.Contains(setting.Key)"
+                                                            @onchange="e => SaveValue(setting, e.Value?.ToString() ?? string.Empty)">
+                                                        <option value="" selected="@(string.IsNullOrEmpty(setting.Value))">
+                                                            @Localizer["None - use cheapest active plan"]
+                                                        </option>
+                                                        @foreach (var plan in PlanOptionsFor(setting))
+                                                        {
+                                                            <option value="@plan.Id" selected="@(plan.Id.ToString() == setting.Value)">
+                                                                @plan.Name@(plan.Active ? "" : " (inactive)")
+                                                            </option>
+                                                        }
+                                                    </select>
+                                                }
+                                            }
+                                            else if (setting.ValueType == PlatformSettingValueType.Choice)
+                                            {
+                                                <select class="form-select" style="max-width: 260px"
+                                                        disabled="@savingKeys.Contains(setting.Key)"
+                                                        @onchange="e => SaveValue(setting, e.Value?.ToString() ?? string.Empty)">
+                                                    @foreach (var option in ChoiceOptionsFor(setting))
+                                                    {
+                                                        <option value="@option" selected="@(option == setting.Value)">@option</option>
+                                                    }
+                                                </select>
+                                            }
+                                            else if (setting.ValueType == PlatformSettingValueType.Secret)
+                                            {
+                                                <div class="input-group">
+                                                    <input class="form-control" style="max-width: 220px" type="password"
+                                                           placeholder="@(setting.HasValue ? Localizer["•••••••• (configured)"] : Localizer["Not set"])"
+                                                           value="@GetPendingValue(setting)"
+                                                           disabled="@savingKeys.Contains(setting.Key)"
+                                                           @onchange="e => pendingValues[setting.Key] = e.Value?.ToString() ?? string.Empty" />
+                                                    @* Never pre-filled and never round-tripped - the browser is never sent the
+                                                       real value in the first place (see PlatformSettingDto.HasValue's remarks),
+                                                       so Save only does anything once something new has actually been typed. *@
+                                                    <button class="btn btn-outline-primary" type="button"
+                                                            disabled="@(savingKeys.Contains(setting.Key) || string.IsNullOrEmpty(GetPendingValue(setting)))"
+                                                            @onclick="() => SaveValue(setting)">
+                                                        @Localizer["Save"]
+                                                    </button>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="input-group">
+                                                    <input class="form-control" style="max-width: 220px"
+                                                           type="@(setting.ValueType == PlatformSettingValueType.Integer ? "number" : "text")"
+                                                           value="@GetPendingValue(setting)"
+                                                           disabled="@savingKeys.Contains(setting.Key)"
+                                                           @onchange="e => pendingValues[setting.Key] = e.Value?.ToString() ?? string.Empty" />
+                                                    <button class="btn btn-outline-primary" type="button"
+                                                            disabled="@savingKeys.Contains(setting.Key)"
+                                                            @onclick="() => SaveValue(setting)">
+                                                        @Localizer["Save"]
+                                                    </button>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        @if (category == EmailCategory)
+                        {
+                            @* At the bottom, not the top - exercising what's configured above only
+                               makes sense once it's actually there, and disabled until it plausibly
+                               is (see CanTestEmail). *@
+                            <div class="mt-3 pt-3 border-top">
+                                <p class="text-muted small mb-2">
+                                    @Localizer["Sends one real email through the settings above - the same Worker pipeline every other email goes through, so a pass here means delivery actually works."]
+                                </p>
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-6">
+                                        <label class="form-label small text-muted mb-1" for="test-email-to">@Localizer["Send to"]</label>
+                                        <input id="test-email-to" type="email" class="form-control"
+                                               value="@testEmailTo" disabled="@testingEmail"
+                                               @oninput="e => testEmailTo = e.Value?.ToString() ?? string.Empty" />
+                                    </div>
+                                    <div class="col-md-3">
+                                        <button class="btn btn-primary w-100" type="button"
+                                                disabled="@(testingEmail || string.IsNullOrWhiteSpace(testEmailTo) || !CanTestEmail())"
+                                                @onclick="SendTestEmailAsync">
+                                            @if (testingEmail)
+                                            {
+                                                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                                <text> @Localizer["Sending..."]</text>
+                                            }
+                                            else
+                                            {
+                                                <text><i class="bi bi-envelope-check" aria-hidden="true"></i> @Localizer["Send test"]</text>
+                                            }
+                                        </button>
+                                    </div>
+                                </div>
+
+                                @if (!CanTestEmail())
                                 {
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch"
-                                               id="@($"setting-{setting.Key}")"
-                                               checked="@IsTrue(setting.Value)"
-                                               disabled="@savingKeys.Contains(setting.Key)"
-                                               @onchange="e => SaveBoolean(setting, (bool)e.Value!)" />
+                                    <div class="form-text">
+                                        @CanTestEmailReason()
                                     </div>
                                 }
-                                else if (setting.ValueType == PlatformSettingValueType.PlanReference)
+
+                                @if (testEmailResult is { } result)
                                 {
-                                    @if (plans == null)
+                                    @if (result.Success)
                                     {
-                                        <span class="text-muted small">Loading plans...</span>
-                                    }
-                                    else if (plansLoadFailed)
-                                    {
-                                        <span class="text-muted small">
-                                            Couldn't load plans to pick from (current value: <code>@(string.IsNullOrEmpty(setting.Value) ? "unset" : setting.Value)</code>).
-                                        </span>
+                                        <div class="alert alert-success mt-3 mb-0">
+                                            <i class="bi bi-check-circle"></i> @Localizer["Delivered via"] <strong>@result.ProviderName</strong>.
+                                        </div>
                                     }
                                     else
                                     {
-                                        <select class="form-select" style="max-width: 260px"
-                                                disabled="@savingKeys.Contains(setting.Key)"
-                                                @onchange="e => SaveValue(setting, e.Value?.ToString() ?? string.Empty)">
-                                            <option value="" selected="@(string.IsNullOrEmpty(setting.Value))">
-                                                None - use cheapest active plan
-                                            </option>
-                                            @foreach (var plan in PlanOptionsFor(setting))
-                                            {
-                                                <option value="@plan.Id" selected="@(plan.Id.ToString() == setting.Value)">
-                                                    @plan.Name@(plan.Active ? "" : " (inactive)")
-                                                </option>
-                                            }
-                                        </select>
+                                        <div class="alert alert-danger mt-3 mb-0">
+                                            <i class="bi bi-x-circle"></i> @Localizer["Failed via"] <strong>@result.ProviderName</strong>:
+                                            @result.Error
+                                        </div>
                                     }
                                 }
-                                else
+                                else if (!string.IsNullOrEmpty(testEmailError))
                                 {
-                                    <div class="input-group">
-                                        <input class="form-control" style="max-width: 220px"
-                                               type="@(setting.ValueType == PlatformSettingValueType.Integer ? "number" : "text")"
-                                               value="@GetPendingValue(setting)"
-                                               disabled="@savingKeys.Contains(setting.Key)"
-                                               @onchange="e => pendingValues[setting.Key] = e.Value?.ToString() ?? string.Empty" />
-                                        <button class="btn btn-outline-primary" type="button"
-                                                disabled="@savingKeys.Contains(setting.Key)"
-                                                @onclick="() => SaveValue(setting)">
-                                            Save
-                                        </button>
-                                    </div>
+                                    <div class="alert alert-danger mt-3 mb-0">@testEmailError</div>
                                 }
                             </div>
-                        </div>
+                        }
                     </div>
-                }
-            </div>
+                </div>
+            }
         }
     }
 }
 
 @code {
+    // Mirrors RustArchon.Api.Infrastructure.PlatformSettingsRegistry.Categories - kept as a plain
+    // string here rather than a shared constant, the same way every other DTO-side value never
+    // references an Api-side type directly. Only this one category name needs to be known here at
+    // all, to place the test-email card inside it.
+    private const string EmailCategory = "Email";
+
+    // Same mirroring reasoning as EmailCategory above - the specific keys CanTestEmail needs to
+    // inspect to decide whether the currently-selected provider actually has enough to try.
+    private const string ProviderKey = "EmailServiceProvider";
+    private const string FromAddressKey = "EmailDefaultFromAddress";
+    private const string SmtpHostKey = "EmailSmtpHost";
+    private const string ApiKeyKey = "EmailApiKey";
+    private const string SmtpProviderValue = "Smtp";
+
+    // Categories not in this list (a section added at the Api without a preference here yet) fall in
+    // alphabetically after these - see OrderedCategories.
+    private static readonly string[] PreferredCategoryOrder = ["General", "Registration", "Billing", EmailCategory];
+
     private List<PlatformSettingDto>? settings;
     private List<PlanDto>? plans;
     private bool plansLoadFailed;
@@ -143,9 +263,25 @@ else
     private readonly HashSet<string> savingKeys = new();
     private readonly Dictionary<string, string> pendingValues = new();
 
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    private string testEmailTo = string.Empty;
+    private bool testingEmail;
+    private SendTestEmailResult? testEmailResult;
+    private string? testEmailError;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadSettings();
+
+        // Defaults to the signed-in admin's own address - the obvious "send it to me" case, still
+        // freely editable for testing a different mailbox.
+        if (AuthenticationStateTask is not null)
+        {
+            var authState = await AuthenticationStateTask;
+            testEmailTo = authState.User.Identity?.Name ?? string.Empty;
+        }
 
         // Only needed for PlanReference settings, but cheap enough (and this page small enough) not
         // to bother deferring until one is actually seen - see PlanOptionsFor's remarks for why every
@@ -181,6 +317,96 @@ else
         {
             loading = false;
         }
+    }
+
+    private async Task SendTestEmailAsync()
+    {
+        testingEmail = true;
+        testEmailResult = null;
+        testEmailError = null;
+
+        try
+        {
+            testEmailResult = await SettingsClient.TestEmailAsync(new SendTestEmailRequestDto { To = testEmailTo });
+        }
+        catch (Exception ex)
+        {
+            testEmailError = ApiErrorMessage.For(ex, "send a test email");
+        }
+        finally
+        {
+            testingEmail = false;
+        }
+    }
+
+    /// <summary>Every category actually present, in <see cref="PreferredCategoryOrder"/>'s order, then
+    /// alphabetically for anything that order doesn't mention.</summary>
+    private IEnumerable<string> OrderedCategories()
+    {
+        var present = settings!.Select(s => s.Category).Distinct().ToHashSet();
+
+        var ordered = PreferredCategoryOrder.Where(present.Contains).ToList();
+        ordered.AddRange(present.Except(ordered).OrderBy(c => c, StringComparer.OrdinalIgnoreCase));
+
+        return ordered;
+    }
+
+    private IEnumerable<PlatformSettingDto> SettingsIn(string category) =>
+        settings!.Where(s => s.Category == category && IsVisible(s)).OrderBy(s => s.Order);
+
+    /// <summary>
+    /// Whether <paramref name="setting"/> should be shown at all, per its own
+    /// <see cref="PlatformSettingDto.VisibleWhenKey"/> - true with no further check if it doesn't
+    /// have one. Re-evaluated on every render against the live <see cref="settings"/> list, so
+    /// changing the controlling setting's value (e.g. the email provider) immediately shows and hides
+    /// whatever depends on it - no separate refresh needed.
+    /// </summary>
+    private bool IsVisible(PlatformSettingDto setting)
+    {
+        if (string.IsNullOrEmpty(setting.VisibleWhenKey))
+        {
+            return true;
+        }
+
+        var controllingValue = settings!.FirstOrDefault(s => s.Key == setting.VisibleWhenKey)?.Value ?? string.Empty;
+        var matches = string.Equals(controllingValue, setting.VisibleWhenValue, StringComparison.Ordinal);
+
+        return setting.VisibleWhenNegate ? !matches : matches;
+    }
+
+    private static IEnumerable<string> ChoiceOptionsFor(PlatformSettingDto setting) =>
+        setting.Options?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        ?? [];
+
+    private string? SettingValue(string key) => settings?.FirstOrDefault(s => s.Key == key)?.Value;
+
+    /// <summary>
+    /// Whether the currently-selected email provider has enough filled in to be worth trying - the
+    /// "Send test" button stays disabled otherwise, rather than letting an admin click it just to
+    /// learn what <see cref="CanTestEmailReason"/> already says in words.
+    /// </summary>
+    private bool CanTestEmail()
+    {
+        if (string.IsNullOrWhiteSpace(SettingValue(FromAddressKey)))
+        {
+            return false;
+        }
+
+        return SettingValue(ProviderKey) == SmtpProviderValue
+            ? !string.IsNullOrWhiteSpace(SettingValue(SmtpHostKey))
+            : settings?.FirstOrDefault(s => s.Key == ApiKeyKey)?.HasValue == true;
+    }
+
+    private string CanTestEmailReason()
+    {
+        if (string.IsNullOrWhiteSpace(SettingValue(FromAddressKey)))
+        {
+            return Localizer["Set a From address above before testing."];
+        }
+
+        return SettingValue(ProviderKey) == SmtpProviderValue
+            ? Localizer["Set an SMTP host above before testing."]
+            : Localizer["Set an API key above before testing."];
     }
 
     private static bool IsTrue(string value) => bool.TryParse(value, out var parsed) && parsed;
@@ -238,7 +464,7 @@ else
             }
 
             pendingValues.Remove(setting.Key);
-            successMessage = $"'{setting.DisplayName}' was updated.";
+            successMessage = Localizer["'{0}' was updated.", setting.DisplayName];
         }
         catch (Exception ex)
         {
