@@ -27,5 +27,8 @@
   "Reload": "Reload",
   "Coming soon": "Coming soon",
   "Preferences": "Preferences",
-  "Log Out": "Log Out"
+  "Log Out": "Log Out",
+  "You're acting as another organization.": "You're acting as another organization.",
+  "Anything you do here happens to their servers and their billing, as though you were them.": "Anything you do here happens to their servers and their billing, as though you were them.",
+  "Leave": "Leave"
 }
