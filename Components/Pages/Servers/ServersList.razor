@@ -11,12 +11,12 @@
 @inject IRustServerApiClient RustServerClient
 @rendermode RenderModes.NonPrerenderedServer
 
-<PageTitle>Servers</PageTitle>
+<PageTitle>@Localizer["Servers"]</PageTitle>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h1>Servers</h1>
+    <h1>@Localizer["Servers"]</h1>
     <button class="btn btn-primary" @onclick="ShowAddForm" disabled="@checkingPlanLimit">
-        <i class="bi bi-plus-circle"></i> Add Server
+        <i class="bi bi-plus-circle"></i> @Localizer["Add Server"]
     </button>
 </div>
 
@@ -40,7 +40,7 @@
 {
     <div class="card mb-4">
         <div class="card-header">
-            @(editingServer.Id == Guid.Empty ? "Add Server" : "Edit Server")
+            @(editingServer.Id == Guid.Empty ? Localizer["Add Server"] : Localizer["Edit Server"])
         </div>
         <div class="card-body">
             <EditForm Model="editingServer" OnValidSubmit="SaveServer">
@@ -49,30 +49,30 @@
 
                 <div class="row g-3">
                     <div class="col-md-6">
-                        <label class="form-label" for="server-name">Name</label>
+                        <label class="form-label" for="server-name">@Localizer["Name"]</label>
                         <InputText id="server-name" class="form-control" @bind-Value="editingServer.Name" />
                         <ValidationMessage For="() => editingServer.Name" class="text-danger" />
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label" for="server-description">Description</label>
+                        <label class="form-label" for="server-description">@Localizer["Description"]</label>
                         <InputText id="server-description" class="form-control" @bind-Value="editingServer.Description" />
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label" for="server-host">Host / IP address</label>
+                        <label class="form-label" for="server-host">@Localizer["Host / IP address"]</label>
                         <InputText id="server-host" class="form-control" @bind-Value="editingServer.Host" />
                         <ValidationMessage For="() => editingServer.Host" class="text-danger" />
                     </div>
                     <div class="col-md-3">
-                        <label class="form-label" for="server-port">RCON Port</label>
+                        <label class="form-label" for="server-port">@Localizer["RCON Port"]</label>
                         <InputNumber id="server-port" class="form-control" @bind-Value="editingServer.Port" />
                         <ValidationMessage For="() => editingServer.Port" class="text-danger" />
                     </div>
                     <div class="col-md-6">
                         <label class="form-label" for="server-password">
-                            RCON Password
+                            @Localizer["RCON Password"]
                             @if (editingServer.Id != Guid.Empty)
                             {
-                                <span class="text-muted">(leave blank to keep unchanged)</span>
+                                <span class="text-muted">@Localizer["(leave blank to keep unchanged)"]</span>
                             }
                         </label>
                         <InputText id="server-password" type="password" class="form-control" @bind-Value="editingServer.RconPassword" autocomplete="new-password" />
@@ -81,38 +81,38 @@
                 </div>
 
                 <hr class="my-3" />
-                <h6 class="text-muted text-uppercase small mb-3">Integrations</h6>
+                <h6 class="text-muted text-uppercase small mb-3">@Localizer["Integrations"]</h6>
                 <div class="row g-3">
                     <div class="col-md-6">
-                        <label class="form-label" for="server-steam-api-key">Steam Web API Key</label>
+                        <label class="form-label" for="server-steam-api-key">@Localizer["Steam Web API Key"]</label>
                         <InputText id="server-steam-api-key" type="password" class="form-control" @bind-Value="editingServer.SteamApiKey"
-                                   placeholder="@(editingServer.HasSteamApiKey ? "Already configured — leave blank to keep unchanged" : "Not configured")"
+                                   placeholder="@(editingServer.HasSteamApiKey ? Localizer["Already configured — leave blank to keep unchanged"] : Localizer["Not configured"])"
                                    autocomplete="new-password" />
-                        <div class="form-text">Powers VAC/game-ban status and hours-on-record for inactive players. Get one at <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">steamcommunity.com/dev/apikey</a>.</div>
+                        <div class="form-text">@Localizer["Powers VAC/game-ban status and hours-on-record for inactive players. Get one at"] <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">steamcommunity.com/dev/apikey</a>.</div>
                     </div>
                     <div class="col-md-3">
-                        <label class="form-label" for="server-geo-provider">Geolocation Provider</label>
+                        <label class="form-label" for="server-geo-provider">@Localizer["Geolocation Provider"]</label>
                         <InputSelect id="server-geo-provider" class="form-select" @bind-Value="editingServer.GeolocationProvider">
-                            <option value="@GeolocationProviderKind.None">None</option>
+                            <option value="@GeolocationProviderKind.None">@Localizer["None"]</option>
                             <option value="@GeolocationProviderKind.ProxyCheckIo">proxycheck.io</option>
                             <option value="@GeolocationProviderKind.IpHubInfo">iphub.info</option>
                             <option value="@GeolocationProviderKind.IpInfoIo">ipinfo.io</option>
                         </InputSelect>
                     </div>
                     <div class="col-md-3">
-                        <label class="form-label" for="server-geo-api-key">Geolocation API Key</label>
+                        <label class="form-label" for="server-geo-api-key">@Localizer["Geolocation API Key"]</label>
                         <InputText id="server-geo-api-key" type="password" class="form-control" @bind-Value="editingServer.GeolocationApiKey"
-                                   placeholder="@(editingServer.HasGeolocationApiKey ? "Already configured — leave blank to keep unchanged" : "Not configured")"
+                                   placeholder="@(editingServer.HasGeolocationApiKey ? Localizer["Already configured — leave blank to keep unchanged"] : Localizer["Not configured"])"
                                    autocomplete="new-password" />
                     </div>
                 </div>
 
                 <div class="mt-3">
                     <button type="submit" class="btn btn-primary" disabled="@saving">
-                        @(saving ? "Saving..." : "Save")
+                        @(saving ? Localizer["Saving..."] : Localizer["Save"])
                     </button>
                     <button type="button" class="btn btn-secondary" @onclick="CancelEdit" disabled="@saving">
-                        Cancel
+                        @Localizer["Cancel"]
                     </button>
                 </div>
             </EditForm>
@@ -122,7 +122,7 @@
 
 @if (loading)
 {
-    <p><em>Loading servers...</em></p>
+    <p><em>@Localizer["Loading servers..."]</em></p>
 }
 else if (servers != null)
 {
@@ -130,12 +130,12 @@ else if (servers != null)
         <table class="table table-striped table-hover">
             <thead>
                 <tr>
-                    <th>Name</th>
-                    <th>Host</th>
-                    <th>Port</th>
-                    <th>Description</th>
-                    <th>Status</th>
-                    <th>Actions</th>
+                    <th>@Localizer["Name"]</th>
+                    <th>@Localizer["Host"]</th>
+                    <th>@Localizer["Port"]</th>
+                    <th>@Localizer["Description"]</th>
+                    <th>@Localizer["Status"]</th>
+                    <th>@Localizer["Actions"]</th>
                 </tr>
             </thead>
             <tbody>
@@ -149,7 +149,7 @@ else if (servers != null)
                         <td>
                             @if (!server.IsEnabled)
                             {
-                                <span class="badge status-badge status-disconnected"><i class="bi bi-pause-circle-fill"></i> Disabled</span>
+                                <span class="badge status-badge status-disconnected"><i class="bi bi-pause-circle-fill"></i> @Localizer["Disabled"]</span>
                             }
                             else
                             {
@@ -161,25 +161,25 @@ else if (servers != null)
                         <td>
                             <div class="btn-group" role="group">
                                 <a class="btn btn-sm btn-primary" href="@($"servers/{server.Id}")">
-                                    <i class="bi bi-terminal"></i> View
+                                    <i class="bi bi-terminal"></i> @Localizer["View"]
                                 </a>
                                 <button class="btn btn-sm btn-outline-secondary" @onclick="() => ShowEditForm(server)">
-                                    <i class="bi bi-pencil"></i> Edit
+                                    <i class="bi bi-pencil"></i> @Localizer["Edit"]
                                 </button>
                                 @if (server.IsEnabled)
                                 {
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleEnabled(server, enable: false)" disabled="@togglingId.Contains(server.Id)">
-                                        <i class="bi bi-pause-circle"></i> Disable
+                                        <i class="bi bi-pause-circle"></i> @Localizer["Disable"]
                                     </button>
                                 }
                                 else
                                 {
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleEnabled(server, enable: true)" disabled="@togglingId.Contains(server.Id)">
-                                        <i class="bi bi-play-circle"></i> Enable
+                                        <i class="bi bi-play-circle"></i> @Localizer["Enable"]
                                     </button>
                                 }
                                 <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(server)">
-                                    <i class="bi bi-trash"></i> Delete
+                                    <i class="bi bi-trash"></i> @Localizer["Delete"]
                                 </button>
                             </div>
                         </td>
@@ -192,7 +192,7 @@ else if (servers != null)
     @if (!servers.Any())
     {
         <div class="alert alert-info">
-            <i class="bi bi-info-circle"></i> No servers yet. Add one to start managing it over RCON.
+            <i class="bi bi-info-circle"></i> @Localizer["No servers yet. Add one to start managing it over RCON."]
         </div>
     }
 }
@@ -200,12 +200,12 @@ else if (servers != null)
 @if (showDeleteConfirmation && serverToDelete != null)
 {
     <RustArchon.Panel.Components.Shared.ConfirmationModal
-        Title="Delete Server"
-        ConfirmButtonText="Delete"
+        Title="@Localizer["Delete Server"]"
+        ConfirmButtonText="@Localizer["Delete"]"
         ConfirmButtonClass="btn-danger"
         OnClose="HandleDeleteModalClose">
         <Message>
-            Are you sure you want to remove '@serverToDelete.Name'? This cannot be undone.
+            @Localizer["Are you sure you want to remove '{0}'? This cannot be undone.", serverToDelete.Name]
         </Message>
     </RustArchon.Panel.Components.Shared.ConfirmationModal>
 }
@@ -267,9 +267,8 @@ else if (servers != null)
             if (status.Quantity is { } slots && status.CurrentServerCount >= slots)
             {
                 errorMessage = status.CanBuyCapacity
-                    ? $"You're using all {slots} of your server slot(s) on the {status.PlanName} plan. "
-                      + "Buy more capacity from your subscription page to add another."
-                    : $"Your plan ({status.PlanName}) allows up to {slots} server(s). Upgrade your plan to add more.";
+                    ? Localizer["You're using all {0} of your server slot(s) on the {1} plan. Buy more capacity from your subscription page to add another.", slots, status.PlanName]
+                    : Localizer["Your plan ({0}) allows up to {1} server(s). Upgrade your plan to add more.", status.PlanName, slots];
                 return;
             }
         }
@@ -332,7 +331,7 @@ else if (servers != null)
                     GeolocationProvider = editingServer.GeolocationProvider,
                     GeolocationApiKey = string.IsNullOrEmpty(editingServer.GeolocationApiKey) ? null : editingServer.GeolocationApiKey
                 });
-                successMessage = $"Server '{editingServer.Name}' was added.";
+                successMessage = Localizer["Server '{0}' was added.", editingServer.Name];
             }
             else
             {
@@ -348,7 +347,7 @@ else if (servers != null)
                     GeolocationProvider = editingServer.GeolocationProvider,
                     GeolocationApiKey = string.IsNullOrEmpty(editingServer.GeolocationApiKey) ? null : editingServer.GeolocationApiKey
                 });
-                successMessage = $"Server '{editingServer.Name}' was updated.";
+                successMessage = Localizer["Server '{0}' was updated.", editingServer.Name];
             }
 
             editingServer = null;
@@ -409,13 +408,13 @@ else if (servers != null)
         _ => "bi-x-circle-fill"
     };
 
-    private static string StatusText(RconConnectionStatus status) => status switch
+    private string StatusText(RconConnectionStatus status) => status switch
     {
-        RconConnectionStatus.Connected => "Connected",
-        RconConnectionStatus.Connecting => "Connecting",
-        RconConnectionStatus.Reconnecting => "Reconnecting",
-        RconConnectionStatus.Error => "Connection error",
-        _ => "Disconnected"
+        RconConnectionStatus.Connected => Localizer["Connected"],
+        RconConnectionStatus.Connecting => Localizer["Connecting"],
+        RconConnectionStatus.Reconnecting => Localizer["Reconnecting"],
+        RconConnectionStatus.Error => Localizer["Connection error"],
+        _ => Localizer["Disconnected"]
     };
 
     private void ConfirmDelete(RustServerDto server)
@@ -440,7 +439,7 @@ else if (servers != null)
         try
         {
             await RustServerClient.DeleteAsync(serverToDelete.Id);
-            successMessage = $"Server '{serverToDelete.Name}' was removed.";
+            successMessage = Localizer["Server '{0}' was removed.", serverToDelete.Name];
             await LoadServers();
         }
         catch (Exception ex)
