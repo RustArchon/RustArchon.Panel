@@ -1,0 +1,579 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Organization"
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Data
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@using JumpStart.Services
+@attribute [Authorize]
+@inject IOrganizationSettingsApiClient SettingsClient
+@inject ITenantSelectionService TenantSelection
+@inject IOrganizationMemberApiClient MemberClient
+@inject IOrganizationRoleApiClient RoleClient
+@inject IOrganizationInvitationApiClient InvitationClient
+@inject IPlatformUserApiClient PlatformUserClient
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+@inject SiteBrandingService Branding
+@rendermode RenderModes.NonPrerenderedServer
+
+@*
+    The Organization managing itself: its own name and contact address, and its own people. Two
+    permissions cover the two halves (Organization.ManageSettings, Organization.ManageMembers) so each
+    section is shown or hidden on its own - most viewers hold both, by way of the built-in Owner role,
+    but neither needs the other.
+*@
+<PageTitle>@Localizer["Organization"]</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0">@Localizer["Organization"]</h1>
+    <a class="btn btn-outline-secondary" href="Organization/Roles">
+        <i class="bi bi-shield-lock" aria-hidden="true"></i> @Localizer["Roles"]
+    </a>
+</div>
+
+@if (!loadingSettings && settings is not null)
+{
+    <div class="card mb-4">
+        <div class="card-header">@Localizer["Organization details"]</div>
+        <div class="card-body">
+            @if (!string.IsNullOrEmpty(settingsErrorMessage))
+            {
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    @settingsErrorMessage
+                    <button type="button" class="btn-close" @onclick="() => settingsErrorMessage = null"></button>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(settingsSuccessMessage))
+            {
+                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    @settingsSuccessMessage
+                    <button type="button" class="btn-close" @onclick="() => settingsSuccessMessage = null"></button>
+                </div>
+            }
+
+            <EditForm Model="settingsForm" OnValidSubmit="SaveSettingsAsync">
+                <DataAnnotationsValidator />
+                <ValidationSummary class="text-danger" role="alert" />
+
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-5">
+                        <label class="form-label small text-muted mb-1" for="org-name">@Localizer["Name"]</label>
+                        <input id="org-name" class="form-control form-control-sm"
+                               @bind="settingsForm.Name" @bind:event="oninput" />
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small text-muted mb-1" for="org-contact-email">@Localizer["Contact email"]</label>
+                        <input id="org-contact-email" type="email" class="form-control form-control-sm"
+                               @bind="settingsForm.ContactEmail" @bind:event="oninput" />
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-sm btn-primary w-100" disabled="@savingSettings">
+                            @(savingSettings ? Localizer["Saving..."] : Localizer["Save"])
+                        </button>
+                    </div>
+                </div>
+                <div class="form-text">
+                    @Localizer["Notices about your subscription - past-due reminders, suspensions, invoices - go to the contact email. Leave it blank and you won't receive them."]
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(successMessage))
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        @successMessage
+        <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+    </div>
+}
+
+@if (loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> @Localizer["Loading your members..."]</div>
+}
+
+@if (!loading && members is null)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle"></i>
+        @Localizer["You don't have permission to manage this organization's members."]
+    </div>
+}
+
+@if (!loading && members is not null)
+{
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead>
+                <tr><th>@Localizer["Person"]</th><th>@Localizer["Roles"]</th><th>@Localizer["Joined"]</th><th>@Localizer["Access"]</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var member in members)
+                {
+                    <tr>
+                        <td>
+                            @if (names.TryGetValue(member.UserId, out var name))
+                            {
+                                @if (isSiteAdmin)
+                                {
+                                    <a href="Admin/Users/@member.UserId">@name</a>
+                                }
+                                else
+                                {
+                                    <span>@name</span>
+                                }
+                            }
+                            else
+                            {
+                                <span class="text-muted font-monospace small">@member.UserId</span>
+                            }
+                        </td>
+                        <td class="small">
+                            @if (member.Roles.Count == 0)
+                            {
+                                <span class="text-muted">@Localizer["No roles"]</span>
+                            }
+                            else
+                            {
+                                @string.Join(", ", member.Roles)
+                            }
+                        </td>
+                        <td class="small">@member.JoinedOn.ToLocalTime().ToString("d MMM yyyy")</td>
+                        <td>
+                            @if (member.IsActive)
+                            {
+                                <span class="badge bg-success">@Localizer["Active"]</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-secondary">@Localizer["Suspended"]</span>
+                            }
+                        </td>
+                        <td class="text-end text-nowrap">
+                            @{
+                                var isMe = member.UserId == myUserId;
+                                var isSoleOwner = IsSoleActiveOwner(member);
+                            }
+                            <button class="btn btn-sm btn-outline-secondary" disabled="@busy"
+                                    @onclick="() => Toggle(member.UserId)">@Localizer["Roles"]</button>
+                            @if (member.IsActive)
+                            {
+                                <button class="btn btn-sm btn-outline-warning" disabled="@(busy || isMe || isSoleOwner)"
+                                        title="@(isMe ? Localizer["You cannot suspend your own access."] : isSoleOwner ? Localizer["This is the organization's only active owner."] : null)"
+                                        @onclick="() => SetActiveAsync(member, false)">@Localizer["Suspend"]</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-success" disabled="@busy"
+                                        @onclick="() => SetActiveAsync(member, true)">@Localizer["Restore"]</button>
+                            }
+                            <button class="btn btn-sm btn-outline-danger" disabled="@(busy || isMe || isSoleOwner)"
+                                    title="@(isMe ? Localizer["You cannot remove yourself."] : isSoleOwner ? Localizer["This is the organization's only active owner."] : null)"
+                                    @onclick="() => RemoveAsync(member)">@Localizer["Remove"]</button>
+                        </td>
+                    </tr>
+
+                    @if (expanded == member.UserId)
+                    {
+                        <tr class="table-light">
+                            <td colspan="5">
+                                <span class="small text-muted me-2">@Localizer["Click a role to give or take it:"]</span>
+                                @foreach (var role in roles)
+                                {
+                                    var held = member.RoleIds.Contains(role.Id);
+                                    var revokingLastOwner = held && role.IsBuiltIn && IsSoleActiveOwner(member);
+                                    <button class="btn btn-sm me-1 @(held ? "btn-primary" : "btn-outline-secondary")"
+                                            disabled="@(busy || revokingLastOwner)"
+                                            title="@(revokingLastOwner ? Localizer["Give Owner to another member before taking it from the last one."] : null)"
+                                            @onclick="() => ToggleRoleAsync(member, role, held)">
+                                        @role.Name
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <p class="text-muted small">
+        @Localizer["A row showing an id instead of a name is an account this panel has no record of."]
+    </p>
+}
+
+@if (!loading && members is not null)
+{
+    <div class="card mb-3">
+        <div class="card-header">@Localizer["Invite someone"]</div>
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label small text-muted mb-1" for="invite-email">@Localizer["Email address"]</label>
+                    <input id="invite-email" type="email" class="form-control form-control-sm"
+                           placeholder="them@example.com" value="@inviteEmail"
+                           @oninput="e => inviteEmail = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small text-muted mb-1" for="invite-role">@Localizer["Joining as"]</label>
+                    <select id="invite-role" class="form-select form-select-sm" value="@inviteRoleId"
+                            @onchange="e => inviteRoleId = e.Value?.ToString() ?? string.Empty">
+                        <option value="">@Localizer["No role"]</option>
+                        @foreach (var role in roles)
+                        {
+                            <option value="@role.Id">@role.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-sm btn-primary w-100" disabled="@busy" @onclick="InviteAsync">
+                        <i class="bi bi-envelope-plus" aria-hidden="true"></i> @Localizer["Invite"]
+                    </button>
+                </div>
+            </div>
+            <div class="form-text">
+                @* Both halves matter: they don't need an account yet, and the invitation is tied to
+                   this address - signing in with a different one won't accept it. *@
+                @Localizer["They'll get a link by email. They don't need a {0} account yet, but they'll have to use this address when they make one - the invitation only works for it.", siteName]
+            </div>
+        </div>
+    </div>
+}
+
+@if (!loading && invitations.Count > 0)
+{
+    <h2 class="h5">@Localizer["Invited, not joined yet"]</h2>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead>
+                <tr><th>@Localizer["Email"]</th><th>@Localizer["Joining as"]</th><th>@Localizer["Invited"]</th><th>@Localizer["Link expires"]</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var invitation in invitations)
+                {
+                    <tr>
+                        <td>@invitation.Email</td>
+                        <td class="small">@(invitation.RoleName ?? Localizer["No role"])</td>
+                        <td class="small">@invitation.InvitedOn.ToLocalTime().ToString("d MMM yyyy")</td>
+                        <td class="small">@invitation.ExpiresOn.ToLocalTime().ToString("d MMM yyyy")</td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-danger" disabled="@busy"
+                                    @onclick="() => RevokeAsync(invitation)">@Localizer["Withdraw"]</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private OrganizationSettingsDto? settings;
+    private UpdateOrganizationSettingsRequestDto settingsForm = new();
+    private bool loadingSettings = true;
+    private bool savingSettings;
+    private string? settingsErrorMessage;
+    private string? settingsSuccessMessage;
+
+    private List<OrganizationMemberDto>? members;
+    private List<OrganizationRoleDto> roles = [];
+    private List<OrganizationInvitationDto> invitations = [];
+    private readonly Dictionary<Guid, string> names = [];
+
+    private string inviteEmail = string.Empty;
+    private string inviteRoleId = string.Empty;
+
+    /// <summary>Whose role buttons are open, if anyone's.</summary>
+    private Guid? expanded;
+
+    private string? errorMessage;
+    private string? successMessage;
+    private bool loading = true;
+    private bool busy;
+
+    /// <summary>
+    /// Whether the person viewing this page is a Site Admin - gates the link from a member's name to
+    /// their site-admin-only user page. Without this, a regular member clicking a teammate's name
+    /// would just land on a permission wall (see <see cref="PlatformAdminStatusDto"/>'s remarks).
+    /// </summary>
+    private bool isSiteAdmin;
+
+    /// <summary>
+    /// The signed-in caller's own id - used only to grey out Suspend/Remove on their own row before
+    /// they click it. The Api refuses these regardless (see <c>OrganizationMemberService.EnsureNotSelfAsync</c>);
+    /// this is purely "don't offer a button that cannot succeed," not the actual guard.
+    /// </summary>
+    private Guid myUserId;
+    private string siteName = "RustArchon";
+
+    protected override async Task OnInitializedAsync()
+    {
+        myUserId = await ResolveMyUserIdAsync();
+        siteName = (await Branding.GetAsync()).SiteName;
+        await LoadSettingsAsync();
+        await LoadAsync();
+    }
+
+    private async Task<Guid> ResolveMyUserIdAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        var claim = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return Guid.TryParse(claim, out var id) ? id : Guid.Empty;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="member"/> is presently the only active holder of the built-in Owner
+    /// role - the same condition <c>OrganizationMemberService.EnsureNotTheLastOwnerAsync</c> refuses
+    /// suspending, removing or role-unassigning on the Api side. Computed from what this page already
+    /// loaded rather than a separate call: greying out a button a click would just bounce off is worth
+    /// doing, but not worth a round trip to find out.
+    /// </summary>
+    private bool IsSoleActiveOwner(OrganizationMemberDto member)
+    {
+        if (!member.IsActive || members is null)
+        {
+            return false;
+        }
+
+        var ownerRoleId = roles.FirstOrDefault(r => r.IsBuiltIn)?.Id;
+        if (ownerRoleId is not { } ownerId || !member.RoleIds.Contains(ownerId))
+        {
+            return false;
+        }
+
+        return members.Count(m => m.IsActive && m.RoleIds.Contains(ownerId)) == 1;
+    }
+
+    /// <summary>
+    /// Loads the Organization's own name and contact address. A refusal here is the normal answer for
+    /// anybody without <c>Organization.ManageSettings</c> - it just hides the card, the same way a
+    /// refusal on the members list below hides that instead of erroring the whole page.
+    /// </summary>
+    private async Task LoadSettingsAsync()
+    {
+        try
+        {
+            settings = await SettingsClient.GetAsync();
+            settingsForm = new UpdateOrganizationSettingsRequestDto
+            {
+                Name = settings.Name, ContactEmail = settings.ContactEmail
+            };
+        }
+        catch (Refit.ApiException ex) when (
+            ex.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized)
+        {
+            settings = null;
+        }
+        finally
+        {
+            loadingSettings = false;
+        }
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        savingSettings = true;
+        settingsErrorMessage = null;
+        settingsSuccessMessage = null;
+
+        try
+        {
+            await SettingsClient.UpdateAsync(settingsForm);
+            settingsSuccessMessage = Localizer["Saved."];
+            await LoadSettingsAsync();
+
+            // The tenant switcher in the layout caches this same list - possibly in a different
+            // render-mode island's own DI scope entirely, if it isn't already stale for that reason -
+            // and won't know a name shown from that cache just went stale on its own. This clears it;
+            // the switcher itself picks the change up on its next navigation (see TenantSwitcher's own
+            // remarks for why that, not an instant same-page update, is what invalidating a
+            // different-scope cache can actually guarantee).
+            await TenantSelection.RefreshAvailableTenantsAsync();
+        }
+        catch (Exception ex)
+        {
+            settingsErrorMessage = ApiErrorMessage.For(ex, "save your organization's details");
+        }
+        finally
+        {
+            savingSettings = false;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            members = await MemberClient.ListAsync();
+
+            // The roles list comes from the other endpoint rather than being duplicated onto the
+            // member DTO: it is the same list the Roles screen renders, and one source for it means
+            // a role renamed there cannot show a stale name here.
+            roles = (await RoleClient.ListAsync()).Roles;
+            invitations = await InvitationClient.ListAsync();
+
+            await ResolveNamesAsync();
+            await ResolveSiteAdminStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load your members");
+            members = null;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    /// <summary>
+    /// A refusal here is the normal, expected answer for almost everyone on this page - only a Site
+    /// Admin viewing their own organization gets anything else - so it is not treated as a page error
+    /// the way an unexpected failure elsewhere in <see cref="LoadAsync"/> would be.
+    /// </summary>
+    private async Task ResolveSiteAdminStatusAsync()
+    {
+        try
+        {
+            await PlatformUserClient.GetMyStatusAsync();
+            isSiteAdmin = true;
+        }
+        catch (Refit.ApiException ex) when (
+            ex.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized)
+        {
+            isSiteAdmin = false;
+        }
+    }
+
+    /// <summary>
+    /// Joins user ids to names out of the Panel's own Identity store.
+    /// </summary>
+    /// <remarks>
+    /// The Api answers in ids because identity lives here and membership lives there, in two
+    /// databases - the Panel is the only component that can see both.
+    /// </remarks>
+    private async Task ResolveNamesAsync()
+    {
+        names.Clear();
+
+        foreach (var member in members ?? [])
+        {
+            var user = await UserManager.FindByIdAsync(member.UserId.ToString());
+
+            if (user?.Email is { Length: > 0 } email)
+            {
+                names[member.UserId] = email;
+            }
+        }
+    }
+
+    private void Toggle(Guid userId) => expanded = expanded == userId ? null : userId;
+
+    private async Task InviteAsync()
+    {
+        var email = inviteEmail.Trim();
+
+        if (email.Length == 0)
+        {
+            errorMessage = Localizer["Enter the email address to invite."];
+            return;
+        }
+
+        var request = new InviteMemberRequestDto
+        {
+            Email = email,
+            RoleId = Guid.TryParse(inviteRoleId, out var roleId) ? roleId : null
+        };
+
+        busy = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            await InvitationClient.InviteAsync(request);
+
+            successMessage = Localizer["Invitation sent to {0}.", email];
+            inviteEmail = string.Empty;
+            inviteRoleId = string.Empty;
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "send this invitation");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private Task RevokeAsync(OrganizationInvitationDto invitation) =>
+        RunAsync(
+            () => InvitationClient.RevokeAsync(invitation.Id),
+            $"withdraw the invitation to {invitation.Email}");
+
+    private async Task ToggleRoleAsync(OrganizationMemberDto member, OrganizationRoleDto role, bool held)
+    {
+        await RunAsync(
+            held
+                ? () => MemberClient.UnassignRoleAsync(member.UserId, role.Id)
+                : () => MemberClient.AssignRoleAsync(member.UserId, role.Id),
+            held ? $"take back '{role.Name}'" : $"grant '{role.Name}'");
+    }
+
+    private Task SetActiveAsync(OrganizationMemberDto member, bool active) =>
+        RunAsync(
+            () => MemberClient.SetActiveAsync(member.UserId, active),
+            active ? "restore this person's access" : "suspend this person");
+
+    private Task RemoveAsync(OrganizationMemberDto member) =>
+        RunAsync(() => MemberClient.RemoveAsync(member.UserId), "remove this person");
+
+    /// <summary>
+    /// Runs one change and reloads, so what the screen shows is what the Api actually did.
+    /// </summary>
+    /// <remarks>
+    /// A refusal here is normal, not exceptional - the Api declines to leave an organization without
+    /// an owner, and declines a grant the caller could not make themselves. Reloading afterwards
+    /// matters for exactly that reason: the optimistic local edit would otherwise show a change that
+    /// never happened.
+    /// </remarks>
+    private async Task RunAsync(Func<Task> operation, string description)
+    {
+        busy = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            await operation();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, description);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}
