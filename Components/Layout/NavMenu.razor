@@ -11,12 +11,6 @@
            instead of Panel's own root. Both the text and the href come from the platform's own
            SiteName/SiteUrl settings (see SiteBrandingService), not this app's name. *@
         <a class="navbar-brand" href="@siteUrl">@siteName</a>
-        <div class="d-flex align-items-center gap-2">
-            <CultureSelector />
-            <button type="button" class="theme-toggle" data-theme-toggle aria-label="@Localizer["Toggle light/dark theme"]" aria-pressed="true">
-                <span data-theme-icon>☀</span>
-            </button>
-        </div>
     </div>
 </div>
 
