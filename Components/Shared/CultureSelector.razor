@@ -17,6 +17,14 @@
     showing itself with no further code change - Program.cs derives its supportedCultures array from
     whichever such files exist, and RequestLocalizationOptions is shared via DI rather than duplicated
     here.
+
+    Whoever places <CultureSelector /> MUST give it its own @rendermode (RenderModes.NonPrerenderedServer,
+    same as TenantSwitcher/ActingAsBanner) at the call site. Confirmed the hard way: MainLayout.razor's
+    NavMenu wraps this in an otherwise-static layout (only individual pages opt into interactivity, via
+    their own @rendermode directive - see e.g. ServersList.razor), so without one of its own, @onchange
+    below compiles fine, looks right in every code review, and silently never fires - the <select>
+    happily changes its own DOM value with nobody ever told, forever. See AppGenerationWatcher.razor's
+    remarks for the sibling bug this same root cause caused.
 *@
 @if (SupportedCultures.Count > 1)
 {
