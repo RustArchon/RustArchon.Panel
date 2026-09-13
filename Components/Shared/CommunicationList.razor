@@ -80,6 +80,10 @@ else
                                             {
                                                 <text><br />@Localizer["Bounced"] @DateAndTime(bouncedOn) - @detail.FailureReason</text>
                                             }
+                                            @if (detail.SuppressedOn is { } suppressedOn)
+                                            {
+                                                <text><br />@Localizer["Suppressed"] @DateAndTime(suppressedOn) - @Localizer["this deployment has email delivery suppressed"]</text>
+                                            }
                                             @if (detail.CancelledOn is { } cancelledOn)
                                             {
                                                 <text><br />@Localizer["Cancelled"] @DateAndTime(cancelledOn)</text>
@@ -215,6 +219,10 @@ else
         CommunicationStatus.Viewed => "bg-success",
         CommunicationStatus.Bounced => "bg-danger",
         CommunicationStatus.Cancelled => "bg-dark",
+        // Deliberately not bg-danger/bg-dark - nothing went wrong and nothing was withdrawn, this
+        // deployment just has RUSTARCHON_SUPPRESS_EMAIL_DELIVERY set. A distinct, low-alarm color from
+        // every other terminal status.
+        CommunicationStatus.Suppressed => "bg-warning text-dark",
         _ => "bg-light text-dark"
     };
 
@@ -225,6 +233,7 @@ else
         CommunicationStatus.Viewed => Localizer["Viewed"],
         CommunicationStatus.Bounced => Localizer["Bounced"],
         CommunicationStatus.Cancelled => Localizer["Cancelled"],
+        CommunicationStatus.Suppressed => Localizer["Suppressed"],
         _ => status.ToString()
     };
 
