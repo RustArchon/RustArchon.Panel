@@ -703,6 +703,8 @@
   "Viewed": "Viewed",
   "Bounced": "Bounced",
   "Cancelled": "Cancelled",
+  "Suppressed": "Suppressed",
+  "this deployment has email delivery suppressed": "this deployment has email delivery suppressed",
   "Subscriptions report": "Subscriptions report",
   "You don't have access to manage organizations.": "You don't have access to manage organizations.",
   "Search": "Search",

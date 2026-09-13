@@ -689,6 +689,8 @@
   "Viewed": "Visto",
   "Bounced": "Rebotado",
   "Cancelled": "Cancelado",
+  "Suppressed": "Suprimido",
+  "this deployment has email delivery suppressed": "este entorno tiene el envío de correos suprimido",
   "Subscriptions report": "Informe de suscripciones",
   "You don't have access to manage organizations.": "No tiene acceso para administrar organizaciones.",
   "Search": "Buscar",
