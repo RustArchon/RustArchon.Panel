@@ -22,6 +22,7 @@
 @inject NewTenantBootstrapper TenantBootstrapper
 @inject IInvitationApiClient InvitationClient
 @inject IInternalRegistrationApiClient InternalRegistrationClient
+@inject IConfiguration Configuration
 
 <PageTitle>@Localizer["Register"]</PageTitle>
 
@@ -151,6 +152,20 @@
             }
         }
 
+        // The platform's own bootstrap admin - the same RUSTARCHON_ADMIN_EMAIL match that
+        // AccountBootstrapController.EnsureTenant already uses to grant the global "Site Admin" role
+        // at registration time (see NewTenantBootstrapper.ProvisionAsync below). That grant lands in
+        // the Api's own database and is real the instant this method returns - but it's useless until
+        // a login actually succeeds, which RequireConfirmedAccount blocks on EmailConfirmed regardless
+        // of any role already held. Without this, a fresh deployment (or one whose email provider
+        // isn't working yet - see NoOpEmailDeliveryProvider's own remarks) can lock its own operator
+        // out of the one screen (Platform Settings) that would let them fix email delivery at all.
+        // Deliberately the same simple email match everywhere else uses it, not something tied to
+        // which invitation code was redeemed - it holds even with invitation codes disabled entirely.
+        var adminEmail = Configuration["RUSTARCHON_ADMIN_EMAIL"];
+        var isBootstrapAdmin = !string.IsNullOrWhiteSpace(adminEmail)
+            && string.Equals(Input.Email, adminEmail, StringComparison.OrdinalIgnoreCase);
+
         registering = true;
         try
         {
@@ -161,6 +176,11 @@
             // UseRequestLocalization resolved for this request (cookie, browser Accept-Language, or the
             // default), the same value the page itself was just rendered in.
             user.PreferredCulture = CultureInfo.CurrentUICulture.Name;
+
+            if (isBootstrapAdmin)
+            {
+                user.EmailConfirmed = true;
+            }
 
             await UserStore.SetUserNameAsync(user, Input.Email, CancellationToken.None);
             var emailStore = GetEmailStore();
@@ -233,6 +253,21 @@
                     invitationError = redeemed.Error ?? Localizer["That invitation code is not valid."];
                     return;
                 }
+            }
+
+            if (isBootstrapAdmin)
+            {
+                // Already marked confirmed above - no confirmation email to send, and no reason to make
+                // the platform's very first admin wait on one at all. Signs in immediately, the same as
+                // the RequireConfirmedAccount-disabled branch below already does for everyone when that
+                // global option is off.
+                Logger.LogInformation(
+                    "Registered the bootstrap admin account ({Email}, matches RUSTARCHON_ADMIN_EMAIL) - "
+                    + "confirmed automatically, skipping the confirmation email.", Input.Email);
+
+                await SignInManager.SignInAsync(user, isPersistent: false);
+                RedirectManager.RedirectTo(ReturnUrl);
+                return;
             }
 
             // By this point the account, tenant, and (if enabled) invitation redemption have all
