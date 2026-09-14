@@ -1,0 +1,37 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@using RustArchon.Panel.Services
+@inject ActiveThemeService ActiveTheme
+
+@*
+    Lives in App.razor's own <head>, right after the baked-in <link ... app.css /> - never in place
+    of it. app.css is always linked unconditionally regardless of what this renders, so the app is
+    fully styled (the platform's own "RustArchon" look) even if Valkey/Garage/theming are entirely
+    unreachable; this component only ever adds a second, later stylesheet on top; a custom theme's CSS
+    overrides app.css's rules, it doesn't replace the file.
+
+    Deliberately no @rendermode - App.razor's whole <head> is static, rendered once per page load (see
+    AppGenerationWatcher.razor's remarks for why that matters and how a theme activation still reaches
+    an already-open tab), and this needs to be part of that same initial HTML, not something that only
+    appears after a live circuit connects - a stylesheet link arriving after first paint is too late to
+    prevent a flash of unstyled content. OnInitializedAsync still runs (and is awaited) during a static
+    component's own prerender, same as NavMenu's SiteBrandingService read - that's what lets this do a
+    Valkey lookup and still land in the very first HTML response.
+
+    No special-casing for "the active theme happens to be the seeded default" - its theme.css is byte-
+    identical to app.css (see RustArchon.Api's DefaultThemeSeeder), so linking it again here in that
+    case is a harmless, browser-cached no-op rather than something worth a second code path to avoid.
+*@
+@if (activeThemeId is { } id)
+{
+    <link rel="stylesheet" href="/theme-assets/@id.ToString("D")/theme.css" />
+}
+
+@code {
+    private Guid? activeThemeId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        activeThemeId = await ActiveTheme.GetCurrentAsync();
+    }
+}
