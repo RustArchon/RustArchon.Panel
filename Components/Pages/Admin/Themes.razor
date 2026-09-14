@@ -1,0 +1,631 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/Themes"
+@using System.Net
+@using System.Text.Json
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IThemesApiClient ThemesClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@Localizer["Themes"]</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>@Localizer["Themes"]</h1>
+    <a class="btn btn-outline-primary" href="/Admin/Themes/Build">
+        <i class="bi bi-magic" aria-hidden="true"></i> @Localizer["Build a theme"]
+    </a>
+</div>
+
+@if (accessDenied == true)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage themes."]
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (uploadErrors is { Count: > 0 })
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <div class="fw-semibold mb-1">@Localizer["The package couldn't be uploaded:"]</div>
+            <ul class="mb-0">
+                @foreach (var uploadError in uploadErrors)
+                {
+                    <li>@uploadError</li>
+                }
+            </ul>
+            <button type="button" class="btn-close" @onclick="() => uploadErrors = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    @* Upload is a create action, not a record to edit in place - nothing here is ever revisited once
+       uploaded (a theme is immutable; a revised look is a new upload, not an edit) - see
+       ThemePackageValidator's own remarks for exactly what the zip needs to contain. No Name field
+       here: the package's own manifest.json is the one source of truth for its identity - see
+       ThemeService.UploadAsync's remarks. *@
+    <div class="card mb-4">
+        <div class="card-header">@Localizer["Upload a theme"]</div>
+        <div class="card-body">
+            <p class="text-muted small">
+                @Localizer["A zip file with a manifest.json and a theme.css at its root. Images and fonts may sit at the root too, or one level under images/ or fonts/ - no deeper, and no other file types. No JavaScript is allowed."]
+            </p>
+            <div class="row g-2 align-items-end">
+                <div class="col-md-7">
+                    <label class="form-label small text-muted mb-1" for="theme-package">@Localizer["Package (.zip)"]</label>
+                    <InputFile id="theme-package" class="form-control" OnChange="OnFileSelected" disabled="@uploading" accept=".zip" />
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-primary w-100" type="button"
+                            disabled="@(uploading || selectedFile is null)"
+                            @onclick="UploadAsync">
+                        @if (uploading)
+                        {
+                            <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                            <text> @Localizer["Uploading..."]</text>
+                        }
+                        else
+                        {
+                            <text><i class="bi bi-upload" aria-hidden="true"></i> @Localizer["Upload"]</text>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (loading)
+    {
+        <p><em>@Localizer["Loading themes..."]</em></p>
+    }
+    else if (themes is { Count: 0 })
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> @Localizer["No themes uploaded yet."]
+        </div>
+    }
+    else if (themes is not null)
+    {
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>@Localizer["Name"]</th>
+                        <th>@Localizer["Version"]</th>
+                        <th>@Localizer["Size"]</th>
+                        <th>@Localizer["Uploaded"]</th>
+                        <th>@Localizer["Status"]</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var theme in themes)
+                    {
+                        <tr @key="theme.Id" role="button" @onclick="() => ToggleAsync(theme)">
+                            <td>@theme.Name</td>
+                            <td class="small">
+                                @theme.Version
+                                @if (theme.UpdateAvailable)
+                                {
+                                    <span class="badge bg-info text-dark ms-1">@Localizer["Update available"]</span>
+                                }
+                            </td>
+                            <td>@FormatSize(theme.SizeBytes)</td>
+                            <td class="small">@theme.UploadedOn.LocalDateTime.ToString("g")</td>
+                            <td>
+                                @if (theme.IsActive)
+                                {
+                                    <span class="badge bg-success">@Localizer["Active"]</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
+                            <td class="text-end" @onclick:stopPropagation="true">
+                                @* Offered even on the active theme, unlike Activate/Delete below - the builder's
+                                   own "Save" vs "Save as New Theme" choice (see ThemeBuilder.razor) is what
+                                   decides whether editing here touches this exact row or creates a separate
+                                   one, not anything gated here. *@
+                                <a class="btn btn-sm btn-outline-secondary me-2" href="@($"/Admin/Themes/Build?FromThemeId={theme.Id:D}")">
+                                    @Localizer["Edit"]
+                                </a>
+                                @* Neither action is offered on the active theme - activating it again is a
+                                   no-op with nothing to confirm, and DeleteAsync refuses it outright (see
+                                   ThemeService.DeleteAsync's remarks) - hiding both here rather than
+                                   showing a button that would only ever come back with an error. *@
+                                @if (!theme.IsActive)
+                                {
+                                    <button class="btn btn-sm btn-outline-primary me-2" type="button"
+                                            disabled="@busyThemeIds.Contains(theme.Id)"
+                                            @onclick="() => ActivateAsync(theme)">
+                                        @Localizer["Activate"]
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" type="button"
+                                            disabled="@busyThemeIds.Contains(theme.Id)"
+                                            @onclick="() => RequestDelete(theme)">
+                                        @Localizer["Delete"]
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+
+                        @if (expandedId == theme.Id)
+                        {
+                            <tr class="table-light">
+                                <td colspan="6">
+                                    @if (detailLoading)
+                                    {
+                                        <div class="text-muted small">
+                                            <span class="spinner-border spinner-border-sm"></span> @Localizer["Loading..."]
+                                        </div>
+                                    }
+                                    else if (detail is not null)
+                                    {
+                                        <dl class="row mb-0 small">
+                                            @if (!string.IsNullOrEmpty(detail.Description))
+                                            {
+                                                <dt class="col-sm-2">@Localizer["Description"]</dt>
+                                                <dd class="col-sm-10">@detail.Description</dd>
+                                            }
+                                            @if (!string.IsNullOrEmpty(detail.AuthorName) || !string.IsNullOrEmpty(detail.AuthorEmail))
+                                            {
+                                                <dt class="col-sm-2">@Localizer["Author"]</dt>
+                                                <dd class="col-sm-10">
+                                                    @detail.AuthorName
+                                                    @if (!string.IsNullOrEmpty(detail.AuthorEmail))
+                                                    {
+                                                        <text> &lt;@detail.AuthorEmail&gt;</text>
+                                                    }
+                                                </dd>
+                                            }
+                                            @if (!string.IsNullOrEmpty(detail.Website))
+                                            {
+                                                <dt class="col-sm-2">@Localizer["Website"]</dt>
+                                                <dd class="col-sm-10">
+                                                    @* link-dark, not the app's own (dark-theme-tuned) link color: this row is
+                                                       always rendered on Bootstrap's own light .table-light background
+                                                       regardless of data-bs-theme, and the dark theme's bright link color is
+                                                       nearly unreadable against it otherwise. *@
+                                                    <a class="link-dark" href="@detail.Website" target="_blank" rel="noopener">@detail.Website</a>
+                                                </dd>
+                                            }
+                                            @if (!string.IsNullOrEmpty(detail.UpdateUrl))
+                                            {
+                                                <dt class="col-sm-2">@Localizer["Update URL"]</dt>
+                                                <dd class="col-sm-10">
+                                                    @detail.UpdateUrl
+                                                    <button class="btn btn-sm btn-outline-secondary ms-2" type="button"
+                                                            disabled="@checkingUpdateIds.Contains(detail.Id)"
+                                                            @onclick="() => CheckForUpdateAsync(detail)">
+                                                        @if (checkingUpdateIds.Contains(detail.Id))
+                                                        {
+                                                            <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                                            <text> @Localizer["Checking..."]</text>
+                                                        }
+                                                        else
+                                                        {
+                                                            <text><i class="bi bi-arrow-repeat" aria-hidden="true"></i> @Localizer["Check for updates"]</text>
+                                                        }
+                                                    </button>
+                                                </dd>
+                                                <dt class="col-sm-2">@Localizer["Last checked"]</dt>
+                                                <dd class="col-sm-10">
+                                                    @Ago(detail.LastUpdateCheckOn)
+                                                    @if (!string.IsNullOrEmpty(detail.LastUpdateCheckError))
+                                                    {
+                                                        <div class="text-danger">@Localizer["Update check failed: {0}", detail.LastUpdateCheckError]</div>
+                                                    }
+                                                    else if (detail.UpdateAvailable)
+                                                    {
+                                                        <div class="text-success">
+                                                            @Localizer["Update available"]: @detail.LatestKnownVersion
+                                                            @if (!string.IsNullOrEmpty(detail.LatestDownloadPackageUrl))
+                                                            {
+                                                                <button class="btn btn-sm btn-success ms-2" type="button"
+                                                                        disabled="@installingUpdateIds.Contains(detail.Id)"
+                                                                        @onclick="() => RequestInstall(detail)">
+                                                                    @Localizer["Update to {0}", detail.LatestKnownVersion]
+                                                                </button>
+                                                            }
+                                                        </div>
+                                                    }
+                                                </dd>
+                                            }
+                                            <dt class="col-sm-2">@Localizer["Source"]</dt>
+                                            <dd class="col-sm-10">
+                                                @(detail.Source == ThemeSource.Built ? Localizer["Built in Panel"] : Localizer["Uploaded"])
+                                            </dd>
+                                            <dt class="col-sm-2">@Localizer["Files"]</dt>
+                                            <dd class="col-sm-10">@string.Join(", ", detail.AssetPaths)</dd>
+                                        </dl>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@if (themeToDelete is not null)
+{
+    <ConfirmationModal
+        Title="@Localizer["Delete Theme"]"
+        ConfirmButtonText="@Localizer["Delete"]"
+        ConfirmButtonClass="btn-danger"
+        OnClose="HandleDeleteModalClose">
+        <Message>
+            @Localizer["Are you sure you want to permanently delete \"{0}\"? This cannot be undone.", themeToDelete.Name]
+        </Message>
+    </ConfirmationModal>
+}
+
+@if (themeToUpdate is not null)
+{
+    <ConfirmationModal
+        Title="@Localizer["Install Theme Update"]"
+        ConfirmButtonText="@Localizer["Update"]"
+        ConfirmButtonClass="btn-success"
+        OnClose="HandleUpdateModalClose">
+        <Message>
+            @Localizer["Download and install version {0} for \"{1}\"? This replaces its current content immediately.", themeToUpdate.LatestKnownVersion, themeToUpdate.Name]
+        </Message>
+    </ConfirmationModal>
+}
+
+@code {
+    // Matches ThemesController's own [RequestSizeLimit(25 MB)] - IBrowserFile.OpenReadStream defaults
+    // to a 500 KB cap, which every real theme package would blow straight through.
+    private const long MaxUploadBytes = 25 * 1024 * 1024;
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private List<ThemeSummaryDto>? themes;
+    private bool loading = true;
+    private bool? accessDenied;
+    private string? errorMessage;
+    private string? successMessage;
+    private List<string>? uploadErrors;
+    private readonly HashSet<Guid> busyThemeIds = new();
+
+    private IBrowserFile? selectedFile;
+    private bool uploading;
+    private ThemeSummaryDto? themeToDelete;
+
+    private Guid? expandedId;
+    private ThemeDetailDto? detail;
+    private bool detailLoading;
+    private readonly HashSet<Guid> checkingUpdateIds = new();
+    private readonly HashSet<Guid> installingUpdateIds = new();
+    private ThemeDetailDto? themeToUpdate;
+
+    // Set when the theme-builder page redirects back here after a successful publish - there's no
+    // theme id to route to directly (the list itself is the only place a freshly built theme shows up),
+    // so the success message travels as a query string instead of component state that a redirect can't
+    // carry.
+    [SupplyParameterFromQuery]
+    public string? Published { get; set; }
+
+    [SupplyParameterFromQuery]
+    public string? PublishedVersion { get; set; }
+
+    /// <summary>Whether the theme-builder redirect that set <see cref="Published"/> came from "Save"
+    /// (updated an existing theme in place) rather than "Publish"/"Save as New Theme" (a genuinely new
+    /// catalog entry) - picks which of the two success messages actually describes what happened.</summary>
+    [SupplyParameterFromQuery]
+    public bool Replaced { get; set; }
+
+    protected override Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(Published))
+        {
+            successMessage = Replaced
+                ? Localizer["'{0}' was updated to v{1}.", Published, PublishedVersion]
+                : Localizer["'{0}' (v{1}) was published.", Published, PublishedVersion];
+        }
+
+        return LoadThemesAsync();
+    }
+
+    private async Task LoadThemesAsync()
+    {
+        loading = true;
+        errorMessage = null;
+        try
+        {
+            themes = await ThemesClient.GetAllAsync();
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load themes");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    // Same click-to-expand pattern as CommunicationList.razor - a theme, like a communication, is a
+    // log entry to inspect, not a record to edit in place.
+    private async Task ToggleAsync(ThemeSummaryDto theme)
+    {
+        if (expandedId == theme.Id)
+        {
+            expandedId = null;
+            detail = null;
+            return;
+        }
+
+        expandedId = theme.Id;
+        detail = null;
+        detailLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            detail = await ThemesClient.GetByIdAsync(theme.Id);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load this theme");
+        }
+        finally
+        {
+            detailLoading = false;
+        }
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e) => selectedFile = e.File;
+
+    private async Task UploadAsync()
+    {
+        if (selectedFile is null)
+        {
+            return;
+        }
+
+        uploading = true;
+        errorMessage = null;
+        uploadErrors = null;
+        successMessage = null;
+
+        try
+        {
+            // Not wrapped in `await using` - IThemesApiClient.UploadAsync's own remarks: Refit takes
+            // ownership of the stream via StreamPart and disposes it once the request completes.
+            var stream = selectedFile.OpenReadStream(MaxUploadBytes);
+            var part = new Refit.StreamPart(
+                stream, selectedFile.Name,
+                string.IsNullOrEmpty(selectedFile.ContentType) ? "application/zip" : selectedFile.ContentType);
+
+            var created = await ThemesClient.UploadAsync(part);
+
+            themes ??= [];
+            themes.Insert(0, ToSummary(created));
+            successMessage = Localizer["'{0}' (v{1}) was uploaded.", created.Name, created.Version];
+            selectedFile = null;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.UnprocessableEntity)
+        {
+            uploadErrors = TryParseUploadErrors(ex.Content) ?? [Localizer["The package couldn't be validated."]];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "upload the theme");
+        }
+        finally
+        {
+            uploading = false;
+        }
+    }
+
+    private static ThemeSummaryDto ToSummary(ThemeDetailDto detail) => new()
+    {
+        Id = detail.Id,
+        Name = detail.Name,
+        Version = detail.Version,
+        SizeBytes = detail.SizeBytes,
+        IsActive = detail.IsActive,
+        UploadedOn = detail.UploadedOn,
+        UpdateAvailable = detail.UpdateAvailable
+    };
+
+    private static List<string>? TryParseUploadErrors(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            var dto = JsonSerializer.Deserialize<ThemeUploadErrorDto>(json, JsonOptions);
+            return dto?.Errors is { Count: > 0 } ? dto.Errors : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private async Task ActivateAsync(ThemeSummaryDto theme)
+    {
+        busyThemeIds.Add(theme.Id);
+        errorMessage = null;
+
+        try
+        {
+            var activated = await ThemesClient.ActivateAsync(theme.Id);
+
+            foreach (var t in themes!)
+            {
+                t.IsActive = t.Id == activated.Id;
+            }
+
+            successMessage = Localizer["'{0}' is now the active theme.", activated.Name];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "activate this theme");
+        }
+        finally
+        {
+            busyThemeIds.Remove(theme.Id);
+        }
+    }
+
+    // Admin-triggered only - see ThemeService.CheckForUpdateAsync's remarks on why this is never run by
+    // a background job.
+    private async Task CheckForUpdateAsync(ThemeDetailDto current)
+    {
+        checkingUpdateIds.Add(current.Id);
+        errorMessage = null;
+
+        try
+        {
+            var updated = await ThemesClient.CheckForUpdateAsync(current.Id);
+
+            if (expandedId == updated.Id)
+            {
+                detail = updated;
+            }
+
+            var summary = themes?.FirstOrDefault(t => t.Id == updated.Id);
+            if (summary is not null)
+            {
+                summary.UpdateAvailable = updated.UpdateAvailable;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "check this theme for an update");
+        }
+        finally
+        {
+            checkingUpdateIds.Remove(current.Id);
+        }
+    }
+
+    private string Ago(DateTimeOffset? at)
+    {
+        if (at is not { } value)
+        {
+            return Localizer["never"];
+        }
+
+        var span = DateTimeOffset.UtcNow - value;
+
+        return span.TotalMinutes < 2 ? Localizer["just now"]
+            : span.TotalHours < 1 ? Localizer["{0}m ago", (int)span.TotalMinutes]
+            : span.TotalDays < 1 ? Localizer["{0}h ago", (int)span.TotalHours]
+            : Localizer["{0}d ago", (int)span.TotalDays];
+    }
+
+    private void RequestInstall(ThemeDetailDto theme) => themeToUpdate = theme;
+
+    private async Task HandleUpdateModalClose(bool confirmed)
+    {
+        var theme = themeToUpdate;
+        themeToUpdate = null;
+
+        if (!confirmed || theme is null)
+        {
+            return;
+        }
+
+        installingUpdateIds.Add(theme.Id);
+        errorMessage = null;
+        uploadErrors = null;
+
+        try
+        {
+            var installed = await ThemesClient.InstallUpdateAsync(theme.Id);
+
+            // Collapses the row rather than trying to patch its now-stale detail in place - a full
+            // reload is the one source of truth for every row's state, and the theme's own Version/
+            // LatestKnownVersion/etc. all just changed underneath the detail that was showing.
+            expandedId = null;
+            detail = null;
+            await LoadThemesAsync();
+
+            successMessage = Localizer["'{0}' was updated to v{1}.", installed.Name, installed.Version];
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.UnprocessableEntity)
+        {
+            uploadErrors = TryParseUploadErrors(ex.Content) ?? [Localizer["The update couldn't be installed."]];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "install this update");
+        }
+        finally
+        {
+            installingUpdateIds.Remove(theme.Id);
+        }
+    }
+
+    private void RequestDelete(ThemeSummaryDto theme) => themeToDelete = theme;
+
+    private async Task HandleDeleteModalClose(bool confirmed)
+    {
+        var theme = themeToDelete;
+        themeToDelete = null;
+
+        if (!confirmed || theme is null)
+        {
+            return;
+        }
+
+        busyThemeIds.Add(theme.Id);
+        errorMessage = null;
+
+        try
+        {
+            await ThemesClient.DeleteAsync(theme.Id);
+            themes?.RemoveAll(t => t.Id == theme.Id);
+            successMessage = Localizer["'{0}' was deleted.", theme.Name];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "delete this theme");
+        }
+        finally
+        {
+            busyThemeIds.Remove(theme.Id);
+        }
+    }
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
+        _ => $"{bytes / (1024.0 * 1024.0):0.#} MB"
+    };
+}

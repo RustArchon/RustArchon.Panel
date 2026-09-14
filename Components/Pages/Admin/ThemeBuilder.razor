@@ -1,0 +1,424 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/Themes/Build"
+@using System.Net
+@using System.Text.Json
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IThemesApiClient ThemesClient
+@inject NavigationManager Navigation
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@Localizer[FromThemeId is null ? "Build a theme" : "Edit a theme"]</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h1>@Localizer[FromThemeId is null ? "Build a theme" : "Edit a theme"]</h1>
+    <a class="btn btn-outline-secondary" href="/Admin/Themes">
+        <i class="bi bi-arrow-left" aria-hidden="true"></i> @Localizer["Back to Themes"]
+    </a>
+</div>
+
+    @if (FromThemeId is not null)
+    {
+        <p class="text-muted mb-4">@Localizer["Starting from '{0}' (v{1}).", sourceName, sourceVersion]</p>
+    }
+
+    @if (loadingSource)
+    {
+        <p><em>@Localizer["Loading theme..."]</em></p>
+    }
+    else
+    {
+
+    @if (sourceIsUploaded)
+    {
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+            @Localizer["This theme was loaded from a package, not built in the Panel. \"Save\" replaces its current content with your edits. If it's ever updated again later (a newer version installed, or re-uploaded), that update will replace your edits the same way - use \"Save as New Theme\" instead if you want to keep this as a separate, permanent customization."]
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (uploadErrors is { Count: > 0 })
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <div class="fw-semibold mb-1">@Localizer["The theme couldn't be published:"]</div>
+            <ul class="mb-0">
+                @foreach (var uploadError in uploadErrors)
+                {
+                    <li>@uploadError</li>
+                }
+            </ul>
+            <button type="button" class="btn-close" @onclick="() => uploadErrors = null"></button>
+        </div>
+    }
+
+    @* Every field here becomes manifest.json/theme.css/images/fonts server-side (see
+       ThemePackageBuilder) and is validated by the exact same ThemePackageValidator a .zip upload goes
+       through - nothing here is a separate set of rules, just a different way to assemble the package. *@
+    <div class="card mb-4">
+        <div class="card-header">@Localizer["Theme details"]</div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label" for="theme-name">@Localizer["Name"] <span class="text-danger">*</span></label>
+                    <input id="theme-name" class="form-control" @bind="name" @bind:event="oninput" maxlength="200" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="theme-version">@Localizer["Version"] <span class="text-danger">*</span></label>
+                    <input id="theme-version" class="form-control" @bind="version" @bind:event="oninput" placeholder="1.0.0" maxlength="50" />
+                </div>
+                <div class="col-12">
+                    <label class="form-label" for="theme-description">@Localizer["Description"]</label>
+                    <textarea id="theme-description" class="form-control" rows="2" maxlength="2000" @bind="description" @bind:event="oninput"></textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="theme-author-name">@Localizer["Author Name"]</label>
+                    <input id="theme-author-name" class="form-control" @bind="authorName" @bind:event="oninput" maxlength="200" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="theme-author-email">@Localizer["Author Email"]</label>
+                    <input id="theme-author-email" type="email" class="form-control" @bind="authorEmail" @bind:event="oninput" maxlength="320" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="theme-website">@Localizer["Website"]</label>
+                    <input id="theme-website" type="url" class="form-control" @bind="website" @bind:event="oninput" placeholder="https://" maxlength="2000" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="theme-update-url">@Localizer["Update URL"]</label>
+                    <input id="theme-update-url" type="url" class="form-control" @bind="updateUrl" @bind:event="oninput" placeholder="https://" maxlength="2000" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">@Localizer["CSS"]</div>
+        <div class="card-body">
+            <p class="text-muted small">@Localizer["This becomes the theme's theme.css - the same stylesheet a hand-authored package would carry at its root."]</p>
+            <textarea class="form-control font-monospace" rows="16" spellcheck="false"
+                      @bind="css" @bind:event="oninput" placeholder="body { }"></textarea>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">@Localizer["Images"]</div>
+                <div class="card-body">
+                    <p class="text-muted small">@Localizer["PNG, JPEG, GIF, SVG, or WebP."]</p>
+                    <InputFile OnChange="OnImagesSelected" multiple accept=".png,.jpg,.jpeg,.gif,.svg,.webp" class="form-control mb-3" />
+                    @if (existingImages.Count == 0 && images.Count == 0)
+                    {
+                        <p class="text-muted small mb-0">@Localizer["No images added yet."]</p>
+                    }
+                    else
+                    {
+                        <ul class="list-group">
+                            @foreach (var name in existingImages)
+                            {
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    <span class="text-truncate">@name <span class="text-muted small">(@Localizer["existing"])</span></span>
+                                    <button class="btn btn-sm btn-outline-danger" type="button" @onclick="() => existingImages.Remove(name)">
+                                        <i class="bi bi-x-lg" aria-hidden="true"></i>
+                                    </button>
+                                </li>
+                            }
+                            @foreach (var image in images)
+                            {
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    <span class="text-truncate">@image.Name</span>
+                                    <button class="btn btn-sm btn-outline-danger" type="button" @onclick="() => images.Remove(image)">
+                                        <i class="bi bi-x-lg" aria-hidden="true"></i>
+                                    </button>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">@Localizer["Fonts"]</div>
+                <div class="card-body">
+                    <p class="text-muted small">@Localizer["WOFF, WOFF2, TTF, or OTF."]</p>
+                    <InputFile OnChange="OnFontsSelected" multiple accept=".woff,.woff2,.ttf,.otf" class="form-control mb-3" />
+                    @if (existingFonts.Count == 0 && fonts.Count == 0)
+                    {
+                        <p class="text-muted small mb-0">@Localizer["No fonts added yet."]</p>
+                    }
+                    else
+                    {
+                        <ul class="list-group">
+                            @foreach (var name in existingFonts)
+                            {
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    <span class="text-truncate">@name <span class="text-muted small">(@Localizer["existing"])</span></span>
+                                    <button class="btn btn-sm btn-outline-danger" type="button" @onclick="() => existingFonts.Remove(name)">
+                                        <i class="bi bi-x-lg" aria-hidden="true"></i>
+                                    </button>
+                                </li>
+                            }
+                            @foreach (var font in fonts)
+                            {
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    <span class="text-truncate">@font.Name</span>
+                                    <button class="btn btn-sm btn-outline-danger" type="button" @onclick="() => fonts.Remove(font)">
+                                        <i class="bi bi-x-lg" aria-hidden="true"></i>
+                                    </button>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (FromThemeId is not null)
+    {
+        <button class="btn btn-primary me-2" type="button" disabled="@(publishing || FormIncomplete)" @onclick="SaveAsync">
+            @if (publishing)
+            {
+                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                <text> @Localizer["Saving..."]</text>
+            }
+            else
+            {
+                <text><i class="bi bi-save" aria-hidden="true"></i> @Localizer["Save"]</text>
+            }
+        </button>
+        <button class="btn btn-outline-primary" type="button" disabled="@(publishing || FormIncomplete)" @onclick="SaveAsNewAsync">
+            <i class="bi bi-cloud-upload" aria-hidden="true"></i> @Localizer["Save as New Theme"]
+        </button>
+    }
+    else
+    {
+        <button class="btn btn-primary" type="button" disabled="@(publishing || FormIncomplete)" @onclick="SaveAsNewAsync">
+            @if (publishing)
+            {
+                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                <text> @Localizer["Publishing..."]</text>
+            }
+            else
+            {
+                <text><i class="bi bi-cloud-upload" aria-hidden="true"></i> @Localizer["Publish"]</text>
+            }
+        </button>
+    }
+
+    }
+
+@code {
+    // Matches ThemesController's own [RequestSizeLimit(25 MB)] on Build - IBrowserFile.OpenReadStream
+    // defaults to a 500 KB cap per file, which any real image or font would blow straight through. The
+    // actual per-file/total limits are ThemePackageValidator's own (enforced server-side regardless);
+    // this is only wide enough that a legitimate file never gets stopped client-side first.
+    private const long MaxFileBytes = 25 * 1024 * 1024;
+
+    // Generous but bounded - nothing about a real theme plausibly needs more images or fonts than this
+    // in one picker interaction (multiple interactions still accumulate onto the same list).
+    private const int MaxFilesPerPick = 32;
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private string? errorMessage;
+    private List<string>? uploadErrors;
+    private bool publishing;
+
+    private string name = string.Empty;
+    private string version = string.Empty;
+    private string? description;
+    private string? authorName;
+    private string? authorEmail;
+    private string? website;
+    private string? updateUrl;
+    private string css = string.Empty;
+
+    private bool FormIncomplete => string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(version);
+
+    private readonly List<IBrowserFile> images = [];
+    private readonly List<IBrowserFile> fonts = [];
+
+    // The source theme's own images/fonts, carried forward for republishing - just names; their bytes
+    // are only fetched (via IThemesApiClient.GetAssetAsync) at publish time, not held in memory for the
+    // whole editing session. Removing one here just means "don't carry this file forward," the same as
+    // removing a newly-picked one from `images`/`fonts` above.
+    private readonly List<string> existingImages = [];
+    private readonly List<string> existingFonts = [];
+
+    private bool loadingSource;
+    private bool sourceIsUploaded;
+    private string sourceName = string.Empty;
+    private string sourceVersion = string.Empty;
+
+    /// <summary>Set when this page is reached via "Edit" on an existing theme - see
+    /// <see cref="LoadSourceThemeAsync"/>. Controls both what the form starts pre-filled with and which
+    /// save action is offered: with this set, "Save" updates the theme it came from in place (see
+    /// <see cref="SaveAsync"/>), and "Save as New Theme" is offered alongside it for when a separate
+    /// copy is actually wanted (see <see cref="SaveAsNewAsync"/>). With no source theme there's nothing
+    /// to update in place, so only "Publish" (create) is offered.</summary>
+    [SupplyParameterFromQuery]
+    public Guid? FromThemeId { get; set; }
+
+    protected override Task OnInitializedAsync() =>
+        FromThemeId is { } id ? LoadSourceThemeAsync(id) : Task.CompletedTask;
+
+    private async Task LoadSourceThemeAsync(Guid id)
+    {
+        loadingSource = true;
+
+        try
+        {
+            var source = await ThemesClient.GetByIdAsync(id);
+
+            name = source.Name;
+            version = source.Version;
+            description = source.Description;
+            authorName = source.AuthorName;
+            authorEmail = source.AuthorEmail;
+            website = source.Website;
+            updateUrl = source.UpdateUrl;
+            sourceName = source.Name;
+            sourceVersion = source.Version;
+            sourceIsUploaded = source.Source == ThemeSource.Uploaded;
+
+            await using var cssStream = await ThemesClient.GetAssetAsync(id, "theme.css");
+            using var reader = new StreamReader(cssStream);
+            css = await reader.ReadToEndAsync();
+
+            existingImages.AddRange(source.AssetPaths
+                .Where(p => p.StartsWith("images/", StringComparison.Ordinal))
+                .Select(p => p["images/".Length..]));
+            existingFonts.AddRange(source.AssetPaths
+                .Where(p => p.StartsWith("fonts/", StringComparison.Ordinal))
+                .Select(p => p["fonts/".Length..]));
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load this theme");
+        }
+        finally
+        {
+            loadingSource = false;
+        }
+    }
+
+    // Appends rather than replaces - a second picker interaction adds to what's already there, so
+    // building up a theme's image/font set doesn't require selecting every file in one go.
+    private void OnImagesSelected(InputFileChangeEventArgs e) =>
+        images.AddRange(e.GetMultipleFiles(MaxFilesPerPick));
+
+    private void OnFontsSelected(InputFileChangeEventArgs e) =>
+        fonts.AddRange(e.GetMultipleFiles(MaxFilesPerPick));
+
+    /// <summary>
+    /// Merges carried-forward existing assets with freshly picked files into one list of parts to
+    /// publish. A newly picked file supersedes an existing one of the same name - replacing "logo.png"
+    /// with a new upload doesn't require removing the old entry first, and doesn't trip
+    /// <c>ThemePackageBuilder</c>'s own duplicate-name rejection. Existing assets' bytes are only ever
+    /// fetched here, at publish time - never held in memory for the whole editing session.
+    /// </summary>
+    private async Task<List<Refit.StreamPart>> BuildPartsAsync(
+        List<string> existingNames, List<IBrowserFile> newFiles, string prefix)
+    {
+        var parts = new List<Refit.StreamPart>();
+        var newNames = new HashSet<string>(newFiles.Select(f => f.Name), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var existingName in existingNames.Where(n => !newNames.Contains(n)))
+        {
+            var stream = await ThemesClient.GetAssetAsync(FromThemeId!.Value, prefix + existingName);
+            parts.Add(new Refit.StreamPart(stream, existingName, "application/octet-stream"));
+        }
+
+        foreach (var file in newFiles)
+        {
+            parts.Add(new Refit.StreamPart(file.OpenReadStream(MaxFileBytes), file.Name, file.ContentType));
+        }
+
+        return parts;
+    }
+
+    /// <summary>Updates the theme this page started from in place - the primary action when editing an
+    /// existing theme (only offered when <see cref="FromThemeId"/> is set). No new row; the theme you
+    /// were editing is what ends up with these changes.</summary>
+    private Task SaveAsync() => PublishAsync(replace: true);
+
+    /// <summary>Creates a brand new theme - the only option when building from scratch, and the "keep
+    /// the original too" alternative to <see cref="SaveAsync"/> when editing an existing one.</summary>
+    private Task SaveAsNewAsync() => PublishAsync(replace: false);
+
+    private async Task PublishAsync(bool replace)
+    {
+        publishing = true;
+        errorMessage = null;
+        uploadErrors = null;
+
+        try
+        {
+            // Not wrapped in `await using` - IThemesApiClient.BuildAsync/ReplaceAsync's own remarks:
+            // Refit takes ownership of every StreamPart and disposes it once the request completes.
+            var imageParts = await BuildPartsAsync(existingImages, images, "images/");
+            var fontParts = await BuildPartsAsync(existingFonts, fonts, "fonts/");
+
+            var result = replace
+                ? await ThemesClient.ReplaceAsync(
+                    FromThemeId!.Value, name, version, description, authorName, authorEmail, website, updateUrl,
+                    css, imageParts, fontParts)
+                : await ThemesClient.BuildAsync(
+                    name, version, description, authorName, authorEmail, website, updateUrl, css,
+                    imageParts, fontParts);
+
+            // Themes.razor picks between "was updated"/"was published" itself based on Replaced - see
+            // its own remarks; a Save (same theme, new content) reads differently from a genuinely new
+            // catalog entry.
+            Navigation.NavigateTo(
+                $"/Admin/Themes?Published={Uri.EscapeDataString(result.Name)}&PublishedVersion={Uri.EscapeDataString(result.Version)}&Replaced={replace}");
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.UnprocessableEntity)
+        {
+            uploadErrors = TryParseUploadErrors(ex.Content) ?? [Localizer["The theme couldn't be validated."]];
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            errorMessage = Localizer["You don't have access to manage themes."];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, replace ? "save this theme" : "publish this theme");
+        }
+        finally
+        {
+            publishing = false;
+        }
+    }
+
+    private static List<string>? TryParseUploadErrors(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            var dto = JsonSerializer.Deserialize<ThemeUploadErrorDto>(json, JsonOptions);
+            return dto?.Errors is { Count: > 0 } ? dto.Errors : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+}

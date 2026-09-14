@@ -241,6 +241,12 @@ builder.Services.AddApiClient<IPlanApiClient>($"{apiBaseUrl}/api/plans")
     .AddHttpMessageHandler<JwtExchangeHandler>()
     .AddHttpMessageHandler<JwtAuthenticationHandler>();
 
+// Same handler chain, same Platform.ManageSettings gate as IPlatformSettingsApiClient above - see
+// ThemesController's remarks for why theming uses that permission rather than a new one of its own.
+builder.Services.AddApiClient<IThemesApiClient>($"{apiBaseUrl}/api/themes")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
 // Same handler chain, but no admin permission behind it - this one is any signed-in member acting on
 // their OWN Organization's subscription (the API resolves the tenant from the token, never from the
 // request), unlike IPlanApiClient above which manages the platform-wide catalog.
@@ -387,6 +393,17 @@ builder.Services.AddApiClient<IInternalRegistrationApiClient>(apiBaseUrl)
 builder.Services.AddApiClient<IInternalCommunicationApiClient>(apiBaseUrl)
     .ConfigureHttpClient(client => client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey));
 
+// Backs the /theme-assets/{themeId}/{**path} endpoint below - a plain named HttpClient rather than a
+// Refit interface like the internal clients above, since this one's whole job is forwarding raw bytes
+// and a Content-Type it doesn't know in advance, not deserializing a typed response.
+builder.Services.AddHttpClient("InternalThemeAssets", client =>
+{
+    client.BaseAddress = new Uri(apiBaseUrl);
+    client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+});
+
+builder.Services.AddSingleton<ActiveThemeService>();
+
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, QueuedEmailSender>();
 
 // Live console/chat/status tail for a server's detail page - see RconHubClient's own remarks.
@@ -492,6 +509,35 @@ app.MapGet("/track/email/{id:guid}.gif", async (Guid id, IInternalCommunicationA
     }
 
     return Results.File(trackingPixel, "image/gif");
+});
+
+// One file from a theme's package - the seam ActiveThemeStylesheetLink.razor's <link> and any
+// @font-face/url() reference inside a theme's own theme.css actually resolve against. Anonymous and
+// unconditional, same reasoning as the tracking pixel above: a browser's plain GET for a stylesheet
+// carries no auth header of its own, and RustArchon.Api is never reachable from outside the Docker
+// network to begin with - this Panel is the one public door, proxying to Api's own internal endpoint
+// (which is what actually holds the Garage credentials - this Panel never sees them) rather than
+// talking to Garage directly.
+app.MapGet("/theme-assets/{themeId:guid}/{*path}", async (
+    Guid themeId, string path, IHttpClientFactory httpClientFactory, HttpContext httpContext,
+    CancellationToken cancellationToken) =>
+{
+    var client = httpClientFactory.CreateClient("InternalThemeAssets");
+    using var response = await client.GetAsync($"/internal/theme-assets/{themeId:D}/{path}", cancellationToken);
+
+    if (!response.IsSuccessStatusCode)
+    {
+        return Results.NotFound();
+    }
+
+    var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+    var contentType = response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
+
+    // A theme's assets never change in place once uploaded - a new upload gets a new themeId (see
+    // RustArchon.Api's ThemeService) - so caching aggressively by this exact URL is always safe; there
+    // is no "the file changed under the same URL" case to invalidate against.
+    httpContext.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+    return Results.File(bytes, contentType);
 });
 
 // Authentication & Authorization must run before UseAntiforgery, so HttpContext.User is already
