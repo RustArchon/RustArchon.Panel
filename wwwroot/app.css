@@ -1131,6 +1131,50 @@ code, .badge {
     white-space: pre-wrap;
 }
 
+/* Site-admin-only "unfiltered" toggle and the badges it makes visible - see ServerDetail.razor's
+   Console tab remarks (RconEventDto.Interactive/Direction). Only ever rendered for a site admin
+   currently acting as this tenant, so there's no need to hide these from ordinary users in CSS on
+   top of the server never sending them the rows in the first place. */
+.console-unfiltered-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    color: var(--ra-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+}
+
+.console-line-badge {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--ra-font-display);
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.05rem 0.4rem;
+    border-radius: 3px;
+    height: fit-content;
+}
+
+.console-line-badge-sent {
+    background: rgba(22, 242, 255, 0.12);
+    color: var(--ra-cyan);
+    border: 1px solid var(--ra-cyan);
+}
+
+.console-line-badge-background {
+    background: rgba(255, 210, 26, 0.12);
+    color: var(--ra-yellow);
+    border: 1px solid var(--ra-yellow);
+}
+
+.console-line-background {
+    background: rgba(255, 210, 26, 0.05);
+}
+
 .chat-username {
     font-weight: 600;
 }

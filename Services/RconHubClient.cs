@@ -25,6 +25,14 @@ public class RconHubClient : IAsyncDisposable
     private readonly ITokenStore _tokenStore;
     private readonly string _apiBaseUrl;
     private HubConnection? _connection;
+    private Guid? _serverId;
+
+    /// <summary>
+    /// Whether the last <see cref="SetUnfilteredAsync"/> call left this connection joined to the
+    /// unfiltered group rather than the ordinary one - re-applied on every reconnect, same as the
+    /// server group join itself.
+    /// </summary>
+    private bool _unfiltered;
 
     public event Action<RconEventDto>? EventReceived;
     public event Action<Guid, RconConnectionStatus, string?>? StatusChanged;
@@ -50,6 +58,8 @@ public class RconHubClient : IAsyncDisposable
 
     public async Task ConnectAsync(Guid serverId)
     {
+        _serverId = serverId;
+
         _connection = new HubConnectionBuilder()
             .WithUrl($"{_apiBaseUrl}/hubs/rcon", options =>
             {
@@ -69,12 +79,47 @@ public class RconHubClient : IAsyncDisposable
         _connection.On<PlayerSessionDto>("ReceivePlayerGeolocated", dto => PlayerGeolocated?.Invoke(dto));
         _connection.On<PlayerKillEventDto>("ReceivePlayerKilled", dto => PlayerKilled?.Invoke(dto));
 
-        // Re-join the group on every (re)connect, including automatic-reconnect - SignalR groups
-        // don't survive a dropped connection, even a briefly-reconnected one.
-        _connection.Reconnected += _ => _connection.InvokeAsync("JoinServerGroup", serverId);
+        // Re-join whichever group is currently selected on every (re)connect, including automatic
+        // reconnect - SignalR groups don't survive a dropped connection, even a briefly-reconnected
+        // one. Reads _unfiltered at the moment of each reconnect (not just the value captured when this
+        // handler was attached), so a mode switch made while briefly disconnected still takes effect.
+        _connection.Reconnected += _ => _connection.InvokeAsync(
+            _unfiltered ? "JoinUnfilteredServerGroup" : "JoinServerGroup", serverId);
 
         await _connection.StartAsync();
         await _connection.InvokeAsync("JoinServerGroup", serverId);
+    }
+
+    /// <summary>
+    /// Switches between this server's ordinary (interactive-only) live group and its unfiltered one.
+    /// </summary>
+    /// <remarks>
+    /// Mutually exclusive, not additive - joining the unfiltered group leaves the ordinary one (and
+    /// vice versa), so an unfiltered viewer never receives the same interactive event twice (once per
+    /// group). <c>RconHub.JoinUnfilteredServerGroup</c> independently re-checks server-side that the
+    /// caller is actually allowed in; a caller this wasn't meant for gets a <see cref="HubException"/>
+    /// out of this call rather than silently joining, since the Panel should only ever offer this to a
+    /// site admin acting as this tenant in the first place (see <c>ServerDetail.razor</c>'s own toggle).
+    /// </remarks>
+    public async Task SetUnfilteredAsync(bool unfiltered)
+    {
+        if (_connection is null || _serverId is not { } serverId || unfiltered == _unfiltered)
+        {
+            return;
+        }
+
+        if (unfiltered)
+        {
+            await _connection.InvokeAsync("JoinUnfilteredServerGroup", serverId);
+            await _connection.InvokeAsync("LeaveServerGroup", serverId);
+        }
+        else
+        {
+            await _connection.InvokeAsync("JoinServerGroup", serverId);
+            await _connection.InvokeAsync("LeaveUnfilteredServerGroup", serverId);
+        }
+
+        _unfiltered = unfiltered;
     }
 
     public async ValueTask DisposeAsync()
