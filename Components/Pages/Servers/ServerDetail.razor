@@ -545,7 +545,7 @@ else
                 }
                 else
                 {
-                    <div class="connection-log">
+                    <div class="connection-log" @ref="logsLogRef">
                         @foreach (var entry in connectionLog)
                         {
                             <div class="connection-log-entry">
@@ -773,6 +773,7 @@ else
     // ---- History loading (line count + optional date/time range), independent per tab ----
     private ElementReference consoleLogRef;
     private ElementReference chatLogRef;
+    private ElementReference logsLogRef;
     private int consoleLineCount = 200;
     private int chatLineCount = 200;
     private DateTime? consoleSince;
@@ -791,6 +792,7 @@ else
     // the mutation, not after.
     private bool pendingConsoleScroll;
     private bool pendingChatScroll;
+    private bool pendingLogsScroll;
     private bool initialScrollDone;
 
     // Runs after OnInitializedAsync on the very first pass, and again every time the query string
@@ -897,6 +899,15 @@ else
             }
         }
 
+        if (pendingLogsScroll)
+        {
+            pendingLogsScroll = false;
+            if (activeTab == Tab.Logs && connectionLog.Count > 0)
+            {
+                await JS.InvokeVoidAsync("consoleScroll.scrollToBottom", logsLogRef);
+            }
+        }
+
         if (pendingStatsChartRender && activeTab == Tab.Stats && serverInfoHistory.Count > 0)
         {
             pendingStatsChartRender = false;
@@ -913,6 +924,10 @@ else
         else if (activeTab == Tab.Chat && chatEvents.Count > 0)
         {
             await JS.InvokeVoidAsync("consoleScroll.scrollToBottom", chatLogRef);
+        }
+        else if (activeTab == Tab.Logs && connectionLog.Count > 0)
+        {
+            await JS.InvokeVoidAsync("consoleScroll.scrollToBottom", logsLogRef);
         }
     }
 
@@ -935,6 +950,10 @@ else
         else if (tab == Tab.Chat)
         {
             pendingChatScroll = true;
+        }
+        else if (tab == Tab.Logs)
+        {
+            pendingLogsScroll = true;
         }
 
         // Keeps the URL in sync so a refresh (or a shared/bookmarked link) lands back on this tab -
@@ -1286,8 +1305,10 @@ else
         StateHasChanged();
     }
 
-    /// <summary>Loads the last 24 hours of <see cref="ConnectionLogEntryDto"/> history for the Stats
-    /// tab's connection log - newest first, straight from the API (no client-side re-sort needed).</summary>
+    /// <summary>Loads the last 24 hours of <see cref="ConnectionLogEntryDto"/> history for the Logs
+    /// tab's connection log - newest first from the API, reversed here for the same oldest-at-top,
+    /// scrolls-to-the-bottom reading order as the Console/Chat tabs (see this page's own remarks on why
+    /// the Logs tab used to read backward from that).</summary>
     private async Task LoadConnectionLogAsync()
     {
         loadingConnectionLog = true;
@@ -1297,6 +1318,10 @@ else
         try
         {
             var result = await RustServerClient.GetConnectionLogAsync(Id);
+            // List<T>.Reverse() reverses in place and returns void, unlike Enumerable.Reverse() - do
+            // it as its own statement rather than inline, so this doesn't silently fail to compile (or
+            // silently do the wrong thing) the next time someone reaches for the LINQ one out of habit.
+            result.Reverse();
             connectionLog.Clear();
             connectionLog.AddRange(result);
         }
@@ -1309,6 +1334,7 @@ else
             loadingConnectionLog = false;
         }
 
+        pendingLogsScroll = true;
         StateHasChanged();
     }
 
@@ -1621,18 +1647,44 @@ else
             return;
         }
 
-        InvokeAsync(() =>
+        InvokeAsync(async () =>
         {
-            // Prepended live, not just refetched on the next Logs-tab visit - the whole point of this
+            // Appended live, not just refetched on the next Logs-tab visit - the whole point of this
             // log is answering "what just happened" while it's still fresh, same reasoning as the
-            // Console/Chat tabs' own live-append handlers.
-            connectionLog.Insert(0, new ConnectionLogEntryDto
+            // Console/Chat tabs' own live-append handlers - and the same near-bottom check those use
+            // (see OnEventReceived) before mutating the list, so this doesn't yank someone back to the
+            // bottom while they've scrolled up to read older entries.
+            if (activeTab == Tab.Logs)
+            {
+                pendingLogsScroll = connectionLog.Count == 0
+                    || await JS.InvokeAsync<bool>("consoleScroll.isNearBottom", logsLogRef);
+            }
+
+            // Inserted by OccurredAtUtc, not always appended at the end - ConnectionStatusConsumer
+            // deliberately allows more than one transition for this server to be in flight concurrently
+            // (see its own remarks; no ConcurrentMessageLimit/partitioner is configured for it), and the
+            // atomic per-row guard that protects RustServer.ConnectionStatus from ever regressing says
+            // nothing about the order two *different*, both-valid transitions' own log-write-then-push
+            // steps finish in relative to each other - a genuinely newer transition's push can still
+            // land before an older one's. A blind end-of-list append would then show it out of order,
+            // even though every row's own OccurredAtUtc (and the DB, which always sorts by it - see
+            // ConnectionLogRepository.GetForServerAsync) has the true order the whole time.
+            var entry = new ConnectionLogEntryDto
             {
                 Level = level,
                 Message = message,
                 Status = entryStatus,
                 OccurredAtUtc = occurredAtUtc
-            });
+            };
+            var index = connectionLog.FindIndex(existing => existing.OccurredAtUtc > entry.OccurredAtUtc);
+            if (index < 0)
+            {
+                connectionLog.Add(entry);
+            }
+            else
+            {
+                connectionLog.Insert(index, entry);
+            }
 
             StateHasChanged();
         });
