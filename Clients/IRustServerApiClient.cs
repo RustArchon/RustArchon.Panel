@@ -41,7 +41,8 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
         [Query] int pageSize = 100,
         [Query] bool? isChat = null,
         [Query] DateTimeOffset? since = null,
-        [Query] DateTimeOffset? until = null);
+        [Query] DateTimeOffset? until = null,
+        [Query] bool includeNonInteractive = false);
 
     [Get("/{id}/players")]
     Task<List<PlayerSessionDto>> GetCurrentPlayersAsync(Guid id);
@@ -108,10 +109,20 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
 
 /// <summary>
 /// Body for <see cref="IRustServerApiClient.SendCommandAsync"/> - mirrors
-/// <c>RustServersController.SendCommandRequest</c> exactly (same property name, case-insensitive
+/// <c>RustServersController.SendCommandRequest</c> exactly (same property names, case-insensitive
 /// JSON matching).
 /// </summary>
 public class SendCommandRequest
 {
     public string Command { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether a human actually typed/clicked this. No default, deliberately - every call site
+    /// constructing this has to set it explicitly, or the build fails; see
+    /// <c>RustArchon.Messaging.Contracts.SendRconCommand.Interactive</c>'s remarks for why. A page-load
+    /// side effect (a background fetch the Panel makes on its own, not because someone asked for it)
+    /// must set this <c>false</c>; a Console/Control-tab command, or a per-player moderation action a
+    /// user actually clicked, sets it <c>true</c>.
+    /// </summary>
+    public required bool Interactive { get; set; }
 }

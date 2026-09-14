@@ -1,11 +1,14 @@
 @* Copyright ©2026 Scott Blomfield *@
 
 @page "/servers/{Id:guid}"
+@using System.IdentityModel.Tokens.Jwt
 @using System.Linq
 @using System.Net
 @using System.Text
 @using System.Text.Json
 @using System.Text.RegularExpressions
+@using JumpStart.Services.Authentication
+@using JumpStart.Services.Authentication.Controllers
 @using Microsoft.AspNetCore.Authorization
 @using RustArchon.Messaging.Contracts
 @using RustArchon.Panel.Clients
@@ -14,6 +17,7 @@
 @attribute [Authorize]
 @inject IRustServerApiClient RustServerClient
 @inject RconHubClient HubClient
+@inject ITokenStore TokenStore
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
 @inject SiteBrandingService Branding
@@ -116,6 +120,17 @@ else
                         <i class="bi bi-x-circle"></i> @Localizer["Reset to latest"]
                     </button>
                 }
+                @* Only ever offered to a site admin currently acting as this tenant - see
+                   IsActingAsTenant's remarks. Nobody else can turn this on: RustServersController.GetEvents
+                   and RconHub.JoinUnfilteredServerGroup both independently re-check the same claim
+                   server-side, so this checkbox existing at all is not itself what grants anything. *@
+                @if (isActingAsTenant)
+                {
+                    <label class="console-unfiltered-toggle" title="@Localizer["Also shows sent commands and background (worker-initiated) activity normally hidden from tenant users - e.g. a poll that may include privileged data."]">
+                        <input type="checkbox" class="form-check-input" role="switch" @bind="unfilteredConsole" @bind:after="OnUnfilteredConsoleToggledAsync" disabled="@loadingConsoleHistory" />
+                        @Localizer["Unfiltered (site admin)"]
+                    </label>
+                }
             </div>
 
             @if (consoleEvents.Count == 0)
@@ -131,8 +146,16 @@ else
                 <div class="console-log" @ref="consoleLogRef">
                     @foreach (var evt in consoleEvents)
                     {
-                        <div class="console-line">
+                        <div class="console-line @(!evt.Interactive ? "console-line-background" : "")">
                             <span class="console-line-time">@evt.CapturedAtUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+                            @if (evt.Direction == RconEventDirection.Sent)
+                            {
+                                <span class="console-line-badge console-line-badge-sent">@Localizer["Sent"]</span>
+                            }
+                            @if (!evt.Interactive)
+                            {
+                                <span class="console-line-badge console-line-badge-background">@Localizer["Background"]</span>
+                            }
                             <span class="console-line-message">@LinkifyConsoleLine(evt.Message)</span>
                         </div>
                     }
@@ -785,6 +808,18 @@ else
     private bool loadingConsoleHistory;
     private bool loadingChatHistory;
 
+    // ---- Console tab: site-admin-only unfiltered view ----
+    // Whether the current session is a site admin acting as this server's tenant - see
+    // IsActingAsTenant's remarks. Gates whether the toggle below is even shown; the actual
+    // enforcement lives server-side (RustServersController.GetEvents, RconHub.JoinUnfilteredServerGroup),
+    // both of which re-derive this same fact from the token independently rather than trusting this
+    // field or the query/hub calls it drives.
+    private bool isActingAsTenant;
+
+    // When true, LoadConsoleHistoryAsync requests (and RconHubClient is joined to receive) background
+    // events too, not just interactive ones - see OnUnfilteredConsoleToggledAsync.
+    private bool unfilteredConsole;
+
     // ---- Auto-scroll bookkeeping ----
     // Set (via a JS check of the pane's *current* scroll position) right before a new line is added
     // to the list that backs it, then consumed in OnAfterRenderAsync once that line has actually been
@@ -827,6 +862,7 @@ else
         if (server is not null)
         {
             status = server.ConnectionStatus;
+            isActingAsTenant = IsActingAsTenant();
 
             await LoadConsoleHistoryAsync(resetScroll: false);
             await LoadChatHistoryAsync(resetScroll: false);
@@ -989,7 +1025,8 @@ else
             var since = ToServerLocalUtc(consoleSince);
             var until = ToServerLocalUtc(consoleUntil);
             var history = await RustServerClient.GetEventsAsync(
-                Id, pageNumber: 1, pageSize: consoleLineCount, isChat: false, since: since, until: until);
+                Id, pageNumber: 1, pageSize: consoleLineCount, isChat: false, since: since, until: until,
+                includeNonInteractive: unfilteredConsole);
 
             consoleEvents.Clear();
             // Newest-first from the API - reverse for a natural top-to-bottom reading order.
@@ -1141,7 +1178,11 @@ else
 
         try
         {
-            var result = await RustServerClient.SendCommandAsync(Id, new SendCommandRequest { Command = "global.banlistex" });
+            // Interactive: false - this fires automatically on every page load, never because a user
+            // asked for it (see this method's own doc remarks) - the exact shape of the bug
+            // RconCommandContext exists to prevent. Must never show up in the Console tab.
+            var result = await RustServerClient.SendCommandAsync(
+                Id, new SendCommandRequest { Command = "global.banlistex", Interactive = false });
             if (result.Success)
             {
                 banList.Clear();
@@ -1249,7 +1290,10 @@ else
 
         try
         {
-            var result = await RustServerClient.SendCommandAsync(Id, new SendCommandRequest { Command = "serverinfo" });
+            // Interactive: false - same reasoning as LoadBanListAsync above: an automatic page-load
+            // fetch, not a user-run command.
+            var result = await RustServerClient.SendCommandAsync(
+                Id, new SendCommandRequest { Command = "serverinfo", Interactive = false });
             if (result.Success && result.Message is not null)
             {
                 liveServerInfo = JsonSerializer.Deserialize<ServerInfoLiveDto>(result.Message);
@@ -1433,7 +1477,10 @@ else
 
         try
         {
-            var result = await RustServerClient.SendCommandAsync(Id, new SendCommandRequest { Command = command });
+            // Interactive: true - a human clicked a Control-tab action button (see this method's own
+            // remarks above).
+            var result = await RustServerClient.SendCommandAsync(
+                Id, new SendCommandRequest { Command = command, Interactive = true });
             if (!result.Success)
             {
                 controlError = result.Error switch
@@ -1559,6 +1606,53 @@ else
         consoleSince = null;
         consoleUntil = null;
         return LoadConsoleHistoryAsync();
+    }
+
+    /// <summary>
+    /// Whether the current session's API token carries <see cref="TokenController.ActingAsClaimType"/>
+    /// - i.e. this is a site admin currently acting as this server's own tenant (see
+    /// <c>SiteAdminCrossTenantPolicy</c>), the only audience the unfiltered-console toggle is ever
+    /// offered to.
+    /// </summary>
+    /// <remarks>
+    /// Decoded from the raw token client-side rather than asked of the API - this only ever decides
+    /// whether the Panel *offers* the toggle. Both places that actually enforce it
+    /// (<c>RustServersController.GetEvents</c>, <c>RconHub.JoinUnfilteredServerGroup</c>) independently
+    /// re-derive the same fact from the token themselves, so a forged or stale client-side read here
+    /// costs nothing beyond showing (or hiding) a checkbox that does nothing on its own. Safe to call
+    /// once <see cref="RustServerClient"/>'s own token exchange has already run (see this page's
+    /// <c>OnInitializedAsync</c> - the same ordering <see cref="RconHubClient"/>'s own remarks rely on).
+    /// </remarks>
+    private bool IsActingAsTenant()
+    {
+        var token = TokenStore.GetToken();
+        if (string.IsNullOrEmpty(token))
+        {
+            return false;
+        }
+
+        try
+        {
+            var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+            return jwt.Claims.Any(c => c.Type == TokenController.ActingAsClaimType && c.Value == "true");
+        }
+        catch (ArgumentException)
+        {
+            // Malformed/non-JWT token - treat the same as "not acting as anyone" rather than throwing
+            // out of a page load over what is, at worst, a hidden checkbox.
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Switches the Console tab between the ordinary (interactive-only) view and the unfiltered one -
+    /// re-joins the right SignalR group for live events going forward, and reloads history so what's
+    /// already on screen matches too.
+    /// </summary>
+    private async Task OnUnfilteredConsoleToggledAsync()
+    {
+        await HubClient.SetUnfilteredAsync(unfilteredConsole);
+        await LoadConsoleHistoryAsync();
     }
 
     private Task ResetChatFilterAsync()
@@ -1712,7 +1806,9 @@ else
 
         try
         {
-            var result = await RustServerClient.SendCommandAsync(Id, new SendCommandRequest { Command = command });
+            // Interactive: true - a human typed this into the Console tab and hit Enter/Send.
+            var result = await RustServerClient.SendCommandAsync(
+                Id, new SendCommandRequest { Command = command, Interactive = true });
             if (!result.Success)
             {
                 commandError = result.Error switch
@@ -1762,7 +1858,9 @@ else
             // separate "chat" RCON verb, so this rides the exact same command channel/endpoint the
             // Console tab uses. The server echoes it back as its own Chat-typed frame, so it'll appear
             // in this list via the live tail rather than being added optimistically here.
-            var result = await RustServerClient.SendCommandAsync(Id, new SendCommandRequest { Command = BuildSayCommand(message) });
+            // Interactive: true - a human typed and sent this chat message.
+            var result = await RustServerClient.SendCommandAsync(
+                Id, new SendCommandRequest { Command = BuildSayCommand(message), Interactive = true });
             if (!result.Success)
             {
                 chatError = result.Error switch

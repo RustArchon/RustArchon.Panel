@@ -379,7 +379,10 @@ else
 
         try
         {
-            var result = await RustServerClient.SendCommandAsync(ServerId, new SendCommandRequest { Command = command });
+            // Interactive: true - a human clicked a moderation action button (see this method's own
+            // remarks above).
+            var result = await RustServerClient.SendCommandAsync(
+                ServerId, new SendCommandRequest { Command = command, Interactive = true });
             if (!result.Success)
             {
                 actionError = result.Error switch
