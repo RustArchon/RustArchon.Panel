@@ -145,12 +145,24 @@ public class StripeWebhookHandler(
         using var document = JsonDocument.Parse(body);
         var root = document.RootElement;
 
-        if (!root.TryGetProperty("type", out var typeElement) ||
-            typeElement.GetString() != "checkout.session.completed")
+        if (!root.TryGetProperty("type", out var typeElement))
         {
             return;
         }
 
+        switch (typeElement.GetString())
+        {
+            case "checkout.session.completed":
+                await HandleCheckoutCompletedAsync(root, cancellationToken);
+                break;
+            case "payment_intent.payment_failed":
+                await HandlePaymentFailedAsync(root, cancellationToken);
+                break;
+        }
+    }
+
+    private async Task HandleCheckoutCompletedAsync(JsonElement root, CancellationToken cancellationToken)
+    {
         if (!root.TryGetProperty("data", out var data) || !data.TryGetProperty("object", out var session))
         {
             logger.LogWarning("checkout.session.completed event carried no session payload - ignored.");
@@ -234,5 +246,83 @@ public class StripeWebhookHandler(
         logger.LogInformation(
             "Recorded Stripe payment for invoice {InvoiceId}: {Amount} (session {SessionId}).",
             invoiceId, amount, sessionId);
+    }
+
+    /// <summary>
+    /// Handles a declined charge - the event carries the PaymentIntent directly (not a Checkout Session),
+    /// which is why its InvoiceId comes from <c>PaymentIntent.Metadata</c> alone: there is no
+    /// <c>client_reference_id</c> fallback here the way there is for a completed Session, since a
+    /// PaymentIntent has no such field. See <see cref="StripeCheckoutService"/>'s own remarks for why the
+    /// Checkout Session this PaymentIntent belongs to must set <c>payment_intent_data.metadata</c>
+    /// explicitly for this to ever be populated at all.
+    /// </summary>
+    private async Task HandlePaymentFailedAsync(JsonElement root, CancellationToken cancellationToken)
+    {
+        if (!root.TryGetProperty("id", out var eventIdElement) || eventIdElement.GetString() is not { } eventId)
+        {
+            logger.LogWarning("payment_intent.payment_failed event carried no event id - ignored.");
+            return;
+        }
+
+        if (!root.TryGetProperty("data", out var data) || !data.TryGetProperty("object", out var paymentIntent))
+        {
+            logger.LogWarning("payment_intent.payment_failed event carried no PaymentIntent payload - ignored.");
+            return;
+        }
+
+        string? invoiceIdRaw = paymentIntent.TryGetProperty("metadata", out var metadata)
+            && metadata.TryGetProperty("InvoiceId", out var metadataInvoiceId)
+            ? metadataInvoiceId.GetString()
+            : null;
+
+        if (!Guid.TryParse(invoiceIdRaw, out var invoiceId))
+        {
+            // Expected for any PaymentIntent RustArchon didn't itself create with this metadata - not
+            // every Stripe account activity is necessarily this integration's own, so this is routine,
+            // not a warning.
+            logger.LogInformation(
+                "payment_intent.payment_failed carried no usable InvoiceId - ignored (event {EventId}).", eventId);
+            return;
+        }
+
+        var providerPaymentId = paymentIntent.TryGetProperty("id", out var idElement) ? idElement.GetString() : null;
+        if (string.IsNullOrEmpty(providerPaymentId))
+        {
+            logger.LogWarning(
+                "payment_intent.payment_failed for invoice {InvoiceId} carried no PaymentIntent id - ignored.",
+                invoiceId);
+            return;
+        }
+
+        var amountCents = paymentIntent.TryGetProperty("amount", out var amountElement)
+            ? amountElement.GetInt64()
+            : 0;
+
+        string? failureCode = null;
+        string? failureMessage = null;
+        if (paymentIntent.TryGetProperty("last_payment_error", out var lastError)
+            && lastError.ValueKind == JsonValueKind.Object)
+        {
+            failureCode = lastError.TryGetProperty("code", out var codeElement) ? codeElement.GetString() : null;
+            failureMessage = lastError.TryGetProperty("message", out var messageElement)
+                ? messageElement.GetString()
+                : null;
+        }
+
+        await internalStripeApiClient.RecordFailedPaymentAsync(
+            new RecordFailedStripePaymentRequestDto
+            {
+                InvoiceId = invoiceId,
+                Amount = amountCents / 100m,
+                ProviderPaymentId = providerPaymentId,
+                ProviderEventId = eventId,
+                FailureCode = failureCode,
+                FailureMessage = failureMessage
+            },
+            cancellationToken);
+
+        logger.LogInformation(
+            "Recorded failed Stripe payment for invoice {InvoiceId}: {FailureCode} (PaymentIntent {ProviderPaymentId}).",
+            invoiceId, failureCode, providerPaymentId);
     }
 }

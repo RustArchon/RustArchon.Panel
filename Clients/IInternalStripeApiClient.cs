@@ -18,4 +18,8 @@ public interface IInternalStripeApiClient
 {
     [Post("/internal/stripe/payments")]
     Task RecordPaymentAsync([Body] RecordStripePaymentRequestDto request, CancellationToken cancellationToken = default);
+
+    [Post("/internal/stripe/payments/failed")]
+    Task RecordFailedPaymentAsync(
+        [Body] RecordFailedStripePaymentRequestDto request, CancellationToken cancellationToken = default);
 }

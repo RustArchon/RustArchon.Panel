@@ -45,8 +45,7 @@
     /// </remarks>
     private sealed record ReportLink(string Group, string Title, string Description, string Route, string Icon);
 
-    // Only reports that exist. The payment register is still absent for that reason - nothing records
-    // payments yet - and listing it would turn this page into a roadmap.
+    // Only reports that exist - listing anything else would turn this page into a roadmap.
     private static readonly ReportLink[] Reports =
     [
         new("Collections",
@@ -89,6 +88,12 @@
             "New Signups",
             "Who registered over a window, and whether they ever provisioned a server. Signups that never activate were never customers.",
             "/Reports/NewSignups",
-            "bi-person-plus-fill")
+            "bi-person-plus-fill"),
+
+        new("Payments",
+            "Payment Ledger",
+            "Every payment attempt, successful or failed - processor reconciliation against Stripe's own dashboard, and who's being declined.",
+            "/Reports/PaymentLedger",
+            "bi-credit-card")
     ];
 }

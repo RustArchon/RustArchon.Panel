@@ -81,4 +81,12 @@ public interface IReportApiClient
     /// <c>NexusBlockedBanner</c>, the one caller today.</summary>
     [Get("/blocked-invoices")]
     Task<ReportResult<BlockedInvoiceJurisdictionRowDto>> GetBlockedInvoicesAsync();
+
+    /// <summary>Every payment attempt in the window - the processor reconciliation and failed-charge
+    /// report.</summary>
+    [Get("/payment-ledger")]
+    Task<ReportResult<PaymentLedgerRowDto>> GetPaymentLedgerAsync(
+        [Query(Format = "yyyy-MM-dd")] DateOnly from,
+        [Query(Format = "yyyy-MM-dd")] DateOnly to,
+        PaymentStatus? status = null);
 }
