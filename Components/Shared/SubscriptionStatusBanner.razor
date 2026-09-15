@@ -1,0 +1,50 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@using RustArchon.Panel.Clients
+@using RustArchon.Shared.DTOs
+@inject ISubscriptionApiClient SubscriptionClient
+
+@*
+    Mounted once in MainLayout, same seam as ActingAsBanner - present on every page a member might land
+    on, not just Account/BillingHistory, since a suspended server can be discovered from anywhere (the
+    Servers list, a server's own detail page) and the reason is never obvious from those screens alone.
+
+    Deliberately silent on any failure below - a permission a viewer doesn't hold, a subscription that
+    doesn't exist, a transient Api error - none of those should ever turn a missing reminder into a
+    broken banner on every page in the app. Worst case, someone doesn't see a nudge they'd already have
+    gotten by email from DunningService/OrganizationLifecycleService anyway.
+*@
+@if (subscription is { Status: SubscriptionStatus.PastDue or SubscriptionStatus.Suspended } sub)
+{
+    var suspended = sub.Status == SubscriptionStatus.Suspended;
+
+    <div class="alert @(suspended ? "alert-danger" : "alert-warning") mb-3" role="alert">
+        <i class="bi @(suspended ? "bi-exclamation-octagon" : "bi-exclamation-triangle")" aria-hidden="true"></i>
+        <strong>
+            @(suspended
+                ? Localizer["Your servers have been suspended for non-payment."]
+                : Localizer["Your account is past due."])
+        </strong>
+        @if (!string.IsNullOrWhiteSpace(sub.StatusReason))
+        {
+            <span> @sub.StatusReason</span>
+        }
+        <a href="Account/BillingHistory" class="alert-link ms-1">@Localizer["Pay now"] <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+    </div>
+}
+
+@code {
+    private SubscriptionDto? subscription;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            subscription = await SubscriptionClient.GetAsync();
+        }
+        catch
+        {
+            // See this component's own remarks above.
+        }
+    }
+}

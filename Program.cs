@@ -1,6 +1,7 @@
 // Copyright ©2026 Scott Blomfield
 
 using System.Globalization;
+using System.Linq;
 using JumpStart.Api.Clients;
 using JumpStart.Services;
 using JumpStart.Services.Authentication;
@@ -393,6 +394,13 @@ builder.Services.AddApiClient<IInternalRegistrationApiClient>(apiBaseUrl)
 builder.Services.AddApiClient<IInternalCommunicationApiClient>(apiBaseUrl)
     .ConfigureHttpClient(client => client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey));
 
+// Same channel again - backs the /webhooks/stripe endpoint below, the only caller. See
+// StripeWebhookHandler's own remarks for why the webhook itself lives here rather than on
+// RustArchon.Api directly.
+builder.Services.AddApiClient<IInternalStripeApiClient>(apiBaseUrl)
+    .ConfigureHttpClient(client => client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey));
+builder.Services.AddScoped<StripeWebhookHandler>();
+
 // Backs the /theme-assets/{themeId}/{**path} endpoint below - a plain named HttpClient rather than a
 // Refit interface like the internal clients above, since this one's whole job is forwarding raw bytes
 // and a Content-Type it doesn't know in advance, not deserializing a typed response.
@@ -538,6 +546,27 @@ app.MapGet("/theme-assets/{themeId:guid}/{*path}", async (
     // is no "the file changed under the same URL" case to invalidate against.
     httpContext.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
     return Results.File(bytes, contentType);
+});
+
+// Stripe's webhook target - anonymous and unconditional, same "one public door" reasoning as the
+// tracking pixel and theme assets above: RustArchon.Api never publishes a port, so Stripe's servers
+// reach this Panel instead, and StripeWebhookHandler verifies the payload itself (hand-rolled
+// HMAC-SHA256, not the caller's identity) before ever calling back into Api. The raw body is read once,
+// here, rather than model-bound - the exact bytes are part of what the signature covers.
+app.MapPost("/webhooks/stripe", async (
+    HttpRequest request, StripeWebhookHandler handler, CancellationToken cancellationToken) =>
+{
+    using var reader = new StreamReader(request.Body);
+    var body = await reader.ReadToEndAsync(cancellationToken);
+    var signatureHeader = request.Headers["Stripe-Signature"].FirstOrDefault();
+
+    var verified = await handler.ProcessAsync(signatureHeader, body, cancellationToken);
+
+    // Stripe retries anything but a 2xx, including a 4xx it should never get past signature
+    // verification - so only an unverifiable payload (a wrong/missing secret, a forged signature)
+    // answers 400. Every genuinely-signed payload answers 200 regardless of what handling it did
+    // internally, per ProcessAsync's own remarks.
+    return verified ? Results.Ok() : Results.BadRequest();
 });
 
 // Authentication & Authorization must run before UseAntiforgery, so HttpContext.User is already

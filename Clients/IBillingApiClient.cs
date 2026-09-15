@@ -27,9 +27,15 @@ public interface IBillingApiClient
     [Post("/payments")]
     Task<InvoiceDto> RecordPaymentAsync([Body] RecordPaymentRequestDto request);
 
-    /// <summary>Undoes a payment - a refund or a chargeback.</summary>
+    /// <summary>
+    /// Undoes some or all of a payment - a refund or a chargeback. For a Stripe-collected payment this
+    /// calls Stripe's real Refund API first, so a card is actually credited, not just the books - see
+    /// <c>IPaymentService.ReversePaymentAsync</c>'s own remarks.
+    /// </summary>
+    /// <param name="amount">How much to reverse, or omit to reverse everything still live on this
+    /// payment.</param>
     [Post("/payments/{paymentId}/reverse")]
-    Task ReversePaymentAsync(Guid paymentId, PaymentStatus status);
+    Task ReversePaymentAsync(Guid paymentId, PaymentStatus status, decimal? amount = null);
 
     /// <summary>Grants value back against an invoice without money moving.</summary>
     [Post("/credit-notes")]

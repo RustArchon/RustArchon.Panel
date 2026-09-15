@@ -10,6 +10,7 @@
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject ISubscriptionApiClient SubscriptionClient
+@inject NavigationManager NavigationManager
 @rendermode RenderModes.NonPrerenderedServer
 
 @*
@@ -21,6 +22,29 @@
     JumpStart's global filter does the rest, which is the point of proving the components on this one:
     they behave the same inside the tenant boundary as outside it.
 *@
+
+@if (Paid == true)
+{
+    @* Stripe's own success_url redirect - see SubscriptionController.CreateCheckoutSession. Not proof
+       the payment settled: that's StripeWebhookHandler's job (RustArchon.Panel), on its own schedule
+       (usually seconds, but never guaranteed instant), so this says "we're processing it" rather than
+       "paid." The grid below already reloaded once on this same page load - which may have landed
+       before the webhook did - so this points at Refresh rather than promising the row below is
+       already showing the real status. *@
+    <div class="alert alert-success alert-dismissible" role="alert">
+        <i class="bi bi-check-circle" aria-hidden="true"></i>
+        @Localizer["Thanks - your payment is being processed. If it doesn't show as paid below within a minute, click Refresh."]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="@Localizer["Close"]"></button>
+    </div>
+}
+@if (payNowError is not null)
+{
+    <div class="alert alert-danger alert-dismissible" role="alert">
+        @payNowError
+        <button type="button" class="btn-close" @onclick="() => payNowError = null" aria-label="@Localizer["Close"]"></button>
+    </div>
+}
+
 <ReportPage Title="@Localizer["Billing History"]"
             Description="@Localizer["Every billing period your organization has been charged for, newest first."]"
             OnRun="RunAsync"
@@ -45,11 +69,23 @@
 </ReportPage>
 
 @code {
+    /// <summary>
+    /// Set by Stripe's own <c>success_url</c> redirect (see <c>SubscriptionController.CreateCheckoutSession</c>)
+    /// - shows the "thanks, processing" banner. Not itself proof of payment; see that banner's own remarks.
+    /// </summary>
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "paid")]
+    public bool? Paid { get; set; }
+
     private ReportGrid<BillingHistoryEntryDto>? grid;
     private ReportResult<BillingHistoryEntryDto>? result;
 
     private bool loading = true;
     private string? errorMessage;
+
+    // ---- "Pay now" (Stripe Checkout) ----
+    private Guid? payingInvoiceId;
+    private string? payNowError;
 
     private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
     private static readonly CultureInfo Dates = CultureInfo.InvariantCulture;
@@ -126,6 +162,28 @@
         finally
         {
             loading = false;
+        }
+    }
+
+    /// <summary>
+    /// Starts a Stripe-hosted checkout for one open invoice and redirects the browser there. A full
+    /// (non-SPA) navigation, deliberately - Checkout is a page on Stripe's own domain, not something
+    /// this circuit can render inline.
+    /// </summary>
+    private async Task PayNowAsync(Guid invoiceId)
+    {
+        payNowError = null;
+        payingInvoiceId = invoiceId;
+
+        try
+        {
+            var checkoutUrl = await SubscriptionClient.CreateCheckoutSessionAsync(invoiceId);
+            NavigationManager.NavigateTo(checkoutUrl, forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            payNowError = ApiErrorMessage.For(ex, "start checkout for this invoice");
+            payingInvoiceId = null;
         }
     }
 
@@ -213,6 +271,30 @@
             header: Localizer["Outstanding"],
             value: r => r.Outstanding,
             display: r => r.Outstanding == 0m ? string.Empty : r.Outstanding.ToString("C", Money),
-            align: ReportAlign.Right)
+            align: ReportAlign.Right),
+
+        // Screen furniture, same reasoning as the Status column - no raw value, out of the CSV.
+        new ReportColumn<BillingHistoryEntryDto>(
+            header: string.Empty,
+            template: r =>
+                @<span>
+                    @if (r.InvoiceStatus == RustArchon.Shared.DTOs.InvoiceStatus.Open
+                        && r.InvoiceId is { } invoiceId && r.Outstanding > 0m)
+                    {
+                        <button type="button" class="btn btn-sm btn-primary"
+                                disabled="@(payingInvoiceId == invoiceId)"
+                                @onclick="() => PayNowAsync(invoiceId)">
+                            @if (payingInvoiceId == invoiceId)
+                            {
+                                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-credit-card" aria-hidden="true"></i>
+                            }
+                            @Localizer["Pay now"]
+                        </button>
+                    }
+                </span>)
     ];
 }

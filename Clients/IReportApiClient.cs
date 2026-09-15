@@ -76,4 +76,9 @@ public interface IReportApiClient
     /// <summary>The plans to offer in a report's plan dropdown.</summary>
     [Get("/plan-options")]
     Task<List<ReportFilterOptionDto>> GetPlanOptionsAsync();
+
+    /// <summary>Jurisdictions currently blocking an invoice for lack of a Stripe tax registration - see
+    /// <c>NexusBlockedBanner</c>, the one caller today.</summary>
+    [Get("/blocked-invoices")]
+    Task<ReportResult<BlockedInvoiceJurisdictionRowDto>> GetBlockedInvoicesAsync();
 }

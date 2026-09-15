@@ -1,0 +1,50 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@using RustArchon.Panel.Clients
+@using RustArchon.Shared.DTOs
+@inject IReportApiClient ReportClient
+
+@*
+    Mounted once in MainLayout, same seam as ActingAsBanner/SubscriptionStatusBanner - present on every
+    page, since a site admin might land anywhere first. Not gated by an explicit permission check here:
+    the underlying /reports/blocked-invoices endpoint is already restricted to ViewReports (see
+    ReportsController), so anyone without it simply gets a 403, which the catch below turns into "render
+    nothing" - the same way every ordinary tenant customer already sees no banner at all, with no
+    special-casing needed for who they are.
+
+    Deliberately silent on any other failure too, for the same reason SubscriptionStatusBanner is: a
+    missed nudge here is never worse than a broken layout on every page in the app. Worst case, a site
+    admin finds out from the daily digest email (NexusComplianceNotificationService) instead.
+*@
+@if (blocked is { Count: > 0 })
+{
+    <div class="alert alert-warning mb-3" role="alert">
+        <i class="bi bi-globe-americas" aria-hidden="true"></i>
+        <strong>@Localizer["Some invoices can't be issued."]</strong>
+        @Localizer["{0} organization(s) across {1} jurisdiction(s) are blocked on a missing Stripe tax registration.",
+            organizationCount, blocked.Count]
+        <a href="https://dashboard.stripe.com/tax/locations" target="_blank" rel="noopener" class="alert-link ms-1">
+            @Localizer["Register in Stripe"] <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
+        </a>
+    </div>
+}
+
+@code {
+    private List<BlockedInvoiceJurisdictionRowDto>? blocked;
+    private int organizationCount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var result = await ReportClient.GetBlockedInvoicesAsync();
+            blocked = result.Rows;
+            organizationCount = blocked.Sum(r => r.OrganizationCount);
+        }
+        catch
+        {
+            // See this component's own remarks above.
+            blocked = null;
+        }
+    }
+}

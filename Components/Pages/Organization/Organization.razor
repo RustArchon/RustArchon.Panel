@@ -63,25 +63,65 @@
                 <ValidationSummary class="text-danger" role="alert" />
 
                 <div class="row g-2 align-items-end">
-                    <div class="col-md-5">
+                    <div class="col-md-6">
                         <label class="form-label small text-muted mb-1" for="org-name">@Localizer["Name"]</label>
                         <input id="org-name" class="form-control form-control-sm"
                                @bind="settingsForm.Name" @bind:event="oninput" />
                     </div>
-                    <div class="col-md-5">
+                    <div class="col-md-6">
                         <label class="form-label small text-muted mb-1" for="org-contact-email">@Localizer["Contact email"]</label>
                         <input id="org-contact-email" type="email" class="form-control form-control-sm"
                                @bind="settingsForm.ContactEmail" @bind:event="oninput" />
                     </div>
-                    <div class="col-md-2">
-                        <button type="submit" class="btn btn-sm btn-primary w-100" disabled="@savingSettings">
-                            @(savingSettings ? Localizer["Saving..."] : Localizer["Save"])
-                        </button>
-                    </div>
                 </div>
-                <div class="form-text">
+                <div class="form-text mb-3">
                     @Localizer["Notices about your subscription - past-due reminders, suspensions, invoices - go to the contact email. Leave it blank and you won't receive them."]
                 </div>
+
+                <hr class="my-3" />
+                <h2 class="h6">@Localizer["Billing address"]</h2>
+                <p class="form-text mt-0">
+                    @Localizer["Used only to determine sales tax, if any applies where you're located. Leave the country blank if you'd rather not set one."]
+                </p>
+                <div class="row g-2">
+                    <div class="col-md-5">
+                        <label class="form-label small text-muted mb-1" for="org-billing-line1">@Localizer["Address line 1"]</label>
+                        <input id="org-billing-line1" class="form-control form-control-sm"
+                               @bind="settingsForm.BillingLine1" @bind:event="oninput" />
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small text-muted mb-1" for="org-billing-line2">@Localizer["Address line 2"]</label>
+                        <input id="org-billing-line2" class="form-control form-control-sm"
+                               @bind="settingsForm.BillingLine2" @bind:event="oninput" />
+                    </div>
+                </div>
+                <div class="row g-2 mt-1">
+                    <div class="col-md-4">
+                        <label class="form-label small text-muted mb-1" for="org-billing-city">@Localizer["City"]</label>
+                        <input id="org-billing-city" class="form-control form-control-sm"
+                               @bind="settingsForm.BillingCity" @bind:event="oninput" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small text-muted mb-1" for="org-billing-state">@Localizer["State / province"]</label>
+                        <input id="org-billing-state" class="form-control form-control-sm"
+                               @bind="settingsForm.BillingState" @bind:event="oninput" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small text-muted mb-1" for="org-billing-postal">@Localizer["Postal code"]</label>
+                        <input id="org-billing-postal" class="form-control form-control-sm"
+                               @bind="settingsForm.BillingPostalCode" @bind:event="oninput" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small text-muted mb-1" for="org-billing-country">@Localizer["Country"]</label>
+                        <input id="org-billing-country" class="form-control form-control-sm" maxlength="2"
+                               placeholder="@Localizer["e.g. US"]"
+                               @bind="settingsForm.BillingCountry" @bind:event="oninput" />
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-sm btn-primary mt-3" disabled="@savingSettings">
+                    @(savingSettings ? Localizer["Saving..."] : Localizer["Save"])
+                </button>
             </EditForm>
         </div>
     </div>
@@ -372,7 +412,14 @@
             settings = await SettingsClient.GetAsync();
             settingsForm = new UpdateOrganizationSettingsRequestDto
             {
-                Name = settings.Name, ContactEmail = settings.ContactEmail
+                Name = settings.Name,
+                ContactEmail = settings.ContactEmail,
+                BillingLine1 = settings.BillingLine1,
+                BillingLine2 = settings.BillingLine2,
+                BillingCity = settings.BillingCity,
+                BillingState = settings.BillingState,
+                BillingPostalCode = settings.BillingPostalCode,
+                BillingCountry = settings.BillingCountry
             };
         }
         catch (Refit.ApiException ex) when (

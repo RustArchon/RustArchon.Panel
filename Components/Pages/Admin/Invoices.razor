@@ -148,16 +148,25 @@ else
                                                     <tbody>
                                                         @foreach (var settlement in invoice.Settlements)
                                                         {
-                                                            <tr class="@(settlement.ReversedOn is not null ? "text-muted" : null)">
+                                                            var fullyReversed = settlement.ReversedAmount >= settlement.Amount;
+                                                            var liveAmount = settlement.Amount - settlement.ReversedAmount;
+
+                                                            <tr class="@(fullyReversed ? "text-muted" : null)">
                                                                 <td>
                                                                     @settlement.Kind
                                                                     @if (settlement.Method is { } method)
                                                                     {
                                                                         <span class="text-muted small">· @method</span>
                                                                     }
-                                                                    @if (settlement.ReversedOn is not null)
+                                                                    @if (fullyReversed)
                                                                     {
                                                                         <span class="badge bg-secondary ms-1">@Localizer["Reversed"]</span>
+                                                                    }
+                                                                    else if (settlement.ReversedAmount > 0m)
+                                                                    {
+                                                                        <span class="badge bg-warning text-dark ms-1">
+                                                                            @Localizer["{0} refunded", settlement.ReversedAmount.ToString("C", Money)]
+                                                                        </span>
                                                                     }
                                                                     @if (!string.IsNullOrWhiteSpace(settlement.Reference))
                                                                     {
@@ -165,19 +174,28 @@ else
                                                                     }
                                                                 </td>
                                                                 <td class="text-end">
-                                                                    <span class="@(settlement.ReversedOn is not null ? "text-decoration-line-through" : null)">
+                                                                    <span class="@(fullyReversed ? "text-decoration-line-through" : null)">
                                                                         @settlement.Amount.ToString("C", Money)
                                                                     </span>
                                                                     <div class="text-muted small">@Date(settlement.AppliedOn)</div>
                                                                 </td>
                                                                 <td class="text-end">
-                                                                    @if (settlement.Kind == "Payment" && settlement.ReversedOn is null)
+                                                                    @if (settlement.Kind == "Payment" && !fullyReversed)
                                                                     {
-                                                                        <button class="btn btn-sm btn-outline-danger"
-                                                                                disabled="@working"
-                                                                                @onclick="() => Reverse(settlement.Id, PaymentStatus.Refunded)">
-                                                                            @Localizer["Refund"]
-                                                                        </button>
+                                                                        <div class="d-flex gap-1 justify-content-end align-items-center">
+                                                                            <div class="input-group input-group-sm" style="max-width: 6.5rem;">
+                                                                                <span class="input-group-text">$</span>
+                                                                                <input type="number" step="0.01" min="0.01" max="@liveAmount"
+                                                                                       class="form-control"
+                                                                                       value="@RefundAmountFor(settlement.Id, liveAmount)"
+                                                                                       @onchange="e => SetRefundAmount(settlement.Id, e.Value)" />
+                                                                            </div>
+                                                                            <button class="btn btn-sm btn-outline-danger"
+                                                                                    disabled="@working"
+                                                                                    @onclick="() => Reverse(settlement.Id, PaymentStatus.Refunded, RefundAmountFor(settlement.Id, liveAmount))">
+                                                                                @(settlement.ReversedAmount > 0m ? Localizer["Refund more"] : Localizer["Refund"])
+                                                                            </button>
+                                                                        </div>
                                                                     }
                                                                 </td>
                                                             </tr>
@@ -403,10 +421,30 @@ else
             Localizer["Voided {0}.", invoice.Number],
             "void that invoice");
 
-    private Task Reverse(Guid paymentId, PaymentStatus status) =>
+    /// <summary>
+    /// The amount an admin has typed into a settlement row's refund box - keyed by the
+    /// <c>PaymentAllocation</c> id, not the underlying payment, since a payment allocated across
+    /// several invoices shows one row (and one independently-refundable amount) per invoice. Only ever
+    /// holds an entry once someone actually edits the box; <see cref="RefundAmountFor"/> falls back to
+    /// the row's own live (still-unreversed) amount until then.
+    /// </summary>
+    private readonly Dictionary<Guid, decimal> refundAmounts = new();
+
+    private decimal RefundAmountFor(Guid settlementId, decimal liveAmount) =>
+        refundAmounts.TryGetValue(settlementId, out var amount) ? amount : liveAmount;
+
+    private void SetRefundAmount(Guid settlementId, object? value)
+    {
+        if (decimal.TryParse(value?.ToString(), out var amount) && amount > 0m)
+        {
+            refundAmounts[settlementId] = amount;
+        }
+    }
+
+    private Task Reverse(Guid paymentId, PaymentStatus status, decimal amount) =>
         RunAsync(
-            () => BillingClient.ReversePaymentAsync(paymentId, status),
-            Localizer["Payment reversed. Anything it settled is owed again."],
+            () => BillingClient.ReversePaymentAsync(paymentId, status, amount),
+            Localizer["Reversed {0}. Anything it settled is owed again.", amount.ToString("C", Money)],
             "reverse that payment");
 
     /// <summary>
