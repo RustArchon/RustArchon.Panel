@@ -299,6 +299,12 @@ builder.Services.AddApiClient<IOrganizationApiClient>($"{apiBaseUrl}/api/admin/o
     .AddHttpMessageHandler<JwtExchangeHandler>()
     .AddHttpMessageHandler<JwtAuthenticationHandler>();
 
+// Same handler chain again - gated by Platform.ManageDiscounts (see DiscountsController), its own
+// permission rather than a reuse of ManageBilling/ManagePlans.
+builder.Services.AddApiClient<IDiscountApiClient>($"{apiBaseUrl}/api/discounts")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
 // The platform-wide user directory and the Site Admin role, same permission as the console above.
 builder.Services.AddApiClient<IPlatformUserApiClient>($"{apiBaseUrl}/api/admin/users")
     .AddHttpMessageHandler<JwtExchangeHandler>()

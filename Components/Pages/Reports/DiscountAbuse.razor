@@ -1,0 +1,99 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Reports/DiscountAbuse"
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Components.Shared.Reporting
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IReportApiClient ReportClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<ReportPage Title="@Localizer["Discount Abuse Signals"]"
+            Description="@Localizer["Organizations sharing a server or a contact email, where at least one has redeemed a discount. A flag to review, not a conclusion - see each group's own detail before acting."]"
+            Parameters="parameters"
+            OnRun="RunAsync"
+            Loading="loading"
+            ErrorMessage="@errorMessage"
+            AccessDenied="accessDenied"
+            Result="result"
+            OnExport="ExportAsync"
+            ExportDisabled="@(result is null || result.Rows.Count == 0)">
+    <div class="mb-3">
+        @foreach (var group in rows)
+        {
+            <div class="card mb-2">
+                <div class="card-body">
+                    <h6 class="mb-1">
+                        <span class="badge bg-warning text-dark">@group.SignalType</span>
+                        <span class="font-monospace ms-1">@group.Detail</span>
+                    </h6>
+                    <table class="table table-sm mb-0">
+                        <thead><tr><th>@Localizer["Organization"]</th><th>@Localizer["Redeemed"]</th></tr></thead>
+                        <tbody>
+                            @foreach (var tenant in group.Tenants)
+                            {
+                                <tr class="@(tenant.IsActive ? null : "text-muted")">
+                                    <td>
+                                        <a href="@($"Admin/Organizations/{tenant.TenantId}")">@tenant.OrganizationName</a>
+                                        @if (!tenant.IsActive)
+                                        {
+                                            <span class="badge bg-secondary ms-1">@Localizer["Deactivated"]</span>
+                                        }
+                                    </td>
+                                    <td class="small text-muted">
+                                        @(tenant.RedeemedDiscountCodes.Count > 0 ? string.Join(", ", tenant.RedeemedDiscountCodes) : "—")
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+        @if (result is not null && rows.Count == 0)
+        {
+            <p class="text-muted">@Localizer["No shared-signal groups found."]</p>
+        }
+    </div>
+</ReportPage>
+
+@code {
+    private ReportResult<DiscountAbuseSignalRowDto>? result;
+    private bool loading = true;
+    private bool accessDenied;
+    private string? errorMessage;
+
+    private IReadOnlyList<ReportParameter> parameters = [];
+    private IReadOnlyList<DiscountAbuseSignalRowDto> rows => result?.Rows ?? [];
+
+    protected override async Task OnInitializedAsync() => await RunAsync();
+
+    private Task ExportAsync() => Task.CompletedTask;
+
+    private async Task RunAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            result = await ReportClient.GetDiscountAbuseSignalsAsync();
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "run the discount abuse report");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+}

@@ -58,4 +58,9 @@ public interface ISubscriptionApiClient
     /// </summary>
     [Post("/invoices/{invoiceId}/checkout-session")]
     Task<string> CreateCheckoutSessionAsync(Guid invoiceId);
+
+    /// <summary>Redeems a discount code against the caller's own Organization - applied to whichever
+    /// invoice is issued next.</summary>
+    [Post("/discounts/redeem")]
+    Task<DiscountRedemptionResultDto> RedeemDiscountAsync([Body] RedeemDiscountRequestDto request);
 }
