@@ -180,7 +180,13 @@ else
                                                                     <div class="text-muted small">@Date(settlement.AppliedOn)</div>
                                                                 </td>
                                                                 <td class="text-end">
-                                                                    @if (settlement.Kind == "Payment" && !fullyReversed)
+                                                                    @if (settlement.Kind == "Payment" && settlement.Status == PaymentStatus.Disputed)
+                                                                    {
+                                                                        <a class="btn btn-sm btn-outline-dark" href="@($"Admin/Payments/{settlement.Id}/ChargebackPacket")">
+                                                                            @Localizer["Chargeback packet"]
+                                                                        </a>
+                                                                    }
+                                                                    @if (settlement.Kind == "Payment" && !fullyReversed && settlement.Status != PaymentStatus.Disputed)
                                                                     {
                                                                         <div class="d-flex gap-1 justify-content-end align-items-center">
                                                                             <div class="input-group input-group-sm" style="max-width: 6.5rem;">

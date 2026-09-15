@@ -48,4 +48,13 @@ public interface IBillingApiClient
     /// <summary>Gives up on a debt that was genuinely owed.</summary>
     [Post("/invoices/write-off")]
     Task<InvoiceDto> WriteOffInvoiceAsync([Body] CloseInvoiceRequestDto request);
+
+    /// <summary>The chargeback packet for one disputed payment.</summary>
+    [Get("/payments/{paymentId}/chargeback-evidence")]
+    Task<ChargebackEvidenceDto> GetChargebackEvidenceAsync(Guid paymentId);
+
+    /// <summary>Submits the chargeback packet to Stripe as the dispute's formal response - see
+    /// <c>IStripeDisputeService.SubmitEvidenceAsync</c>'s own remarks: one-shot, not a draft.</summary>
+    [Post("/payments/{paymentId}/chargeback-evidence/submit")]
+    Task SubmitChargebackEvidenceAsync(Guid paymentId);
 }

@@ -158,6 +158,9 @@ public class StripeWebhookHandler(
             case "payment_intent.payment_failed":
                 await HandlePaymentFailedAsync(root, cancellationToken);
                 break;
+            case "charge.dispute.created":
+                await HandleDisputeCreatedAsync(root, cancellationToken);
+                break;
         }
     }
 
@@ -324,5 +327,56 @@ public class StripeWebhookHandler(
         logger.LogInformation(
             "Recorded failed Stripe payment for invoice {InvoiceId}: {FailureCode} (PaymentIntent {ProviderPaymentId}).",
             invoiceId, failureCode, providerPaymentId);
+    }
+
+    /// <summary>
+    /// Handles a chargeback - the earliest possible notice that a customer's bank has pulled money back,
+    /// so the invoice it settled can reopen immediately rather than waiting for a site admin to notice it
+    /// in Stripe's own dashboard. See <c>IPaymentService.RecordDisputeAsync</c>'s own remarks for why no
+    /// Stripe API call happens on this path at all.
+    /// </summary>
+    private async Task HandleDisputeCreatedAsync(JsonElement root, CancellationToken cancellationToken)
+    {
+        if (!root.TryGetProperty("data", out var data) || !data.TryGetProperty("object", out var dispute))
+        {
+            logger.LogWarning("charge.dispute.created event carried no Dispute payload - ignored.");
+            return;
+        }
+
+        var disputeId = dispute.TryGetProperty("id", out var idElement) ? idElement.GetString() : null;
+        var providerPaymentId = dispute.TryGetProperty("payment_intent", out var piElement)
+            && piElement.ValueKind == JsonValueKind.String
+            ? piElement.GetString()
+            : null;
+
+        if (string.IsNullOrEmpty(disputeId) || string.IsNullOrEmpty(providerPaymentId))
+        {
+            logger.LogWarning("charge.dispute.created carried no usable dispute id or PaymentIntent id - ignored.");
+            return;
+        }
+
+        var reason = dispute.TryGetProperty("reason", out var reasonElement) ? reasonElement.GetString() : null;
+
+        DateTimeOffset? dueBy = null;
+        if (dispute.TryGetProperty("evidence_details", out var evidenceDetails)
+            && evidenceDetails.TryGetProperty("due_by", out var dueByElement)
+            && dueByElement.ValueKind == JsonValueKind.Number)
+        {
+            dueBy = DateTimeOffset.FromUnixTimeSeconds(dueByElement.GetInt64());
+        }
+
+        await internalStripeApiClient.RecordDisputeAsync(
+            new RecordStripeDisputeRequestDto
+            {
+                ProviderPaymentId = providerPaymentId,
+                DisputeId = disputeId,
+                Reason = reason,
+                DueBy = dueBy
+            },
+            cancellationToken);
+
+        logger.LogWarning(
+            "Recorded Stripe dispute {DisputeId} for PaymentIntent {ProviderPaymentId}: {Reason}, evidence due {DueBy}.",
+            disputeId, providerPaymentId, reason, dueBy);
     }
 }

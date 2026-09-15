@@ -1,0 +1,300 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/Payments/{PaymentId:guid}/ChargebackPacket"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IBillingApiClient BillingClient
+@inject IJSRuntime JS
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@Localizer["Chargeback Packet"]</PageTitle>
+
+@*
+    A print stylesheet, not a server-generated PDF - "Download PDF" below calls the browser's own
+    print dialog (every browser can Save as PDF from there), which needed no new dependency and no
+    server-side rendering pipeline for a document whose whole job is being printed or saved once.
+*@
+<style>
+    @@media print {
+        .no-print { display: none !important; }
+        a[href]::after { content: none !important; }
+    }
+</style>
+
+@if (loading)
+{
+    <p class="text-muted">@Localizer["Loading..."]</p>
+}
+else if (accessDenied)
+{
+    <div class="alert alert-danger">@Localizer["You don't have permission to view this."]</div>
+}
+else if (errorMessage is not null)
+{
+    <div class="alert alert-danger">@errorMessage</div>
+}
+else if (evidence is null)
+{
+    <div class="alert alert-warning">@Localizer["This payment isn't disputed - there's no chargeback packet to show."]</div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-start mb-4 no-print">
+        <div>
+            <h1 class="mb-1">@Localizer["Chargeback Packet"]</h1>
+            <p class="text-muted mb-0">@evidence.OrganizationName - @evidence.Amount.ToString("C", Money) - @Localizer["dispute"] @evidence.DisputeId</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary" @onclick="DownloadPdf">
+                <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> @Localizer["Download PDF"]
+            </button>
+            @if (evidence.DisputeEvidenceSubmittedOn is null)
+            {
+                <button class="btn btn-primary" disabled="@submitting" @onclick="() => showConfirm = true">
+                    @Localizer["Submit to Stripe"]
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (evidence.DisputeEvidenceSubmittedOn is { } submittedOn)
+    {
+        <div class="alert alert-info no-print">
+            @Localizer["Evidence was already submitted to Stripe on {0}. Submitting again updates Stripe's own record but doesn't undo the first submission.", submittedOn.UtcDateTime.ToString("d MMM yyyy HH:mm", Dates)]
+        </div>
+    }
+
+    @if (submitResult is not null)
+    {
+        <div class="alert @(submitError ? "alert-danger" : "alert-success") no-print">@submitResult</div>
+    }
+
+    @if (showConfirm)
+    {
+        <ConfirmationModal Title="@Localizer["Submit evidence to Stripe?"]"
+                            ConfirmButtonText="@Localizer["Submit"]"
+                            ConfirmButtonClass="btn-primary"
+                            OnClose="OnConfirmSubmit">
+            <Message>
+                <p>
+                    @Localizer["This sends the evidence below directly to Stripe as {0}'s formal response to this dispute.", evidence.OrganizationName]
+                </p>
+                <p class="fw-semibold text-danger mb-0">
+                    @Localizer["This is a one-shot action. Stripe treats a submitted response as final for the dispute's outcome - review everything below carefully before confirming."]
+                </p>
+            </Message>
+        </ConfirmationModal>
+    }
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase small">@Localizer["Dispute"]</h6>
+                    <dl class="row mb-0 small">
+                        <dt class="col-6">@Localizer["Reason"]</dt><dd class="col-6">@(evidence.DisputeReason ?? "—")</dd>
+                        <dt class="col-6">@Localizer["Evidence due"]</dt>
+                        <dd class="col-6">
+                            @if (evidence.DisputeDueBy is { } dueBy)
+                            {
+                                <span class="@(dueBy < DateTimeOffset.UtcNow ? "text-danger fw-semibold" : null)">
+                                    @dueBy.UtcDateTime.ToString("d MMM yyyy", Dates)
+                                </span>
+                            }
+                            else
+                            {
+                                <text>—</text>
+                            }
+                        </dd>
+                        <dt class="col-6">@Localizer["Provider id"]</dt><dd class="col-6 font-monospace">@evidence.ProviderPaymentId</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase small">@Localizer["Customer"]</h6>
+                    <dl class="row mb-0 small">
+                        <dt class="col-6">@Localizer["Contact"]</dt><dd class="col-6">@evidence.ContactEmail</dd>
+                        <dt class="col-6">@Localizer["Customer since"]</dt><dd class="col-6">@evidence.CustomerSinceOn.UtcDateTime.ToString("d MMM yyyy", Dates)</dd>
+                        <dt class="col-6">@Localizer["Prior payments"]</dt><dd class="col-6">@evidence.PriorSuccessfulPaymentCount</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase small">@Localizer["Billing address"]</h6>
+                    <p class="small mb-0">@(evidence.BillingAddress ?? Localizer["None on file"])</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h6 class="text-muted text-uppercase small">@Localizer["Invoices settled"]</h6>
+    <div class="table-responsive mb-3">
+        <table class="table table-sm">
+            <thead><tr>
+                <th>@Localizer["Number"]</th><th>@Localizer["Service period"]</th>
+                <th class="text-end">@Localizer["Total"]</th><th>@Localizer["Description"]</th>
+            </tr></thead>
+            <tbody>
+                @foreach (var invoice in evidence.Invoices)
+                {
+                    <tr>
+                        <td>@invoice.Number</td>
+                        <td>
+                            @if (invoice.ServiceStart is { } s && invoice.ServiceEnd is { } e)
+                            {
+                                @($"{s.UtcDateTime:d MMM yyyy} - {e.UtcDateTime:d MMM yyyy}")
+                            }
+                            else
+                            {
+                                <text>—</text>
+                            }
+                        </td>
+                        <td class="text-end">@invoice.Total.ToString("C", Money)</td>
+                        <td class="small text-muted">@string.Join("; ", invoice.LineDescriptions)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <h6 class="text-muted text-uppercase small">@Localizer["Service activity"]</h6>
+    <div class="table-responsive mb-3">
+        <table class="table table-sm">
+            <thead><tr>
+                <th>@Localizer["Server"]</th><th>@Localizer["Added"]</th>
+                <th class="text-end">@Localizer["Connection events"]</th><th>@Localizer["Activity window"]</th>
+            </tr></thead>
+            <tbody>
+                @foreach (var server in evidence.Servers)
+                {
+                    <tr>
+                        <td>@server.Name</td>
+                        <td>@server.CreatedOn.UtcDateTime.ToString("d MMM yyyy", Dates)</td>
+                        <td class="text-end">@server.ConnectionEventCount</td>
+                        <td class="small text-muted">
+                            @if (server.FirstActivityInPeriod is { } first && server.LastActivityInPeriod is { } last)
+                            {
+                                @($"{first.UtcDateTime:d MMM yyyy} - {last.UtcDateTime:d MMM yyyy}")
+                            }
+                            else
+                            {
+                                <text>@Localizer["No activity recorded in the service period"]</text>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (evidence.Servers.Count == 0)
+                {
+                    <tr><td colspan="4" class="text-muted">@Localizer["No servers on this account."]</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <h6 class="text-muted text-uppercase small">@Localizer["Communication history"]</h6>
+    <div class="table-responsive mb-3">
+        <table class="table table-sm">
+            <thead><tr><th>@Localizer["Subject"]</th><th>@Localizer["Sent"]</th><th>@Localizer["Opened"]</th></tr></thead>
+            <tbody>
+                @foreach (var comm in evidence.Communications)
+                {
+                    <tr>
+                        <td>@comm.Subject</td>
+                        <td class="small text-muted">@(comm.SentOn?.UtcDateTime.ToString("d MMM yyyy HH:mm", Dates) ?? "—")</td>
+                        <td class="small text-muted">@(comm.ViewedOn?.UtcDateTime.ToString("d MMM yyyy HH:mm", Dates) ?? Localizer["Not opened"])</td>
+                    </tr>
+                }
+                @if (evidence.Communications.Count == 0)
+                {
+                    <tr><td colspan="3" class="text-muted">@Localizer["No communications found in this window."]</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <h6 class="text-muted text-uppercase small">@Localizer["Evidence summary"]</h6>
+    <p class="text-muted small">@Localizer["This is exactly what \"Submit to Stripe\" sends as the uncategorized_text evidence field - copy it manually into Stripe's dashboard instead if you'd rather review the submission there."]</p>
+    <textarea class="form-control font-monospace small" rows="10" readonly>@evidence.SummaryText</textarea>
+}
+
+@code {
+    [Parameter] public Guid PaymentId { get; set; }
+
+    private ChargebackEvidenceDto? evidence;
+    private bool loading = true;
+    private bool accessDenied;
+    private string? errorMessage;
+    private bool showConfirm;
+    private bool submitting;
+    private string? submitResult;
+    private bool submitError;
+
+    private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
+    private static readonly CultureInfo Dates = CultureInfo.InvariantCulture;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            evidence = await BillingClient.GetChargebackEvidenceAsync(PaymentId);
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            evidence = null;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load the chargeback packet");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private Task DownloadPdf() => JS.InvokeVoidAsync("print").AsTask();
+
+    private async Task OnConfirmSubmit(bool confirmed)
+    {
+        showConfirm = false;
+        if (!confirmed)
+        {
+            return;
+        }
+
+        submitting = true;
+        submitResult = null;
+        submitError = false;
+
+        try
+        {
+            await BillingClient.SubmitChargebackEvidenceAsync(PaymentId);
+            submitResult = Localizer["Evidence submitted to Stripe."];
+            evidence = await BillingClient.GetChargebackEvidenceAsync(PaymentId);
+        }
+        catch (Exception ex)
+        {
+            submitError = true;
+            submitResult = ApiErrorMessage.For(ex, "submit evidence to Stripe");
+        }
+        finally
+        {
+            submitting = false;
+        }
+    }
+}
