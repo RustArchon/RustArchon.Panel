@@ -179,6 +179,14 @@
     .nav-flyout-group:focus-within .nav-flyout-menu {
         display: block;
     }
+
+    /* Set by navFlyout.js the instant a flyout link is clicked - see its own remarks for why
+       hover/focus-within alone cannot be trusted to close the menu once Blazor's post-navigation
+       DOM patch strands it at an unset position. !important because it has to win over the :hover
+       rule above while the pointer is still physically resting on the (about to move) menu. */
+    .nav-flyout-group.nav-flyout-force-closed .nav-flyout-menu {
+        display: none !important;
+    }
 }
 
 @media (max-width: 640px) {
