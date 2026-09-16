@@ -68,5 +68,11 @@
             CookieRequestCultureProvider.DefaultCookieName,
             CookieRequestCultureProvider.MakeCookieValue(
                 new RequestCulture(CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture)));
+
+        RedirectToSingleUserAuthIfConfigured();
     }
+
+    // A personal local-dev convenience, never committed - see SingleUserAuth.cs's own remarks. This
+    // declaration alone does nothing; App.razor.local.cs (gitignored) supplies the real redirect.
+    partial void RedirectToSingleUserAuthIfConfigured();
 }

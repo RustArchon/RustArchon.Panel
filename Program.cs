@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
+using RustArchon.Panel;
 using RustArchon.Panel.Clients;
 using RustArchon.Panel.Components;
 using RustArchon.Panel.Components.Account;
@@ -450,6 +451,10 @@ else
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
     app.UseHsts();
 }
+
+// A no-op unless SingleUserAuth.local.cs exists on disk (gitignored, never committed) - see
+// SingleUserAuth.cs's own remarks.
+SingleUserAuth.ApplyOnlyOutsideContainer(app);
 
 // Recovers the original scheme/host from X-Forwarded-Proto/-For - see RustArchon.Api/Program.cs's
 // matching remarks for why this is safe with KnownProxies/KnownNetworks left empty in this topology.
