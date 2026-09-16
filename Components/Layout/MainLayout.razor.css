@@ -65,6 +65,15 @@ main {
         height: 100vh;
         position: sticky;
         top: 0;
+        /* Without an explicit value here, NavMenu's own hover flyouts (position: fixed, z-index: 1000
+           - see NavMenu.razor.css) lose to this layout's .top-row below despite that one being z-index:
+           1, a hundred times smaller. Confirmed empirically, the hard way: a positioned sibling branch
+           with z-index left at its default "auto" apparently loses to a sibling branch that has ANY
+           explicit z-index at all, regardless of what a z-index deep inside the "auto" branch says -
+           the explicit z-index has to be up here, on the branch's own root, not just on the element
+           that visually needs to win. Comfortably below Bootstrap's own elevated components (dropdowns
+           start at 1020) so it never fights a modal/dropdown/toast if one is ever added to this layout. */
+        z-index: 10;
     }
 
     .top-row {
