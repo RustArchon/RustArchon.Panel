@@ -16,6 +16,14 @@ namespace RustArchon.Panel.Clients;
 /// </summary>
 public interface IInternalStripeApiClient
 {
+    /// <summary>
+    /// This deployment's Stripe webhook signing secret, decrypted - fetched live on every inbound
+    /// webhook delivery rather than cached, the same as every other Secret-typed platform setting (see
+    /// <c>StripeCredentialProvider</c>'s own remarks in RustArchon.Api).
+    /// </summary>
+    [Get("/internal/stripe/webhook-secret")]
+    Task<string> GetWebhookSecretAsync(CancellationToken cancellationToken = default);
+
     [Post("/internal/stripe/payments")]
     Task RecordPaymentAsync([Body] RecordStripePaymentRequestDto request, CancellationToken cancellationToken = default);
 

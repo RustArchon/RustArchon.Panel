@@ -6,7 +6,6 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using RustArchon.Panel.Clients;
 using RustArchon.Shared.DTOs;
@@ -22,9 +21,12 @@ namespace RustArchon.Panel.Services;
 /// <strong>RustArchon.Api is never reachable from outside the Docker network</strong> (see its own
 /// <c>InternalController</c> remarks) - the same reason the email tracking pixel and theme assets are
 /// served from here instead of proxied there directly. Stripe's servers need to reach this endpoint
-/// from the public internet, so this Panel is the one public door, and it makes one internal,
-/// shared-secret-authenticated call (<see cref="IInternalStripeApiClient"/>) once it has verified the
-/// payload is genuine - exactly the same shape as <c>IInternalCommunicationApiClient</c>'s.
+/// from the public internet, so this Panel is the one public door, and it makes its internal,
+/// shared-secret-authenticated calls (<see cref="IInternalStripeApiClient"/>) both ways around
+/// verification: fetching the webhook signing secret first (it lives in Platform Settings, encrypted,
+/// not in this Panel's own configuration - see <c>StripeCredentialProvider</c>), then, once the payload
+/// verifies against it, recording whatever the event actually was - exactly the same shape as
+/// <c>IInternalCommunicationApiClient</c>'s.
 /// </para>
 /// <para>
 /// <strong>No Stripe.net dependency here on purpose.</strong> Verifying a webhook signature is just
@@ -36,8 +38,7 @@ namespace RustArchon.Panel.Services;
 /// </para>
 /// </remarks>
 public class StripeWebhookHandler(
-    IInternalStripeApiClient internalStripeApiClient, IConfiguration configuration,
-    ILogger<StripeWebhookHandler> logger)
+    IInternalStripeApiClient internalStripeApiClient, ILogger<StripeWebhookHandler> logger)
 {
     /// <summary>
     /// How far a signature's own timestamp may drift from now before it's refused - the same 300-second
@@ -57,10 +58,12 @@ public class StripeWebhookHandler(
     /// </returns>
     public async Task<bool> ProcessAsync(string? signatureHeader, string body, CancellationToken cancellationToken)
     {
-        var webhookSecret = configuration["STRIPE_WEBHOOK_SECRET"];
+        var webhookSecret = await internalStripeApiClient.GetWebhookSecretAsync(cancellationToken);
         if (string.IsNullOrEmpty(webhookSecret))
         {
-            logger.LogError("Rejected a Stripe webhook payload - STRIPE_WEBHOOK_SECRET is not configured.");
+            logger.LogError(
+                "Rejected a Stripe webhook payload - the Stripe webhook signing secret isn't configured " +
+                "in Platform Settings.");
             return false;
         }
 
