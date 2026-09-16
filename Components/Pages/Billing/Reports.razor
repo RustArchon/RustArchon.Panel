@@ -1,0 +1,13 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Billing/Reports"
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Components.Shared.Reporting
+@attribute [Authorize]
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@Localizer["Billing Reports"]</PageTitle>
+
+<ReportIndexList Title="@Localizer["Billing Reports"]"
+                 Description="@Localizer["Who owes money and how much is outstanding. Each one opens on its own page, with its parameters in the address bar - so a report narrowed down to what you care about is a link you can bookmark or send to someone."]"
+                 Reports="ReportCatalog.ForArea(ReportArea.Billing)" />

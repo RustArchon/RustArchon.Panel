@@ -1,0 +1,42 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@* The grouped list-group markup a per-area report landing page needs (Pages/Customers/Reports.razor,
+   Pages/Billing/Reports.razor, Pages/Payments/Reports.razor) - pulled out once here since all three
+   are otherwise identical aside from which slice of ReportCatalog.All they pass in. *@
+
+<div class="mb-4">
+    <h1 class="mb-1">@Title</h1>
+    <p class="text-muted mb-0">@Description</p>
+</div>
+
+<div class="row g-3">
+    @foreach (var group in Reports.GroupBy(r => r.Group))
+    {
+        <div class="col-12">
+            <h6 class="text-muted text-uppercase small mb-2">@Localizer[group.Key]</h6>
+            <div class="list-group">
+                @foreach (var report in group)
+                {
+                    <a class="list-group-item list-group-item-action" href="@report.Route">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi @report.Icon" aria-hidden="true"></i>
+                            <span class="fw-semibold">@Localizer[report.Title]</span>
+                        </div>
+                        <div class="text-muted small">@Localizer[report.Description]</div>
+                    </a>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = "";
+
+    [Parameter, EditorRequired]
+    public string Description { get; set; } = "";
+
+    [Parameter, EditorRequired]
+    public IEnumerable<ReportLink> Reports { get; set; } = [];
+}

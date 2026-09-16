@@ -35,6 +35,11 @@ bld/
 wwwroot/lib/**/*.map
 appsettings.*.local.json
 
+## Personal local-only source - never committed, on any branch. See SingleUserAuth.cs's own remarks
+## for why this pattern exists: the real implementation was accidentally committed once already.
+
+*.local.cs
+
 ## EF Core
 
 *.mdf

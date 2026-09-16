@@ -80,6 +80,31 @@ else
         </div>
     </div>
 
+    <div class="card mb-4">
+        <div class="card-header">@Localizer["Discount code"]</div>
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-auto">
+                    <label class="form-label small">@Localizer["Have a code?"]</label>
+                    <input class="form-control form-control-sm" style="max-width: 12rem;"
+                           @bind="discountCode" placeholder="@Localizer["Enter code"]" />
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-sm btn-outline-primary" disabled="@redeemingDiscount"
+                            @onclick="RedeemDiscountAsync">
+                        @Localizer["Redeem"]
+                    </button>
+                </div>
+            </div>
+            @if (discountRedeemResult is not null)
+            {
+                <div class="alert @(discountRedeemSucceeded ? "alert-success" : "alert-danger") py-1 px-2 small mt-2 mb-0">
+                    @discountRedeemResult
+                </div>
+            }
+        </div>
+    </div>
+
     @* Only on plans that actually sell capacity. On a flat tier the unit price is zero, so buying
        slots would charge nothing and change nothing - the control isn't offered rather than offered
        and quietly ignored. *@
@@ -361,7 +386,48 @@ else
     private string? errorMessage;
     private string? successMessage;
 
+    private string discountCode = string.Empty;
+    private bool redeemingDiscount;
+    private string? discountRedeemResult;
+    private bool discountRedeemSucceeded;
+
     protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task RedeemDiscountAsync()
+    {
+        discountRedeemResult = null;
+
+        if (string.IsNullOrWhiteSpace(discountCode))
+        {
+            discountRedeemSucceeded = false;
+            discountRedeemResult = Localizer["Enter a code first."];
+            return;
+        }
+
+        redeemingDiscount = true;
+        try
+        {
+            var result = await SubscriptionClient.RedeemDiscountAsync(
+                new RedeemDiscountRequestDto { Code = discountCode.Trim() });
+            discountRedeemSucceeded = result.Success;
+            discountRedeemResult = result.Success
+                ? Localizer["Applied - it'll show up on your next invoice."]
+                : result.ErrorMessage;
+            if (result.Success)
+            {
+                discountCode = string.Empty;
+            }
+        }
+        catch (Exception ex)
+        {
+            discountRedeemSucceeded = false;
+            discountRedeemResult = ApiErrorMessage.For(ex, "redeem the discount code");
+        }
+        finally
+        {
+            redeemingDiscount = false;
+        }
+    }
 
     private async Task LoadAsync()
     {

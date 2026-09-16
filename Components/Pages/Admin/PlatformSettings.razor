@@ -281,8 +281,10 @@ else
     private IList<CultureInfo> SupportedCultures => LocalizationOptions.Value.SupportedUICultures ?? [];
 
     // Categories not in this list (a section added at the Api without a preference here yet) fall in
-    // alphabetically after these - see OrderedCategories.
-    private static readonly string[] PreferredCategoryOrder = ["General", "Registration", "Billing", EmailCategory];
+    // alphabetically after these - see OrderedCategories. Payments sits right after Billing, matching
+    // where the nav's own Customers/Billing/Payments split already puts it.
+    private static readonly string[] PreferredCategoryOrder =
+        ["General", "Registration", "Billing", "Payments", EmailCategory];
 
     private List<PlatformSettingDto>? settings;
     private List<PlanDto>? plans;

@@ -1,0 +1,13 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Payments/Reports"
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Components.Shared.Reporting
+@attribute [Authorize]
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@Localizer["Payment Reports"]</PageTitle>
+
+<ReportIndexList Title="@Localizer["Payment Reports"]"
+                 Description="@Localizer["Payment processing and reconciliation against Stripe's own dashboard. Each one opens on its own page, with its parameters in the address bar - so a report narrowed down to what you care about is a link you can bookmark or send to someone."]"
+                 Reports="ReportCatalog.ForArea(ReportArea.Payments)" />

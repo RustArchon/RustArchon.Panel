@@ -1,5 +1,6 @@
 // Copyright ©2026 Scott Blomfield
 
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Refit;
@@ -50,4 +51,16 @@ public interface ISubscriptionApiClient
     /// <summary>Calls off a scheduled change that hasn't taken effect yet.</summary>
     [Delete("/scheduled-change")]
     Task CancelScheduledChangeAsync();
+
+    /// <summary>
+    /// Starts a Stripe-hosted checkout for one of the caller's own open invoices - see
+    /// <c>IStripeCheckoutService</c>'s remarks. Returns the Stripe-hosted URL to redirect the browser to.
+    /// </summary>
+    [Post("/invoices/{invoiceId}/checkout-session")]
+    Task<string> CreateCheckoutSessionAsync(Guid invoiceId);
+
+    /// <summary>Redeems a discount code against the caller's own Organization - applied to whichever
+    /// invoice is issued next.</summary>
+    [Post("/discounts/redeem")]
+    Task<DiscountRedemptionResultDto> RedeemDiscountAsync([Body] RedeemDiscountRequestDto request);
 }

@@ -1,0 +1,171 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Payments/Reports/PaymentLedger"
+@using System.Globalization
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Components.Shared.Reporting
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IReportApiClient ReportClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<ReportPage Title="@Localizer["Payment Ledger"]"
+            Description="@Localizer["Every payment attempt - successful or failed - newest first. Cross-check ProviderPaymentId against Stripe's own dashboard for reconciliation, or filter to Failed to see who's being declined."]"
+            Parameters="parameters"
+            OnRun="RunAsync"
+            Loading="loading"
+            ErrorMessage="@errorMessage"
+            AccessDenied="accessDenied"
+            Result="result"
+            OnExport="ExportAsync"
+            ExportDisabled="@(result is null || result.Rows.Count == 0)">
+    <ReportGrid @ref="grid"
+                TRow="PaymentLedgerRowDto"
+                Rows="rows"
+                Columns="columns"
+                FileName="payment-ledger"
+                EmptyMessage="@Localizer["No payment attempts in this window."]" />
+</ReportPage>
+
+@code {
+    private ReportGrid<PaymentLedgerRowDto>? grid;
+    private ReportResult<PaymentLedgerRowDto>? result;
+
+    private bool loading = true;
+    private bool accessDenied;
+    private string? errorMessage;
+
+    private static readonly CultureInfo Money = CultureInfo.GetCultureInfo("en-US");
+    private static readonly CultureInfo Dates = CultureInfo.InvariantCulture;
+
+    /// <remarks>Built in <see cref="OnInitialized"/>, not a field initializer - see NewSignups.razor's
+    /// own remarks for why (Localizer isn't populated yet when field initializers run).</remarks>
+    private IReadOnlyList<ReportParameter> parameters = [];
+
+    private IReadOnlyList<ReportColumn<PaymentLedgerRowDto>> columns = [];
+
+    private DateRangeParameter Window => (DateRangeParameter)parameters[0];
+    private SelectParameter StatusFilter => (SelectParameter)parameters[1];
+
+    private IReadOnlyList<PaymentLedgerRowDto> rows => result?.Rows ?? [];
+
+    protected override void OnInitialized()
+    {
+        parameters =
+        [
+            new DateRangeParameter(
+                key: "received",
+                label: Localizer["Received"],
+                from: DateRangeParameter.Today.AddDays(-30),
+                to: DateRangeParameter.Today,
+                presets:
+                [
+                    new DateRangePreset(Localizer["Last 7 days"], -7, 0),
+                    new DateRangePreset(Localizer["Last 30 days"], -30, 0),
+                    new DateRangePreset(Localizer["Last 90 days"], -90, 0)
+                ]),
+
+            new SelectParameter("status", Localizer["Status"], allLabel: Localizer["All"])
+            {
+                Options =
+                [
+                    new ReportFilterOptionDto { Value = nameof(PaymentStatus.Succeeded), Label = Localizer["Succeeded"] },
+                    new ReportFilterOptionDto { Value = nameof(PaymentStatus.Failed), Label = Localizer["Failed"] },
+                    new ReportFilterOptionDto { Value = nameof(PaymentStatus.Refunded), Label = Localizer["Refunded"] },
+                    new ReportFilterOptionDto { Value = nameof(PaymentStatus.Disputed), Label = Localizer["Disputed"] }
+                ]
+            }
+        ];
+        columns = BuildColumns();
+    }
+
+    private Task ExportAsync() => grid?.ExportCsvAsync() ?? Task.CompletedTask;
+
+    private async Task RunAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            PaymentStatus? status = StatusFilter.Value is { } raw && Enum.TryParse<PaymentStatus>(raw, out var parsed)
+                ? parsed
+                : null;
+
+            result = await ReportClient.GetPaymentLedgerAsync(Window.From, Window.To, status);
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "run the payment ledger report");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private IReadOnlyList<ReportColumn<PaymentLedgerRowDto>> BuildColumns() =>
+    [
+        new ReportColumn<PaymentLedgerRowDto>(
+            header: Localizer["Received"],
+            value: r => r.ReceivedOn,
+            display: r => r.ReceivedOn.UtcDateTime.ToString("d MMM yyyy HH:mm", Dates)),
+
+        new ReportColumn<PaymentLedgerRowDto>(
+            header: Localizer["Organization"],
+            value: r => r.OrganizationName),
+
+        new ReportColumn<PaymentLedgerRowDto>(
+            header: Localizer["Status"],
+            value: r => r.Status,
+            template: r => @<span class="badge @StatusClass(r.Status)">@r.Status</span>),
+
+        new ReportColumn<PaymentLedgerRowDto>(
+            header: Localizer["Method"],
+            value: r => r.Method),
+
+        new ReportColumn<PaymentLedgerRowDto>(
+            header: Localizer["Amount"],
+            value: r => r.Amount,
+            display: r => r.Amount.ToString("C", Money),
+            align: ReportAlign.Right),
+
+        new ReportColumn<PaymentLedgerRowDto>(
+            header: Localizer["Provider id"],
+            value: r => r.ProviderPaymentId,
+            template: r =>
+                @<span class="font-monospace small text-muted">@(r.ProviderPaymentId ?? r.Reference)</span>),
+
+        new ReportColumn<PaymentLedgerRowDto>(
+            header: Localizer["Invoice(s)"],
+            value: r => r.InvoiceNumbers),
+
+        new ReportColumn<PaymentLedgerRowDto>(
+            header: Localizer["Failure reason"],
+            value: r => r.FailureMessage,
+            template: r =>
+                @<span>
+                    @if (!string.IsNullOrEmpty(r.FailureMessage))
+                    {
+                        <span class="text-danger small" title="@r.FailureCode">@r.FailureMessage</span>
+                    }
+                </span>)
+    ];
+
+    private static string StatusClass(PaymentStatus status) => status switch
+    {
+        PaymentStatus.Succeeded => "bg-success",
+        PaymentStatus.Failed => "bg-danger",
+        PaymentStatus.Refunded => "bg-secondary",
+        PaymentStatus.Disputed => "bg-dark",
+        _ => "bg-secondary"
+    };
+}

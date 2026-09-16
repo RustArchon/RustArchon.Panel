@@ -76,4 +76,22 @@ public interface IReportApiClient
     /// <summary>The plans to offer in a report's plan dropdown.</summary>
     [Get("/plan-options")]
     Task<List<ReportFilterOptionDto>> GetPlanOptionsAsync();
+
+    /// <summary>Groups of Organizations sharing a server or contact email where at least one has
+    /// redeemed a discount - a flag for manual review.</summary>
+    [Get("/discount-abuse")]
+    Task<ReportResult<DiscountAbuseSignalRowDto>> GetDiscountAbuseSignalsAsync();
+
+    /// <summary>Jurisdictions currently blocking an invoice for lack of a Stripe tax registration - see
+    /// <c>NexusBlockedBanner</c>, the one caller today.</summary>
+    [Get("/blocked-invoices")]
+    Task<ReportResult<BlockedInvoiceJurisdictionRowDto>> GetBlockedInvoicesAsync();
+
+    /// <summary>Every payment attempt in the window - the processor reconciliation and failed-charge
+    /// report.</summary>
+    [Get("/payment-ledger")]
+    Task<ReportResult<PaymentLedgerRowDto>> GetPaymentLedgerAsync(
+        [Query(Format = "yyyy-MM-dd")] DateOnly from,
+        [Query(Format = "yyyy-MM-dd")] DateOnly to,
+        PaymentStatus? status = null);
 }

@@ -1,7 +1,5 @@
 ﻿@using System.Globalization
 @using Microsoft.AspNetCore.Localization
-@inject IConfiguration Config
-@inject NavigationManager Nav
 
 <!DOCTYPE html>
 <html lang="@CultureInfo.CurrentCulture.Name" data-bs-theme="dark">
@@ -46,6 +44,7 @@
     <script src="@Assets["Components/Account/Shared/PasskeySubmit.razor.js"]" type="module"></script>
     <script src="@Assets["theme.js"]"></script>
     <script src="@Assets["js/consoleScroll.js"]"></script>
+    <script src="@Assets["js/navFlyout.js"]"></script>
     <script src="@Assets["lib/chartjs/chart.umd.min.js"]"></script>
     <script src="@Assets["js/statsChart.js"]"></script>
     <script src="@Assets["lib/quill/quill.min.js"]"></script>
@@ -70,13 +69,10 @@
             CookieRequestCultureProvider.MakeCookieValue(
                 new RequestCulture(CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture)));
 
-        if (HttpContext?.User.Identity?.IsAuthenticated != false) return;
-
-        var section = Config.GetSection("SingleUserAuth");
-        if (!section.GetValue<bool>("Enabled")) return;
-        if (string.IsNullOrWhiteSpace(section["Username"])) return;
-
-        var returnUrl = "/" + Nav.ToBaseRelativePath(Nav.Uri);
-        Nav.NavigateTo($"/single-user-auth/login?returnUrl={Uri.EscapeDataString(returnUrl)}");
+        RedirectToSingleUserAuthIfConfigured();
     }
+
+    // A personal local-dev convenience, never committed - see SingleUserAuth.cs's own remarks. This
+    // declaration alone does nothing; App.razor.local.cs (gitignored) supplies the real redirect.
+    partial void RedirectToSingleUserAuthIfConfigured();
 }
