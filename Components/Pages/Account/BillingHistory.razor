@@ -15,8 +15,9 @@
 
 @*
     The one customer-facing report. Everything else built on these components is platform-admin and
-    lives under /Reports; this is a member looking at their own Organization, so it sits under /Account
-    alongside Subscription and is deliberately absent from the reports index.
+    lives under one of /Customers/Reports, /Billing/Reports or /Payments/Reports; this is a member
+    looking at their own Organization, so it sits under /Account alongside Subscription and is
+    deliberately absent from every reports index.
 
     Nothing here scopes the query to a tenant. The API resolves the tenant from the caller's token and
     JumpStart's global filter does the rest, which is the point of proving the components on this one:

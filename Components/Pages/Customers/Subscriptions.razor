@@ -1,6 +1,6 @@
 @* Copyright ©2026 Scott Blomfield *@
 
-@page "/Reports/Subscriptions"
+@page "/Customers/Reports/Subscriptions"
 @using System.Globalization
 @using System.Net
 @using Microsoft.AspNetCore.Authorization
@@ -119,7 +119,7 @@
         new ReportColumn<SubscriptionRegisterRowDto>(
             header: Localizer["Plan"],
             value: r => r.PlanName,
-            drillTo: r => $"/Reports/UpcomingRenewals?planId={r.PlanId}"
+            drillTo: r => $"/Customers/Reports/UpcomingRenewals?planId={r.PlanId}"
                           + $"&renewsFrom={DateRangeParameter.Format(DateRangeParameter.Today)}"
                           + $"&renewsTo={DateRangeParameter.Format(DateRangeParameter.Today.AddDays(90))}",
             template: r =>
