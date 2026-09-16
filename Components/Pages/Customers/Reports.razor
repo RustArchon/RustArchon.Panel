@@ -1,0 +1,13 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Customers/Reports"
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Components.Shared.Reporting
+@attribute [Authorize]
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@Localizer["Customer Reports"]</PageTitle>
+
+<ReportIndexList Title="@Localizer["Customer Reports"]"
+                 Description="@Localizer["Who your customers are and what they're doing - signups, subscriptions, plan and schedule changes, and abuse signals worth reviewing. Each one opens on its own page, with its parameters in the address bar - so a report narrowed down to what you care about is a link you can bookmark or send to someone."]"
+                 Reports="ReportCatalog.ForArea(ReportArea.Customers)" />
