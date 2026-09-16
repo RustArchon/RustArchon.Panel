@@ -97,6 +97,106 @@
         padding-top: 0;
     }
 
+.nav-flyout-group {
+    /* The positioning context .nav-flyout-menu's "drop down from here" anchors against - see that
+       rule's own remarks for why down rather than sideways. */
+    position: relative;
+}
+
+.nav-subgroup-toggle {
+    /* A hover-revealing variant of .nav-group above - same type treatment (font, size, tracking), but
+       a real <button> (so it's a natural keyboard-focusable element :focus-within can key off, even
+       though nothing happens on click - see .nav-flyout-menu). Deliberately not driven by Bootstrap's
+       data-bs-toggle - this app never loads Bootstrap's JS bundle (see App.razor), so unlike a
+       Bootstrap dropdown this is pure CSS :hover/:focus-within, no JS of any kind. */
+    font-family: var(--ra-font-display);
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ra-text-muted);
+    background: none;
+    border: none;
+    border-top: 1px solid var(--ra-border);
+    width: 100%;
+    text-align: left;
+    cursor: default;
+    margin: 0.5rem 0 0.25rem;
+    padding: 0.75rem 1rem 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    transition: color 0.15s ease;
+}
+
+    /* Highlights the group the current page actually lives in (see IsInGroup) - the one thing this
+       still needs Blazor for, since with visibility now pure CSS there's no expanded state left to
+       imply it. */
+    .nav-subgroup-toggle.active,
+    .nav-flyout-group:hover .nav-subgroup-toggle,
+    .nav-flyout-group:focus-within .nav-subgroup-toggle {
+        color: var(--ra-cyan);
+    }
+
+    .nav-subgroup-toggle .bi {
+        /* Stays pointing right, unrotated - it's already pointing where the flyout actually appears
+           (to the right, over the content), unlike an accordion's chevron there'd be no reason to
+           rotate it open/closed for. */
+        margin-right: 0;
+        font-size: 0.75rem;
+    }
+
+.nav-flyout-menu {
+    /* Hidden by default everywhere - the two media blocks below decide how it becomes visible,
+       differently per screen size. */
+    display: none;
+}
+
+@media (min-width: 641px) {
+    .nav-flyout-menu {
+        /* Flies out to the right, over the main content - not a dropdown under the trigger, which
+           would sit on top of (and block hovering into) whichever group's row comes next.
+           position: fixed, with top/left set by navFlyout.js from the trigger's own
+           getBoundingClientRect() - not position: absolute. .nav-scrollable (this menu's nearest
+           scrolling ancestor) sets overflow-y: auto, and per the CSS overflow spec a non-visible
+           value on one axis forces the other axis to compute as auto too rather than staying
+           visible - so an absolutely-positioned flyout escaping sideways (left: 100%) would be
+           silently clipped at the sidebar's own edge instead of floating over the page. Only
+           position: fixed escapes an ancestor's overflow clipping outright, which is what costs the
+           small amount of JS - a fixed element's offsets are relative to the viewport, not to
+           whichever row happens to be hovered, so nothing but script can supply the right coordinates
+           for three triggers that each sit at a different height in a scrollable list. */
+        position: fixed;
+        z-index: 1000;
+        min-width: 14rem;
+        background-color: var(--ra-bg-raised);
+        border: 1px solid var(--ra-border);
+        border-radius: 4px;
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
+    }
+
+    .nav-flyout-group:hover .nav-flyout-menu,
+    .nav-flyout-group:focus-within .nav-flyout-menu {
+        display: block;
+    }
+}
+
+@media (max-width: 640px) {
+    .nav-flyout-menu {
+        /* No :hover on a touch screen, and the mobile nav is already a full-screen overlay once
+           opened (plenty of room) - so on narrow screens this simply stays part of the flat list
+           instead of trying to be a popup nothing could reveal. */
+        display: block;
+    }
+}
+
+.nav-subitem ::deep .nav-link {
+    /* On mobile (where .nav-flyout-menu renders inline under its trigger, not as a flyout - see that
+       rule's own max-width block), this indent is what actually shows the grouping; on desktop it's
+       just breathing room inside the floating panel, since the panel itself is the grouping cue there. */
+    padding-left: 1rem;
+}
+
 .nav-session {
     /* Account and Logout are the session, not a section of the product, so they get a rule but no
        heading - the same treatment .nav-source below gets, and for the same reason. */
