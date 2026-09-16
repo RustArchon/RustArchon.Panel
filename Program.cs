@@ -444,33 +444,6 @@ using (var migrationScope = app.Services.CreateScope())
 if (app.Environment.IsDevelopment())
 {
     app.UseMigrationsEndPoint();
-
-    app.MapGet("/single-user-auth/login", async (
-        IConfiguration config,
-        UserManager<ApplicationUser> userManager,
-        SignInManager<ApplicationUser> signInManager,
-        string? returnUrl) =>
-    {
-        var section = config.GetSection("SingleUserAuth");
-        var username = section["Username"];
-
-        if (!section.GetValue<bool>("Enabled") || string.IsNullOrWhiteSpace(username))
-            return Results.LocalRedirect("/");
-
-        var user = await userManager.FindByNameAsync(username)
-                    ?? await userManager.FindByEmailAsync(username);
-
-        // If user doesn't exist and we're trying to use SingleUserAuth, check for the admin registration
-        if (user is null)
-        {
-            return Results.BadRequest($"SingleUserAuth: no user found for '{username}'.");
-        }
-        else
-        { 
-            await signInManager.SignInAsync(user, isPersistent: true);
-            return Results.LocalRedirect(string.IsNullOrEmpty(returnUrl) ? "/" : returnUrl);
-        }
-    });
 }
 else
 {

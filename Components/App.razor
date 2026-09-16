@@ -1,7 +1,5 @@
 ﻿@using System.Globalization
 @using Microsoft.AspNetCore.Localization
-@inject IConfiguration Config
-@inject NavigationManager Nav
 
 <!DOCTYPE html>
 <html lang="@CultureInfo.CurrentCulture.Name" data-bs-theme="dark">
@@ -70,14 +68,5 @@
             CookieRequestCultureProvider.DefaultCookieName,
             CookieRequestCultureProvider.MakeCookieValue(
                 new RequestCulture(CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture)));
-
-        if (HttpContext?.User.Identity?.IsAuthenticated != false) return;
-
-        var section = Config.GetSection("SingleUserAuth");
-        if (!section.GetValue<bool>("Enabled")) return;
-        if (string.IsNullOrWhiteSpace(section["Username"])) return;
-
-        var returnUrl = "/" + Nav.ToBaseRelativePath(Nav.Uri);
-        Nav.NavigateTo($"/single-user-auth/login?returnUrl={Uri.EscapeDataString(returnUrl)}");
     }
 }
