@@ -146,6 +146,19 @@
         font-size: 0.75rem;
     }
 
+.nav-subgroup-caret {
+    /* The trailing chevron on a subitem link that's ALSO a flyout trigger (an area's Reports entry,
+       opening a third level listing that area's individual reports) - pushed to the row's far right
+       via the flex layout .nav-item ::deep .nav-link already sets up, rather than leading like
+       .nav-subgroup-toggle's own chevron above. It has to trail here: this trigger, unlike that one,
+       is a real link you can also just click, and leading with an icon that reads as "opens a menu"
+       on something you'd otherwise click straight through would say the wrong thing first. */
+    margin-left: auto;
+    margin-right: 0;
+    font-size: 0.7rem;
+    opacity: 0.65;
+}
+
 .nav-flyout-menu {
     /* Hidden by default everywhere - the two media blocks below decide how it becomes visible,
        differently per screen size. */
@@ -175,16 +188,24 @@
         box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
     }
 
-    .nav-flyout-group:hover .nav-flyout-menu,
-    .nav-flyout-group:focus-within .nav-flyout-menu {
+    /* The direct-child combinator matters once a Reports group nests a further flyout of its own
+       (see NavMenu.razor's own remarks) - a plain descendant selector here would reveal a group's
+       whole subtree, chevron flyout included, the instant its ancestor group was hovered, rather
+       than waiting for that nested trigger to be hovered on its own. Scoping to > keeps every level
+       answerable only to its own hover/focus-within, so they can nest arbitrarily deep. */
+    .nav-flyout-group:hover > .nav-flyout-menu,
+    .nav-flyout-group:focus-within > .nav-flyout-menu {
         display: block;
     }
 
     /* Set by navFlyout.js the instant a flyout link is clicked - see its own remarks for why
        hover/focus-within alone cannot be trusted to close the menu once Blazor's post-navigation
-       DOM patch strands it at an unset position. !important because it has to win over the :hover
-       rule above while the pointer is still physically resting on the (about to move) menu. */
-    .nav-flyout-group.nav-flyout-force-closed .nav-flyout-menu {
+       DOM patch strands it at an unset position. Walks every ancestor flyout group the click was
+       nested inside, adding this class to each - so the > here matters the same way the reveal
+       rule's does above, each group only ever hiding its own menu. !important because it has to win
+       over the :hover rule above while the pointer is still physically resting on the (about to
+       move) menu. */
+    .nav-flyout-group.nav-flyout-force-closed > .nav-flyout-menu {
         display: none !important;
     }
 }
@@ -195,6 +216,14 @@
            opened (plenty of room) - so on narrow screens this simply stays part of the flat list
            instead of trying to be a popup nothing could reveal. */
         display: block;
+    }
+
+    .nav-subsubitem ::deep .nav-link {
+        /* One indent level deeper than .nav-subitem's own, only needed here on mobile: both flyout
+           levels render inline in the same flat list with no floating panel to draw the grouping
+           for you, so without this a report link would sit flush with its own area's Reports
+           trigger instead of visibly nested under it. */
+        padding-left: 2rem;
     }
 }
 

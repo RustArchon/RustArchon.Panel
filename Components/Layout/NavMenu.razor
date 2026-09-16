@@ -83,18 +83,24 @@
 
                 @* Everything a site admin does across all organizations, ordered the way the job
                    runs: the customers, then how the business is doing and what it sells, then the
-                   settings that govern the platform itself - now three hover flyouts rather than
-                   eleven items in one flat run, since that flat run is what actually got long. Each
-                   one flies out to the right, over the main content, rather than dropping down under
-                   its own trigger - a dropdown would sit on top of whichever group's row came next,
-                   making it hard to get from one group to another without the menu you're leaving
-                   blocking the one you're headed for. Revealed by :hover/:focus-within
-                   (NavMenu.razor.css) and positioned by navFlyout.js (wwwroot/js) against the
-                   trigger's own on-screen coordinates - see that CSS rule's own remarks for why a
-                   flyout escaping the sidebar's scroll clipping needs real script, unlike everything
-                   else interactive in this app. The trigger itself is still a real <button>, purely
-                   so it's a keyboard-focusable element :focus-within has something to key off of; it
-                   does nothing on click. *@
+                   settings that govern the platform itself - hover flyouts rather than one flat run
+                   of items, since that flat run is what actually got long. Each one flies out to the
+                   right, over the main content, rather than dropping down under its own trigger - a
+                   dropdown would sit on top of whichever group's row came next, making it hard to get
+                   from one group to another without the menu you're leaving blocking the one you're
+                   headed for. Revealed by :hover/:focus-within (NavMenu.razor.css) and positioned by
+                   navFlyout.js (wwwroot/js) against the trigger's own on-screen coordinates - see that
+                   CSS rule's own remarks for why a flyout escaping the sidebar's scroll clipping needs
+                   real script, unlike everything else interactive in this app. Each area's own
+                   "Reports" entry nests a further level the same way - its own .nav-flyout-group
+                   inside the area's .nav-flyout-menu - listing that area's individual reports via
+                   ReportCatalog.ForArea() rather than typing each one out a third time (see
+                   ReportCatalog.cs and the three per-area landing pages it also feeds). The trigger for
+                   a group with no link of its own (Customers, Billing, etc.) is a real <button> that
+                   does nothing on click, purely so it's a keyboard-focusable element :focus-within has
+                   something to key off of; a nested trigger like Reports is a real <NavLink> instead,
+                   since unlike its parent it IS also somewhere to go - hovering it still opens its own
+                   flyout, but clicking it navigates to that area's full report listing. *@
                 <h2 class="nav-group">@Localizer["Site administration"]</h2>
 
                 <div class="nav-flyout-group">
@@ -103,10 +109,21 @@
                         @Localizer["Customers"]
                     </button>
                     <div class="nav-flyout-menu">
-                        <div class="nav-item nav-subitem px-3">
+                        <div class="nav-item nav-subitem px-3 nav-flyout-group nav-flyout-subgroup">
                             <NavLink class="nav-link" href="Customers/Reports">
                                 <i class="bi bi-bar-chart-fill" aria-hidden="true"></i> @Localizer["Reports"]
+                                <i class="bi bi-chevron-right nav-subgroup-caret" aria-hidden="true"></i>
                             </NavLink>
+                            <div class="nav-flyout-menu">
+                                @foreach (var report in ReportCatalog.ForArea(ReportArea.Customers))
+                                {
+                                    <div class="nav-item nav-subsubitem px-3">
+                                        <NavLink class="nav-link" href="@report.Route.TrimStart('/')">
+                                            <i class="bi @report.Icon" aria-hidden="true"></i> @Localizer[report.Title]
+                                        </NavLink>
+                                    </div>
+                                }
+                            </div>
                         </div>
                         <div class="nav-item nav-subitem px-3">
                             <NavLink class="nav-link" href="Admin/Organizations">
@@ -127,10 +144,21 @@
                         @Localizer["Billing"]
                     </button>
                     <div class="nav-flyout-menu">
-                        <div class="nav-item nav-subitem px-3">
+                        <div class="nav-item nav-subitem px-3 nav-flyout-group nav-flyout-subgroup">
                             <NavLink class="nav-link" href="Billing/Reports">
                                 <i class="bi bi-bar-chart-fill" aria-hidden="true"></i> @Localizer["Reports"]
+                                <i class="bi bi-chevron-right nav-subgroup-caret" aria-hidden="true"></i>
                             </NavLink>
+                            <div class="nav-flyout-menu">
+                                @foreach (var report in ReportCatalog.ForArea(ReportArea.Billing))
+                                {
+                                    <div class="nav-item nav-subsubitem px-3">
+                                        <NavLink class="nav-link" href="@report.Route.TrimStart('/')">
+                                            <i class="bi @report.Icon" aria-hidden="true"></i> @Localizer[report.Title]
+                                        </NavLink>
+                                    </div>
+                                }
+                            </div>
                         </div>
                         <div class="nav-item nav-subitem px-3">
                             <NavLink class="nav-link" href="Admin/Invoices">
@@ -156,10 +184,21 @@
                         @Localizer["Payments"]
                     </button>
                     <div class="nav-flyout-menu">
-                        <div class="nav-item nav-subitem px-3">
+                        <div class="nav-item nav-subitem px-3 nav-flyout-group nav-flyout-subgroup">
                             <NavLink class="nav-link" href="Payments/Reports">
                                 <i class="bi bi-bar-chart-fill" aria-hidden="true"></i> @Localizer["Reports"]
+                                <i class="bi bi-chevron-right nav-subgroup-caret" aria-hidden="true"></i>
                             </NavLink>
+                            <div class="nav-flyout-menu">
+                                @foreach (var report in ReportCatalog.ForArea(ReportArea.Payments))
+                                {
+                                    <div class="nav-item nav-subsubitem px-3">
+                                        <NavLink class="nav-link" href="@report.Route.TrimStart('/')">
+                                            <i class="bi @report.Icon" aria-hidden="true"></i> @Localizer[report.Title]
+                                        </NavLink>
+                                    </div>
+                                }
+                            </div>
                         </div>
                     </div>
                 </div>
