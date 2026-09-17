@@ -164,6 +164,12 @@ public class StripeWebhookHandler(
             case "charge.dispute.created":
                 await HandleDisputeCreatedAsync(root, cancellationToken);
                 break;
+            case "charge.dispute.closed":
+                await HandleDisputeClosedAsync(root, cancellationToken);
+                break;
+            case "charge.dispute.funds_reinstated":
+                await HandleDisputeFundsReinstatedAsync(root, cancellationToken);
+                break;
         }
     }
 
@@ -381,5 +387,83 @@ public class StripeWebhookHandler(
         logger.LogWarning(
             "Recorded Stripe dispute {DisputeId} for PaymentIntent {ProviderPaymentId}: {Reason}, evidence due {DueBy}.",
             disputeId, providerPaymentId, reason, dueBy);
+    }
+
+    /// <summary>
+    /// Handles a dispute's final outcome - won, lost, or warning_closed. See
+    /// <c>IPaymentService.RecordDisputeClosedAsync</c>'s own remarks for why a won outcome here doesn't
+    /// reinstate anything by itself; that's <see cref="HandleDisputeFundsReinstatedAsync"/>'s job, once
+    /// Stripe confirms the money actually moved.
+    /// </summary>
+    private async Task HandleDisputeClosedAsync(JsonElement root, CancellationToken cancellationToken)
+    {
+        if (!root.TryGetProperty("data", out var data) || !data.TryGetProperty("object", out var dispute))
+        {
+            logger.LogWarning("charge.dispute.closed event carried no Dispute payload - ignored.");
+            return;
+        }
+
+        var disputeId = dispute.TryGetProperty("id", out var idElement) ? idElement.GetString() : null;
+        var status = dispute.TryGetProperty("status", out var statusElement) ? statusElement.GetString() : null;
+
+        if (string.IsNullOrEmpty(disputeId) || string.IsNullOrEmpty(status))
+        {
+            logger.LogWarning("charge.dispute.closed carried no usable dispute id or status - ignored.");
+            return;
+        }
+
+        await internalStripeApiClient.RecordDisputeClosedAsync(
+            new RecordStripeDisputeClosedRequestDto { DisputeId = disputeId, Status = status },
+            cancellationToken);
+
+        logger.LogWarning("Recorded Stripe dispute {DisputeId} closed: {Status}.", disputeId, status);
+    }
+
+    /// <summary>
+    /// Handles a won dispute's funds actually coming back - the signal
+    /// <c>IPaymentService.RecordDisputeFundsReinstatedAsync</c> uses to re-settle whatever invoice the
+    /// original chargeback reopened.
+    /// </summary>
+    /// <remarks>
+    /// Unlike every other <c>charge.dispute.*</c> event this handler deals with,
+    /// <c>charge.dispute.funds_reinstated</c>'s <c>data.object</c> is documented inconsistently across
+    /// Stripe API versions - sometimes a Dispute object directly (<c>id</c> at the top level, matching
+    /// <see cref="HandleDisputeClosedAsync"/>'s own shape), sometimes a Charge object carrying the
+    /// dispute id in its own <c>dispute</c> field instead. Checked defensively here rather than assumed,
+    /// since getting this wrong means silently never reinstating a single won dispute rather than a
+    /// loud failure - if this ever logs the "carried no usable dispute id" warning below in practice,
+    /// check the actual delivered payload under Stripe's own Developers → Events dashboard and adjust.
+    /// </remarks>
+    private async Task HandleDisputeFundsReinstatedAsync(JsonElement root, CancellationToken cancellationToken)
+    {
+        if (!root.TryGetProperty("data", out var data) || !data.TryGetProperty("object", out var payload))
+        {
+            logger.LogWarning("charge.dispute.funds_reinstated event carried no payload - ignored.");
+            return;
+        }
+
+        string? disputeId = null;
+        if (payload.TryGetProperty("object", out var objectKindElement)
+            && objectKindElement.GetString() == "dispute"
+            && payload.TryGetProperty("id", out var directIdElement))
+        {
+            disputeId = directIdElement.GetString();
+        }
+        else if (payload.TryGetProperty("dispute", out var disputeFieldElement)
+            && disputeFieldElement.ValueKind == JsonValueKind.String)
+        {
+            disputeId = disputeFieldElement.GetString();
+        }
+
+        if (string.IsNullOrEmpty(disputeId))
+        {
+            logger.LogWarning("charge.dispute.funds_reinstated carried no usable dispute id - ignored.");
+            return;
+        }
+
+        await internalStripeApiClient.RecordDisputeFundsReinstatedAsync(
+            new RecordStripeDisputeFundsReinstatedRequestDto { DisputeId = disputeId }, cancellationToken);
+
+        logger.LogWarning("Recorded Stripe dispute {DisputeId} funds reinstated.", disputeId);
     }
 }

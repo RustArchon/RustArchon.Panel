@@ -34,4 +34,12 @@ public interface IInternalStripeApiClient
     [Post("/internal/stripe/disputes")]
     Task RecordDisputeAsync(
         [Body] RecordStripeDisputeRequestDto request, CancellationToken cancellationToken = default);
+
+    [Post("/internal/stripe/disputes/closed")]
+    Task RecordDisputeClosedAsync(
+        [Body] RecordStripeDisputeClosedRequestDto request, CancellationToken cancellationToken = default);
+
+    [Post("/internal/stripe/disputes/funds-reinstated")]
+    Task RecordDisputeFundsReinstatedAsync(
+        [Body] RecordStripeDisputeFundsReinstatedRequestDto request, CancellationToken cancellationToken = default);
 }
