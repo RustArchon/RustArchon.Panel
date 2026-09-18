@@ -422,7 +422,7 @@ builder.Services.AddSingleton<ActiveThemeService>();
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, QueuedEmailSender>();
 
 // Live console/chat/status tail for a server's detail page - see RconHubClient's own remarks.
-builder.Services.AddScoped<RconHubClient>();
+builder.Services.AddScoped<IRconHubClient, RconHubClient>();
 
 builder.Services.AddHttpContextAccessor();
 
