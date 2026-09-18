@@ -170,6 +170,9 @@ else
                         <button class="btn btn-sm btn-outline-danger" disabled="@busy" @onclick="BeginCancel">
                             @Localizer["Cancel account"]
                         </button>
+                        <button class="btn btn-sm btn-outline-primary" disabled="@busy" @onclick="BeginForcePlanChange">
+                            @Localizer["Force plan change"]
+                        </button>
                     }
                     else
                     {
@@ -197,6 +200,21 @@ else
                                     <option value="@option.Value">@option.Label</option>
                                 }
                             </select>
+                        }
+                        @if (pendingAction == "force-plan-change")
+                        {
+                            <select class="form-select" style="max-width:12rem"
+                                    value="@forcePlanId" @onchange="e => forcePlanId = e.Value?.ToString() ?? string.Empty">
+                                <option value="">@Localizer["Choose a plan..."]</option>
+                                @foreach (var option in planOptions)
+                                {
+                                    <option value="@option.Value">@option.Label</option>
+                                }
+                            </select>
+                            <input type="number" min="1" class="form-control" style="max-width:8rem"
+                                   placeholder="@Localizer["Slots (optional)"]"
+                                   value="@forceQuantity"
+                                   @oninput="e => forceQuantity = int.TryParse(e.Value?.ToString(), out var q) ? q : null" />
                         }
                         <button class="btn btn-primary" disabled="@busy" @onclick="ConfirmActionAsync">@Localizer["Confirm"]</button>
                         <button class="btn btn-outline-secondary" @onclick="() => pendingAction = null">@Localizer["Cancel"]</button>
@@ -680,6 +698,8 @@ else
     private string pendingPrompt = string.Empty;
     private string? actionReason;
     private string reopenPlanId = string.Empty;
+    private string forcePlanId = string.Empty;
+    private int? forceQuantity;
     private SubscriptionStatus pendingStatus;
 
     private bool showCancelModal;
@@ -959,6 +979,16 @@ else
         pendingPrompt = Localizer["Reopening puts them back on a plan. It does not raise an invoice."];
     }
 
+    private void BeginForcePlanChange()
+    {
+        pendingAction = "force-plan-change";
+        actionReason = null;
+        forcePlanId = string.Empty;
+        forceQuantity = null;
+        pendingPrompt = Localizer[
+            "Takes effect immediately - no upgrade/downgrade timing, no proration, no invoice, no refund. Why?"];
+    }
+
     private async Task ConfirmActionAsync()
     {
         switch (pendingAction)
@@ -988,6 +1018,31 @@ else
                     () => OrganizationClient.ReopenAsync(
                         TenantId, new ReopenOrganizationRequestDto { PlanId = planId }),
                     Localizer["This organization has been reopened."]);
+                break;
+
+            case "force-plan-change":
+                if (!Guid.TryParse(forcePlanId, out var forcedPlanId))
+                {
+                    errorMessage = Localizer["Choose a plan to force this organization onto."];
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(actionReason))
+                {
+                    errorMessage = Localizer["A reason is required when forcing a plan change."];
+                    return;
+                }
+
+                await ActAsync(
+                    () => OrganizationClient.ForcePlanChangeAsync(
+                        TenantId,
+                        new AdminForcePlanChangeRequestDto
+                        {
+                            PlanId = forcedPlanId,
+                            Quantity = forceQuantity,
+                            Reason = actionReason
+                        }),
+                    Localizer["This organization has been moved to a different plan immediately."]);
                 break;
         }
 

@@ -87,6 +87,10 @@ public interface IOrganizationApiClient
     /// <summary>Brings a cancelled Organization back.</summary>
     [Post("/{tenantId}/reopen")]
     Task ReopenAsync(Guid tenantId, [Body] ReopenOrganizationRequestDto request);
+
+    /// <summary>Moves an already-active Organization onto a different plan immediately.</summary>
+    [Post("/{tenantId}/force-plan-change")]
+    Task ForcePlanChangeAsync(Guid tenantId, [Body] AdminForcePlanChangeRequestDto request);
 }
 
 /// <summary>
