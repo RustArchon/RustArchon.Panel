@@ -20,7 +20,7 @@ namespace RustArchon.Panel.Services;
 /// class calls <c>IRustServerApiClient.GetByIdAsync</c> first (to load the server), which runs
 /// through <c>JwtExchangeHandler</c> and populates the store as a side effect.
 /// </remarks>
-public class RconHubClient : IAsyncDisposable
+public class RconHubClient : IRconHubClient
 {
     private readonly ITokenStore _tokenStore;
     private readonly string _apiBaseUrl;

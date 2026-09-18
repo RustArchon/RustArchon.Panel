@@ -16,7 +16,7 @@
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject IRustServerApiClient RustServerClient
-@inject RconHubClient HubClient
+@inject IRconHubClient HubClient
 @inject ITokenStore TokenStore
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
@@ -768,10 +768,10 @@ else
     private bool loadingServerInfoHistory = true;
     private string? serverInfoHistoryError;
 
-    // Newest first (unlike serverInfoHistory above) - a log a human scans top-down for "what just
-    // happened", not a chart. OnStatusChanged also prepends to this list live, in addition to
-    // updating the header badge, so a drop shows up here the instant it's observed rather than only
-    // after the next full page load - see that handler's remarks.
+    // Oldest first - the same scrolls-to-the-bottom-for-latest reading order as the Console/Chat
+    // tabs' own lists, not a newest-on-top log. OnLogEntryReceived inserts each arrival at its sorted
+    // OccurredAtUtc position rather than blindly appending, since two different, both-valid
+    // transitions can arrive out of order - see that handler's own remarks.
     private readonly List<ConnectionLogEntryDto> connectionLog = new();
     private bool loadingConnectionLog = true;
     private string? connectionLogError;
