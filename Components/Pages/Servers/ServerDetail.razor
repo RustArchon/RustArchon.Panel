@@ -83,6 +83,11 @@ else
             </button>
         </li>
         <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Plugins ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Plugins)">
+                <i class="bi bi-puzzle"></i> @Localizer["Plugins"]
+            </button>
+        </li>
+        <li class="nav-item">
             <button class="nav-link @(activeTab == Tab.Control ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Control)">
                 <i class="bi bi-sliders"></i> @Localizer["Control"]
             </button>
@@ -712,6 +717,64 @@ else
                 </div>
             </div>
         }
+
+        @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
+        @if (activeTab == Tab.Plugins)
+        {
+            <div class="plugins-pane">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h2 class="h6 text-muted text-uppercase mb-0">
+                        @Localizer["Plugins"]
+                        @if (pluginFramework is not null)
+                        {
+                            <span class="badge text-bg-secondary ms-1">@pluginFramework</span>
+                        }
+                    </h2>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="LoadPluginsAsync" disabled="@loadingPlugins">
+                        <i class="bi bi-arrow-clockwise"></i> @Localizer["Refresh"]
+                    </button>
+                </div>
+                @if (pluginsError is not null)
+                {
+                    <div class="alert alert-warning py-2 px-3 small mb-0">@pluginsError</div>
+                }
+                else if (loadingPlugins && plugins.Count == 0)
+                {
+                    <p><em>@Localizer["Loading plugins..."]</em></p>
+                }
+                else if (plugins.Count == 0)
+                {
+                    <div class="console-empty">
+                        <i class="bi bi-puzzle"></i>
+                        <p>@Localizer["No Oxide or Carbon plugins have been reported for this server."]</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm player-table">
+                            <thead>
+                                <tr>
+                                    <th>@Localizer["Name"]</th>
+                                    <th>@Localizer["Author"]</th>
+                                    <th>@Localizer["Version"]</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var p in plugins)
+                                {
+                                    <tr>
+                                        <td>@p.Name</td>
+                                        <td>@p.Author</td>
+                                        <td>@p.Version</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
     </div>
 }
 
@@ -759,6 +822,12 @@ else
     private string? banListError;
 
     private record BanListEntry(string SteamId, string Name, string Reason, bool IsPermanent, string Expiry);
+
+    // ---- Plugins tab ----
+    private readonly List<ServerPluginDto> plugins = new();
+    private ServerModFramework? pluginFramework;
+    private bool loadingPlugins = true;
+    private string? pluginsError;
 
     // ---- Stats tab ----
     private ServerInfoLiveDto? liveServerInfo;
@@ -841,6 +910,7 @@ else
             "players" => Tab.Players,
             "stats" => Tab.Stats,
             "logs" => Tab.Logs,
+            "plugins" => Tab.Plugins,
             "control" => Tab.Control,
             _ => Tab.Console
         };
@@ -871,6 +941,7 @@ else
             await LoadInactivePlayersAsync();
             await LoadServerInfoHistoryAsync();
             await LoadConnectionLogAsync();
+            await LoadPluginsAsync();
 
             // Not awaited, same reasoning as LoadLiveServerInfoAsync below - global.banlistex is a live
             // RCON round-trip, not a local DB query like the other Players-tab loads above, so awaiting
@@ -997,7 +1068,7 @@ else
         // Console (the default) so the plain "/servers/{id}" URL stays the common case. This also
         // re-fires OnParametersSet with the same tab we just set directly above - a harmless,
         // idempotent confirmation, not a fight over which value wins.
-        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", Tab.Stats => "stats", Tab.Logs => "logs", Tab.Control => "control", _ => null };
+        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", Tab.Stats => "stats", Tab.Logs => "logs", Tab.Plugins => "plugins", Tab.Control => "control", _ => null };
         var newUri = tabQueryValue is null ? $"servers/{Id}" : $"servers/{Id}?tab={tabQueryValue}";
         NavigationManager.NavigateTo(newUri, replace: true);
 
@@ -1318,6 +1389,36 @@ else
         finally
         {
             loadingLiveServerInfo = false;
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Loads the Plugins tab's list - the plugins the Worker last polled from this server (see
+    /// <c>ServerPluginsCaptured</c>), read from the Api's stored copy rather than asked of the live
+    /// server, so this is a plain database read like the other history loads, not an RCON round-trip.
+    /// </summary>
+    private async Task LoadPluginsAsync()
+    {
+        loadingPlugins = true;
+        pluginsError = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await RustServerClient.GetPluginsAsync(Id);
+            plugins.Clear();
+            plugins.AddRange(result);
+            pluginFramework = result.Count > 0 ? result[0].Framework : null;
+        }
+        catch (Exception)
+        {
+            pluginsError = Localizer["Failed to load the plugin list."];
+        }
+        finally
+        {
+            loadingPlugins = false;
         }
 
         StateHasChanged();
@@ -2149,5 +2250,5 @@ else
         }
     }
 
-    private enum Tab { Console, Chat, Players, Stats, Logs, Control }
+    private enum Tab { Console, Chat, Players, Stats, Logs, Control, Plugins }
 }
