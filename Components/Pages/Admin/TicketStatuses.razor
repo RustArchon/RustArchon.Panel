@@ -1,0 +1,264 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/TicketStatuses"
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IAdminTicketStatusApiClient TicketStatusClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@Localizer["Ticket Statuses"]</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>@Localizer["Ticket Statuses"]</h1>
+</div>
+
+<p class="text-muted">
+    @Localizer["The states a ticket can move through. A status marked \"System\" drives ticket behavior directly and can't be deleted, but you can still rename it or change whether it counts as closed."]
+</p>
+
+@if (accessDenied)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage ticket statuses."]
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (loading)
+    {
+        <p><em>@Localizer["Loading statuses..."]</em></p>
+    }
+    else
+    {
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th>@Localizer["Name"]</th>
+                                <th>@Localizer["Closed"]</th>
+                                <th>@Localizer["Order"]</th>
+                                <th></th>
+                                <th class="text-end"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var status in statuses)
+                            {
+                                <tr class="@(status.IsActive ? null : "text-muted")">
+                                    <td>
+                                        <a href="@($"Admin/TicketStatuses/{status.Id}")">@status.Name</a>
+                                        @if (status.IsProtected)
+                                        {
+                                            <span class="badge bg-secondary ms-1">@Localizer["System"]</span>
+                                        }
+                                        @if (!status.IsActive)
+                                        {
+                                            <span class="badge bg-secondary ms-1">@Localizer["Inactive"]</span>
+                                        }
+                                        <div class="small text-muted font-monospace">@status.Slug</div>
+                                    </td>
+                                    <td>
+                                        @if (status.IsClosed)
+                                        {
+                                            <span class="badge bg-dark">@Localizer["Closed"]</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-primary">@Localizer["Open"]</span>
+                                        }
+                                    </td>
+                                    <td>@status.DisplayOrder</td>
+                                    <td></td>
+                                    <td class="text-end">
+                                        <a class="btn btn-sm btn-outline-secondary" href="@($"Admin/TicketStatuses/{status.Id}")">
+                                            @Localizer["Edit"]
+                                        </a>
+                                        @if (!status.IsProtected)
+                                        {
+                                            <button class="btn btn-sm btn-outline-danger ms-1" @onclick="() => ConfirmDelete(status)">
+                                                @Localizer["Delete"]
+                                            </button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                            @if (statuses.Count == 0)
+                            {
+                                <tr><td colspan="5" class="text-muted">@Localizer["No statuses yet."]</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="text-muted text-uppercase small">@Localizer["New status"]</h6>
+                        <div class="row g-2">
+                            <div class="col-12">
+                                <label class="form-label small">@Localizer["Name"]</label>
+                                <input class="form-control form-control-sm" @bind="newName" placeholder="@Localizer["e.g. Escalated"]" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small">@Localizer["Order"]</label>
+                                <input type="number" class="form-control form-control-sm" @bind="newDisplayOrder" />
+                            </div>
+                            <div class="col-12 form-check">
+                                <input type="checkbox" class="form-check-input" id="newIsClosed" @bind="newIsClosed" />
+                                <label class="form-check-label small" for="newIsClosed">@Localizer["Counts as closed"]</label>
+                            </div>
+                            <div class="col-12">
+                                <button class="btn btn-sm btn-primary" disabled="@working" @onclick="CreateAsync">
+                                    @Localizer["Create"]
+                                </button>
+                            </div>
+                            @if (createError is not null)
+                            {
+                                <div class="col-12"><div class="alert alert-danger py-1 px-2 small mb-0">@createError</div></div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@if (showDeleteConfirmation && statusToDelete is not null)
+{
+    <RustArchon.Panel.Components.Shared.ConfirmationModal
+        Title="@Localizer["Delete Status"]"
+        ConfirmButtonText="@Localizer["Delete"]"
+        ConfirmButtonClass="btn-danger"
+        OnClose="HandleDeleteModalClose">
+        <Message>
+            @Localizer["Are you sure you want to permanently delete the \"{0}\" status? This cannot be undone.", statusToDelete.Name]
+        </Message>
+    </RustArchon.Panel.Components.Shared.ConfirmationModal>
+}
+
+@code {
+    private List<TicketStatusDto> statuses = [];
+    private bool loading = true;
+    private bool accessDenied;
+    private bool working;
+    private string? errorMessage;
+
+    private string newName = string.Empty;
+    private bool newIsClosed;
+    private int newDisplayOrder;
+    private string? createError;
+
+    private bool showDeleteConfirmation;
+    private TicketStatusDto? statusToDelete;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            statuses = (await TicketStatusClient.ListAsync()).OrderBy(s => s.DisplayOrder).ToList();
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load ticket statuses");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        createError = null;
+
+        if (string.IsNullOrWhiteSpace(newName))
+        {
+            createError = Localizer["Enter a name."];
+            return;
+        }
+
+        working = true;
+        try
+        {
+            await TicketStatusClient.CreateAsync(new CreateTicketStatusRequestDto
+            {
+                Name = newName.Trim(),
+                IsClosed = newIsClosed,
+                DisplayOrder = newDisplayOrder
+            });
+
+            newName = string.Empty;
+            newIsClosed = false;
+            newDisplayOrder = 0;
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            createError = ApiErrorMessage.For(ex, "create the status");
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    private void ConfirmDelete(TicketStatusDto status)
+    {
+        statusToDelete = status;
+        showDeleteConfirmation = true;
+    }
+
+    private async Task HandleDeleteModalClose(bool confirmed)
+    {
+        showDeleteConfirmation = false;
+
+        if (!confirmed || statusToDelete is null)
+        {
+            statusToDelete = null;
+            return;
+        }
+
+        errorMessage = null;
+
+        try
+        {
+            await TicketStatusClient.DeleteAsync(statusToDelete.Id);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "delete the status");
+        }
+        finally
+        {
+            statusToDelete = null;
+        }
+    }
+}

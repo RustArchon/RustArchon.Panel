@@ -1,0 +1,133 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Tickets/New"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject ITicketApiClient TicketClient
+@inject NavigationManager Navigation
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@Localizer["New Ticket"]</PageTitle>
+
+<h1 class="mb-4">@Localizer["New Ticket"]</h1>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@if (loading)
+{
+    <p><em>@Localizer["Loading..."]</em></p>
+}
+else
+{
+    <div class="card" style="max-width: 640px;">
+        <div class="card-body">
+            <EditForm Model="model" OnValidSubmit="Submit">
+                <DataAnnotationsValidator />
+                <ValidationSummary class="text-danger" role="alert" />
+
+                <div class="mb-3">
+                    <label class="form-label" for="ticket-queue">@Localizer["What's this about?"]</label>
+                    <InputSelect id="ticket-queue" class="form-select" @bind-Value="model.QueueId">
+                        @foreach (var queue in queues)
+                        {
+                            <option value="@queue.Id">@queue.Name</option>
+                        }
+                    </InputSelect>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label" for="ticket-subject">@Localizer["Subject"]</label>
+                    <InputText id="ticket-subject" class="form-control" @bind-Value="model.Subject" />
+                    <ValidationMessage For="() => model.Subject" class="text-danger" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label" for="ticket-body">@Localizer["Tell us what's going on"]</label>
+                    <InputTextArea id="ticket-body" class="form-control" rows="6" @bind-Value="model.Body" />
+                    <ValidationMessage For="() => model.Body" class="text-danger" />
+                </div>
+
+                <button type="submit" class="btn btn-primary" disabled="@submitting">
+                    @(submitting ? Localizer["Submitting..."] : Localizer["Submit Ticket"])
+                </button>
+                <a class="btn btn-secondary" href="Tickets">@Localizer["Cancel"]</a>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@code {
+    private List<QueueDto> queues = [];
+    private readonly TicketFormModel model = new();
+    private bool loading = true;
+    private bool submitting;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            queues = await TicketClient.GetQueuesAsync();
+            var defaultQueue = queues.FirstOrDefault(q => q.IsDefault) ?? queues.FirstOrDefault();
+            if (defaultQueue is not null)
+            {
+                model.QueueId = defaultQueue.Id;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load ticket queues");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task Submit()
+    {
+        submitting = true;
+        errorMessage = null;
+
+        try
+        {
+            var created = await TicketClient.CreateAsync(new CreateTicketRequestDto
+            {
+                Subject = model.Subject.Trim(),
+                QueueId = model.QueueId,
+                Body = model.Body.Trim()
+            });
+
+            Navigation.NavigateTo($"Tickets/{created.Id}");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "submit ticket");
+        }
+        finally
+        {
+            submitting = false;
+        }
+    }
+
+    private sealed class TicketFormModel
+    {
+        public Guid QueueId { get; set; }
+
+        [Required, MaxLength(500)]
+        public string Subject { get; set; } = string.Empty;
+
+        [Required, MaxLength(4000)]
+        public string Body { get; set; } = string.Empty;
+    }
+}

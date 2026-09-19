@@ -1,0 +1,203 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/TicketStatuses/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IAdminTicketStatusApiClient TicketStatusClient
+@inject NavigationManager NavigationManager
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@(status?.Name ?? Localizer["Ticket Status"])</PageTitle>
+
+<a href="Admin/TicketStatuses" class="d-inline-block mb-3">
+    <i class="bi bi-arrow-left"></i> @Localizer["Back to Ticket Statuses"]
+</a>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@if (loading)
+{
+    <p><em>@Localizer["Loading status..."]</em></p>
+}
+else if (status is null)
+{
+    <div class="alert alert-warning">@Localizer["Status not found."]</div>
+}
+else
+{
+    <div class="row g-4">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase small mb-3">@Localizer["Status"]</h6>
+
+                    @if (status.IsProtected)
+                    {
+                        <div class="alert alert-info small">
+                            <i class="bi bi-info-circle"></i>
+                            @Localizer["This status drives ticket behavior directly (slug \"{0}\"), so it can't be deleted or deactivated. You can still rename it or change whether it counts as closed.", status.Slug]
+                        </div>
+                    }
+
+                    <div class="mb-3">
+                        <label class="form-label" for="status-name">@Localizer["Name"]</label>
+                        <input id="status-name" class="form-control" @bind="editName" />
+                    </div>
+
+                    <div class="mb-3 font-monospace small text-muted">
+                        @Localizer["Slug"]: @status.Slug
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="status-order">@Localizer["Display order"]</label>
+                        <input id="status-order" type="number" class="form-control" @bind="editDisplayOrder" />
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="status-closed" @bind="editIsClosed" />
+                        <label class="form-check-label" for="status-closed">@Localizer["Counts as closed"]</label>
+                        <div class="form-text">@Localizer["Closed tickets are hidden from the staff console's default queue view."]</div>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="status-active" disabled="@status.IsProtected" @bind="editIsActive" />
+                        <label class="form-check-label" for="status-active">@Localizer["Active"]</label>
+                        <div class="form-text">@Localizer["An inactive status is hidden from every picker, but tickets already in it are unaffected."]</div>
+                    </div>
+
+                    <button type="button" class="btn btn-primary" @onclick="SaveAsync" disabled="@saving">
+                        @(saving ? Localizer["Saving..."] : Localizer["Save Changes"])
+                    </button>
+
+                    @if (!status.IsProtected)
+                    {
+                        <button type="button" class="btn btn-outline-danger ms-2" @onclick="ConfirmDelete">
+                            @Localizer["Delete"]
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showDeleteConfirmation && status is not null)
+{
+    <RustArchon.Panel.Components.Shared.ConfirmationModal
+        Title="@Localizer["Delete Status"]"
+        ConfirmButtonText="@Localizer["Delete"]"
+        ConfirmButtonClass="btn-danger"
+        OnClose="HandleDeleteModalClose">
+        <Message>
+            @Localizer["Are you sure you want to permanently delete the \"{0}\" status? This cannot be undone.", status.Name]
+        </Message>
+    </RustArchon.Panel.Components.Shared.ConfirmationModal>
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private TicketStatusDto? status;
+    private bool loading = true;
+    private bool saving;
+    private string? errorMessage;
+    private bool showDeleteConfirmation;
+
+    private string editName = string.Empty;
+    private bool editIsClosed;
+    private int editDisplayOrder;
+    private bool editIsActive;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            status = await TicketStatusClient.GetAsync(Id);
+            editName = status.Name;
+            editIsClosed = status.IsClosed;
+            editDisplayOrder = status.DisplayOrder;
+            editIsActive = status.IsActive;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            status = null;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load status");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (status is null || string.IsNullOrWhiteSpace(editName))
+        {
+            return;
+        }
+
+        saving = true;
+        errorMessage = null;
+
+        try
+        {
+            status = await TicketStatusClient.UpdateAsync(Id, new UpdateTicketStatusRequestDto
+            {
+                Name = editName.Trim(),
+                IsClosed = editIsClosed,
+                DisplayOrder = editDisplayOrder,
+                IsActive = status.IsProtected || editIsActive
+            });
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "update status");
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private void ConfirmDelete() => showDeleteConfirmation = true;
+
+    private async Task HandleDeleteModalClose(bool confirmed)
+    {
+        showDeleteConfirmation = false;
+
+        if (!confirmed || status is null)
+        {
+            return;
+        }
+
+        errorMessage = null;
+
+        try
+        {
+            await TicketStatusClient.DeleteAsync(Id);
+            NavigationManager.NavigateTo("Admin/TicketStatuses");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "delete status");
+        }
+    }
+}

@@ -1,0 +1,105 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Tickets"
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject ITicketApiClient TicketClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@Localizer["My Tickets"]</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>@Localizer["My Tickets"]</h1>
+    <a class="btn btn-primary" href="Tickets/New">
+        <i class="bi bi-plus-circle"></i> @Localizer["New Ticket"]
+    </a>
+</div>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@if (loading)
+{
+    <p><em>@Localizer["Loading tickets..."]</em></p>
+}
+else if (tickets.Count == 0)
+{
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i> @Localizer["No tickets yet."]
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>@Localizer["Subject"]</th>
+                    <th>@Localizer["Queue"]</th>
+                    <th>@Localizer["Status"]</th>
+                    <th>@Localizer["Submitted"]</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var ticket in tickets.OrderByDescending(t => t.SubmittedOn))
+                {
+                    <tr>
+                        <td><a href="@($"Tickets/{ticket.Id}")">@ticket.Subject</a></td>
+                        <td>@ticket.QueueName</td>
+                        <td><span class="badge @StatusBadgeClass(ticket.Status)">@ticket.Status.Name</span></td>
+                        <td class="small text-muted">@ticket.SubmittedOn.UtcDateTime.ToString("d MMM yyyy")</td>
+                        <td class="text-end">
+                            <a class="btn btn-sm btn-outline-secondary" href="@($"Tickets/{ticket.Id}")">@Localizer["Open"]</a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<TicketSummaryDto> tickets = [];
+    private bool loading = true;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            tickets = await TicketClient.ListAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load tickets");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    // Keyed by slug, not display name - an admin renaming "Waiting on Customer" to something else
+    // shouldn't break its color, and a status this switch doesn't recognize (a custom one an admin
+    // added) still gets a sensible fallback from IsClosed.
+    private static string StatusBadgeClass(TicketStatusDto status) => status.Slug switch
+    {
+        "submitted" => "bg-secondary",
+        "open" => "bg-primary",
+        "reopened" => "bg-info text-dark",
+        "waiting-on-customer" => "bg-warning text-dark",
+        "resolved" => "bg-success",
+        "closed" => "bg-dark",
+        "cancelled" => "bg-dark",
+        _ => status.IsClosed ? "bg-dark" : "bg-secondary"
+    };
+}

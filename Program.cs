@@ -268,6 +268,27 @@ builder.Services.AddApiClient<ICommunicationApiClient>($"{apiBaseUrl}/api/commun
     .AddHttpMessageHandler<JwtExchangeHandler>()
     .AddHttpMessageHandler<JwtAuthenticationHandler>();
 
+// Same handler chain, gated by Organization.SubmitTickets - a tenant member's own "My Tickets".
+builder.Services.AddApiClient<ITicketApiClient>($"{apiBaseUrl}/api/tickets")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// Same handler chain, gated by Platform.ManageOrganizations like INoteApiClient above - the staff
+// console's ticket queues, across every tenant.
+builder.Services.AddApiClient<IAdminTicketApiClient>($"{apiBaseUrl}/api/admin/tickets")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// Same handler chain and permission as IAdminTicketApiClient above - the admin ticket-status
+// management page.
+builder.Services.AddApiClient<IAdminTicketStatusApiClient>($"{apiBaseUrl}/api/admin/ticket-statuses")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// Deliberately no JWT handlers - an anonymous guest-ticket link carries its own credential (the token
+// itself), same reasoning as IInvitationPreviewApiClient above.
+builder.Services.AddApiClient<IGuestTicketApiClient>($"{apiBaseUrl}/api/public/tickets/guest");
+
 // Same handler chain and permission as IPlatformSettingsApiClient - editing what an email says is the
 // same kind of platform-wide decision as everything else Platform.ManageSettings already covers.
 builder.Services.AddApiClient<IEmailTemplateApiClient>($"{apiBaseUrl}/api/email-templates")
