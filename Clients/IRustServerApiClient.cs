@@ -99,6 +99,13 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
         [Query] DateTimeOffset? until = null);
 
     /// <summary>
+    /// The Plugins tab's list - the Oxide/Carbon plugins the Worker last reported loaded on this server,
+    /// ordered by name. Empty when there's no plugin framework, nothing loaded, or no poll has landed yet.
+    /// </summary>
+    [Get("/{id}/plugins")]
+    Task<List<ServerPluginDto>> GetPluginsAsync(Guid id);
+
+    /// <summary>
     /// The calling tenant's current Plan limits and server count - lets the Servers page warn "you're
     /// at your limit" the moment a user clicks Add Server, before filling out the form. See the
     /// endpoint's own remarks for why this can't replace <c>CreateAsync</c>'s own rejection.
