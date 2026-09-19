@@ -2,6 +2,7 @@
 
 using System.Threading.Tasks;
 using Refit;
+using RustArchon.Shared.DTOs;
 
 namespace RustArchon.Panel.Clients;
 
@@ -21,4 +22,12 @@ public interface IAccountBootstrapApiClient
     /// </summary>
     [Post("/api/account-bootstrap/ensure-tenant")]
     Task EnsureTenantAsync([Header("Authorization")] string bearerAssertionToken, [Query] string? tenantName = null);
+
+    /// <summary>Relinks a guest ticket to the calling user's own account and tenant - see
+    /// <c>AccountBootstrapController.ClaimTicket</c>'s remarks for why this needs the same
+    /// explicitly-passed assertion token as <see cref="EnsureTenantAsync"/> rather than the normal
+    /// circuit-scoped JWT handlers.</summary>
+    [Post("/api/account-bootstrap/claim-ticket")]
+    Task ClaimTicketAsync(
+        [Header("Authorization")] string bearerAssertionToken, [Body] ClaimGuestTicketRequestDto request);
 }

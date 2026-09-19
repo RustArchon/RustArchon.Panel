@@ -1,0 +1,298 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/Tickets/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IAdminTicketApiClient AdminTicketClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@(ticket?.Subject ?? Localizer["Ticket"])</PageTitle>
+
+<a href="Admin/Tickets" class="d-inline-block mb-3">
+    <i class="bi bi-arrow-left"></i> @Localizer["Back to Tickets"]
+</a>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@if (loading)
+{
+    <p><em>@Localizer["Loading ticket..."]</em></p>
+}
+else if (ticket is null)
+{
+    <div class="alert alert-warning">@Localizer["Ticket not found."]</div>
+}
+else
+{
+    <div class="row g-4">
+        <div class="col-lg-8">
+            <h1 class="mb-1">@ticket.Subject</h1>
+            <div class="text-muted small mb-3">
+                @Localizer["From"]: @ticket.SubmitterName (@ticket.SubmitterEmail)
+            </div>
+
+            <h5>@Localizer["Conversation"]</h5>
+            <div class="d-flex flex-column gap-3 mb-4">
+                @foreach (var message in ticket.Messages.OrderBy(m => m.CreatedOn))
+                {
+                    <div class="card @(message.AuthorType == TicketMessageAuthorType.Staff ? "border-primary" : null)">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between small text-muted mb-2">
+                                <span>@(message.AuthorType == TicketMessageAuthorType.Staff ? Localizer["Staff"] : Localizer["Customer"])</span>
+                                <span>@message.CreatedOn.UtcDateTime.ToString("d MMM yyyy HH:mm") UTC</span>
+                            </div>
+                            <div style="white-space: pre-wrap;">@message.Body</div>
+                        </div>
+                    </div>
+                }
+                @if (ticket.Messages.Count == 0)
+                {
+                    <div class="text-muted">@Localizer["No messages yet."]</div>
+                }
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-body">
+                    <label class="form-label" for="reply-body">@Localizer["Reply to customer"]</label>
+                    <textarea id="reply-body" class="form-control mb-2" rows="4" @bind="replyBody"></textarea>
+                    <button type="button" class="btn btn-primary" @onclick="SendReply" disabled="@(sendingReply || string.IsNullOrWhiteSpace(replyBody))">
+                        @(sendingReply ? Localizer["Sending..."] : Localizer["Send Reply"])
+                    </button>
+                </div>
+            </div>
+
+            <h5>@Localizer["Internal Notes"]</h5>
+            <p class="small text-muted">@Localizer["Never visible to the customer."]</p>
+            <div class="d-flex flex-column gap-2 mb-3">
+                @foreach (var note in ticket.Notes ?? [])
+                {
+                    <div class="card bg-body-tertiary">
+                        <div class="card-body py-2">
+                            <div class="small text-muted mb-1">@note.CreatedOn.UtcDateTime.ToString("d MMM yyyy HH:mm") UTC</div>
+                            <div style="white-space: pre-wrap;">@note.Content</div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <label class="form-label" for="note-body">@Localizer["Add a note"]</label>
+                    <textarea id="note-body" class="form-control mb-2" rows="3" @bind="noteBody"></textarea>
+                    <button type="button" class="btn btn-outline-secondary" @onclick="AddNote" disabled="@(addingNote || string.IsNullOrWhiteSpace(noteBody))">
+                        @(addingNote ? Localizer["Saving..."] : Localizer["Add Note"])
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase small mb-3">@Localizer["Ticket"]</h6>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="ticket-status">@Localizer["Status"]</label>
+                        <select id="ticket-status" class="form-select" value="@editStatusId" @onchange="OnStatusChanged">
+                            @foreach (var status in statuses)
+                            {
+                                <option value="@status.Id">@status.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="ticket-queue">@Localizer["Queue"]</label>
+                        <select id="ticket-queue" class="form-select" value="@editQueueId" @onchange="OnQueueChanged">
+                            @foreach (var queue in queues)
+                            {
+                                <option value="@queue.Id">@queue.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="ticket-prevent-reopening" @bind="editPreventReopening" />
+                        <label class="form-check-label" for="ticket-prevent-reopening">@Localizer["Prevent reopening"]</label>
+                        <div class="form-text">@Localizer["While this ticket is closed, a customer or guest reply is refused instead of reopening it - use this to stop abuse on a specific ticket."]</div>
+                    </div>
+
+                    <button type="button" class="btn btn-primary w-100" @onclick="SaveTicketProperties" disabled="@savingProperties">
+                        @(savingProperties ? Localizer["Saving..."] : Localizer["Save Changes"])
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private TicketDetailDto? ticket;
+    private List<QueueDto> queues = [];
+    private List<TicketStatusDto> statuses = [];
+
+    private Guid editStatusId;
+    private Guid editQueueId;
+    private bool editPreventReopening;
+
+    private bool loading = true;
+    private bool sendingReply;
+    private bool addingNote;
+    private bool savingProperties;
+    private string? errorMessage;
+    private string replyBody = string.Empty;
+    private string noteBody = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            queues = await AdminTicketClient.GetQueuesAsync();
+            statuses = await AdminTicketClient.GetStatusesAsync();
+        }
+        catch (Refit.ApiException)
+        {
+            queues = [];
+            statuses = [];
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            ticket = await AdminTicketClient.GetAsync(Id);
+            editStatusId = ticket.Status.Id;
+            editQueueId = ticket.QueueId;
+            editPreventReopening = ticket.PreventReopening;
+
+            // The current status might have been deactivated since this ticket was set to it - keep
+            // it selectable in the picker anyway, same reasoning as showing its current queue would if
+            // Queue ever grew the same inactive-but-still-assigned case.
+            if (statuses.All(s => s.Id != ticket.Status.Id))
+            {
+                statuses = [.. statuses, ticket.Status];
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load ticket");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private void OnStatusChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var statusId))
+        {
+            editStatusId = statusId;
+        }
+    }
+
+    private void OnQueueChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var queueId))
+        {
+            editQueueId = queueId;
+        }
+    }
+
+    private async Task SaveTicketProperties()
+    {
+        savingProperties = true;
+        errorMessage = null;
+
+        try
+        {
+            await AdminTicketClient.UpdateAsync(Id, new UpdateTicketRequestDto
+            {
+                StatusId = editStatusId,
+                QueueId = editQueueId,
+                AssignedToUserId = ticket?.AssignedToUserId,
+                PreventReopening = editPreventReopening
+            });
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "update ticket");
+        }
+        finally
+        {
+            savingProperties = false;
+        }
+    }
+
+    private async Task SendReply()
+    {
+        if (string.IsNullOrWhiteSpace(replyBody))
+        {
+            return;
+        }
+
+        sendingReply = true;
+        errorMessage = null;
+
+        try
+        {
+            await AdminTicketClient.AddMessageAsync(Id, new SaveTicketMessageRequestDto { Body = replyBody.Trim() });
+            replyBody = string.Empty;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "send reply");
+        }
+        finally
+        {
+            sendingReply = false;
+        }
+    }
+
+    private async Task AddNote()
+    {
+        if (string.IsNullOrWhiteSpace(noteBody))
+        {
+            return;
+        }
+
+        addingNote = true;
+        errorMessage = null;
+
+        try
+        {
+            await AdminTicketClient.AddNoteAsync(Id, new SaveTicketNoteRequestDto { Content = noteBody.Trim() });
+            noteBody = string.Empty;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "add note");
+        }
+        finally
+        {
+            addingNote = false;
+        }
+    }
+}

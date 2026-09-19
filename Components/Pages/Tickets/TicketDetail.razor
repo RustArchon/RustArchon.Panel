@@ -1,0 +1,164 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Tickets/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject ITicketApiClient TicketClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@(ticket?.Subject ?? Localizer["Ticket"])</PageTitle>
+
+<a href="Tickets" class="d-inline-block mb-3">
+    <i class="bi bi-arrow-left"></i> @Localizer["Back to My Tickets"]
+</a>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@if (loading)
+{
+    <p><em>@Localizer["Loading ticket..."]</em></p>
+}
+else if (ticket is null)
+{
+    <div class="alert alert-warning">@Localizer["Ticket not found."]</div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+            <h1 class="mb-1">@ticket.Subject</h1>
+            <div class="text-muted small">
+                @Localizer["Queue"]: @ticket.QueueName &middot; @Localizer["Status"]: @ticket.Status.Name
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex flex-column gap-3 mb-4">
+        @foreach (var message in ticket.Messages.OrderBy(m => m.CreatedOn))
+        {
+            <div class="card @(message.AuthorType == TicketMessageAuthorType.Staff ? "border-primary" : null)">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between small text-muted mb-2">
+                        <span>@(message.AuthorType == TicketMessageAuthorType.Staff ? Localizer["Support"] : Localizer["You"])</span>
+                        <span>@message.CreatedOn.UtcDateTime.ToString("d MMM yyyy HH:mm") UTC</span>
+                    </div>
+                    <div style="white-space: pre-wrap;">@message.Body</div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <label class="form-label" for="reply-body">@Localizer["Add a reply"]</label>
+            <textarea id="reply-body" class="form-control mb-2" rows="4" @bind="replyBody"></textarea>
+            <button type="button" class="btn btn-primary" @onclick="OnSendReplyClicked" disabled="@(sending || string.IsNullOrWhiteSpace(replyBody))">
+                @(sending ? Localizer["Sending..."] : Localizer["Send Reply"])
+            </button>
+        </div>
+    </div>
+}
+
+@if (showReopenConfirmation)
+{
+    <RustArchon.Panel.Components.Shared.ConfirmationModal
+        Title="@Localizer["Reopen Ticket?"]"
+        ConfirmButtonText="@Localizer["Yes, Add Reply"]"
+        ConfirmButtonClass="btn-primary"
+        OnClose="HandleReopenModalClose">
+        <Message>
+            @Localizer["This will reopen the ticket, are you sure you need to add a new comment?"]
+        </Message>
+    </RustArchon.Panel.Components.Shared.ConfirmationModal>
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private TicketDetailDto? ticket;
+    private bool loading = true;
+    private bool sending;
+    private string? errorMessage;
+    private string replyBody = string.Empty;
+    private bool showReopenConfirmation;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+
+        try
+        {
+            ticket = await TicketClient.GetAsync(Id);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load ticket");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    /// <summary>
+    /// Gates the actual send behind a confirmation whenever the ticket is currently closed - see
+    /// <see cref="TicketStatusDto.IsClosed"/> - since replying moves it to <c>Reopened</c> (or is
+    /// refused outright if the status prevents that; the Api itself is authoritative on that, this is
+    /// just the "are you sure" step before asking it).
+    /// </summary>
+    private Task OnSendReplyClicked()
+    {
+        if (ticket is { Status.IsClosed: true })
+        {
+            showReopenConfirmation = true;
+            return Task.CompletedTask;
+        }
+
+        return SendReply();
+    }
+
+    private Task HandleReopenModalClose(bool confirmed)
+    {
+        showReopenConfirmation = false;
+        return confirmed ? SendReply() : Task.CompletedTask;
+    }
+
+    private async Task SendReply()
+    {
+        if (string.IsNullOrWhiteSpace(replyBody))
+        {
+            return;
+        }
+
+        sending = true;
+        errorMessage = null;
+
+        try
+        {
+            await TicketClient.AddMessageAsync(Id, new SaveTicketMessageRequestDto { Body = replyBody.Trim() });
+            replyBody = string.Empty;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "send reply");
+        }
+        finally
+        {
+            sending = false;
+        }
+    }
+}

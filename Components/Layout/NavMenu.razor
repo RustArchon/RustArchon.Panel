@@ -53,6 +53,11 @@
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Tickets">
+                        <i class="bi bi-ticket-perforated-fill" aria-hidden="true"></i> @Localizer["My Tickets"]
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Organization/Roles">
                         <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> @Localizer["Roles"]
                     </NavLink>
@@ -128,6 +133,16 @@
                         <div class="nav-item nav-subitem px-3">
                             <NavLink class="nav-link" href="Admin/Organizations">
                                 <i class="bi bi-buildings-fill" aria-hidden="true"></i> @Localizer["Organizations"]
+                            </NavLink>
+                        </div>
+                        <div class="nav-item nav-subitem px-3">
+                            <NavLink class="nav-link" href="Admin/Tickets">
+                                <i class="bi bi-ticket-perforated-fill" aria-hidden="true"></i> @Localizer["Tickets"]
+                            </NavLink>
+                        </div>
+                        <div class="nav-item nav-subitem px-3">
+                            <NavLink class="nav-link" href="Admin/TicketStatuses">
+                                <i class="bi bi-list-check" aria-hidden="true"></i> @Localizer["Ticket Statuses"]
                             </NavLink>
                         </div>
                         <div class="nav-item nav-subitem px-3">
@@ -289,7 +304,7 @@
     private string siteUrl = "https://www.rustarchon.com";
 
     private static readonly string[] CustomerHrefs =
-        ["Customers/Reports", "Admin/Organizations", "Admin/Users"];
+        ["Customers/Reports", "Admin/Organizations", "Admin/Tickets", "Admin/TicketStatuses", "Admin/Users"];
     private static readonly string[] BillingHrefs =
         ["Billing/Reports", "Admin/Invoices", "Admin/Plans", "Admin/Discounts"];
     private static readonly string[] PaymentsHrefs = ["Payments/Reports"];

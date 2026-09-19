@@ -266,6 +266,7 @@ else
     // references an Api-side type directly. Only this one category name needs to be known here at
     // all, to place the test-email card inside it.
     private const string EmailCategory = "Email";
+    private const string TicketingCategory = "Ticketing";
 
     // Same mirroring reasoning as EmailCategory above - the specific keys CanTestEmail needs to
     // inspect to decide whether the currently-selected provider actually has enough to try.
@@ -284,7 +285,7 @@ else
     // alphabetically after these - see OrderedCategories. Payments sits right after Billing, matching
     // where the nav's own Customers/Billing/Payments split already puts it.
     private static readonly string[] PreferredCategoryOrder =
-        ["General", "Registration", "Billing", "Payments", EmailCategory];
+        ["General", "Registration", "Billing", "Payments", EmailCategory, TicketingCategory];
 
     private List<PlatformSettingDto>? settings;
     private List<PlanDto>? plans;

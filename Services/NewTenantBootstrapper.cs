@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using JumpStart.Services.Authentication;
 using Microsoft.Extensions.Logging;
 using RustArchon.Panel.Clients;
+using RustArchon.Shared.DTOs;
 
 namespace RustArchon.Panel.Services;
 
@@ -57,5 +58,20 @@ public class NewTenantBootstrapper(
             logger.LogError(ex, "Failed to provision a tenant for new user {UserId}", userId);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Relinks a guest ticket (see <see cref="ClaimGuestTicketRequestDto"/>) to the newly created
+    /// user's own account and tenant. Best-effort by design - see <c>Register.razor</c>'s call site for
+    /// why a failure here is logged and swallowed rather than surfaced. Same reasoning as
+    /// <see cref="ProvisionAsync"/> for why this mints its own short-lived assertion token rather than
+    /// going through the normal circuit-scoped JWT handlers: this runs from a static form-post handler,
+    /// before any Blazor circuit exists.
+    /// </summary>
+    public async Task ClaimTicketAsync(Guid userId, string username, string ticketToken)
+    {
+        var assertionToken = jwtTokenService.GenerateToken(userId, username, expiration: AssertionTokenLifetime);
+        await accountBootstrapClient.ClaimTicketAsync(
+            $"Bearer {assertionToken}", new ClaimGuestTicketRequestDto { Token = ticketToken });
     }
 }

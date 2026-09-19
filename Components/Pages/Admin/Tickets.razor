@@ -1,0 +1,209 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/Tickets"
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IAdminTicketApiClient AdminTicketClient
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@Localizer["Tickets"]</PageTitle>
+
+<h1 class="mb-4">@Localizer["Tickets"]</h1>
+
+@if (accessDenied)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to the ticket queues."]
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label small text-muted mb-1" for="ticket-queue-filter">@Localizer["Queue"]</label>
+                    <select id="ticket-queue-filter" class="form-select" value="@queueFilter" @onchange="OnQueueChanged">
+                        <option value="">@Localizer["All queues"]</option>
+                        @foreach (var queue in queues)
+                        {
+                            <option value="@queue.Id">@queue.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small text-muted mb-1" for="ticket-status-filter">@Localizer["Status"]</label>
+                    <select id="ticket-status-filter" class="form-select" value="@statusFilter" @onchange="OnStatusChanged">
+                        <option value="">@Localizer["All statuses"]</option>
+                        @foreach (var status in statuses)
+                        {
+                            <option value="@status.Id">@status.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small text-muted mb-1" for="ticket-closed-filter">@Localizer["Open / Closed"]</label>
+                    <select id="ticket-closed-filter" class="form-select" value="@closedFilter" @onchange="OnClosedFilterChanged">
+                        <option value="open">@Localizer["Open"]</option>
+                        <option value="closed">@Localizer["Closed"]</option>
+                        <option value="all">@Localizer["All"]</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (loading)
+    {
+        <p><em>@Localizer["Loading tickets..."]</em></p>
+    }
+    else if (rows.Count == 0)
+    {
+        <div class="alert alert-info">@Localizer["No tickets match that."]</div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>@Localizer["Subject"]</th>
+                        <th>@Localizer["Queue"]</th>
+                        <th>@Localizer["Status"]</th>
+                        <th>@Localizer["Submitter"]</th>
+                        <th>@Localizer["Submitted"]</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in rows)
+                    {
+                        <tr>
+                            <td><a href="@($"Admin/Tickets/{row.Id}")">@row.Subject</a></td>
+                            <td>@row.QueueName</td>
+                            <td>
+                                <span class="badge @(row.Status.IsClosed ? "bg-dark" : "bg-secondary")">@row.Status.Name</span>
+                                @if (row.PreventReopening)
+                                {
+                                    <span class="badge bg-danger ms-1" title="@Localizer["A reply is refused instead of reopening it."]">
+                                        @Localizer["No reopen"]
+                                    </span>
+                                }
+                            </td>
+                            <td>
+                                @row.SubmitterName
+                                <div class="small text-muted">@row.SubmitterEmail</div>
+                            </td>
+                            <td class="small text-muted">@row.SubmittedOn.UtcDateTime.ToString("d MMM yyyy")</td>
+                            <td class="text-end">
+                                <a class="btn btn-sm btn-outline-secondary" href="@($"Admin/Tickets/{row.Id}")">@Localizer["Open"]</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private readonly List<TicketSummaryDto> rows = [];
+    private List<QueueDto> queues = [];
+    private List<TicketStatusDto> statuses = [];
+
+    private string queueFilter = string.Empty;
+    private string statusFilter = string.Empty;
+
+    /// <summary>Keys off each status's own <see cref="TicketStatusDto.IsClosed"/> flag, independent of
+    /// which exact status a ticket is in - "open" (the default, so the working queue doesn't
+    /// accumulate every ticket ever resolved) maps to <c>isClosed: false</c>, "closed" to
+    /// <c>isClosed: true</c>, "all" to <c>isClosed: null</c>. Ignored server-side once a specific
+    /// <see cref="statusFilter"/> is chosen - see <c>AdminTicketsController.List</c>'s remarks.</summary>
+    private string closedFilter = "open";
+
+    private bool loading = true;
+    private bool accessDenied;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            queues = await AdminTicketClient.GetQueuesAsync();
+            statuses = await AdminTicketClient.GetStatusesAsync();
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+        {
+            accessDenied = true;
+            loading = false;
+            return;
+        }
+        catch (Refit.ApiException)
+        {
+            queues = [];
+            statuses = [];
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var results = await AdminTicketClient.ListAsync(
+                queueId: Guid.TryParse(queueFilter, out var queueId) ? queueId : null,
+                statusId: Guid.TryParse(statusFilter, out var statusId) ? statusId : null,
+                isClosed: closedFilter switch { "open" => false, "closed" => true, _ => null });
+
+            rows.Clear();
+            rows.AddRange(results);
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load tickets");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task OnQueueChanged(ChangeEventArgs e)
+    {
+        queueFilter = e.Value?.ToString() ?? string.Empty;
+        await LoadAsync();
+    }
+
+    private async Task OnStatusChanged(ChangeEventArgs e)
+    {
+        statusFilter = e.Value?.ToString() ?? string.Empty;
+        await LoadAsync();
+    }
+
+    private async Task OnClosedFilterChanged(ChangeEventArgs e)
+    {
+        closedFilter = e.Value?.ToString() ?? "open";
+        await LoadAsync();
+    }
+}

@@ -93,6 +93,11 @@
     [SupplyParameterFromQuery]
     private string? ReturnUrl { get; set; }
 
+    /// <summary>Carried in from a guest ticket's "Sign up" link (see <c>GuestTicketDetail.razor</c>) -
+    /// see <see cref="TryClaimGuestTicketAsync"/> for what happens with it.</summary>
+    [SupplyParameterFromQuery]
+    private string? TicketToken { get; set; }
+
     private string? Message => identityErrors is null
         ? null
         : Localizer["Error: {0}", string.Join(", ", identityErrors.Select(error => error.Description))];
@@ -266,6 +271,7 @@
                     + "confirmed automatically, skipping the confirmation email.", Input.Email);
 
                 await SignInManager.SignInAsync(user, isPersistent: false);
+                await TryClaimGuestTicketAsync(user.Id);
                 RedirectManager.RedirectTo(ReturnUrl);
                 return;
             }
@@ -300,12 +306,52 @@
             else
             {
                 await SignInManager.SignInAsync(user, isPersistent: false);
+                await TryClaimGuestTicketAsync(user.Id);
                 RedirectManager.RedirectTo(ReturnUrl);
             }
         }
         finally
         {
             registering = false;
+        }
+    }
+
+    /// <summary>
+    /// Relinks the guest ticket named by <see cref="TicketToken"/> (if any) to the account that just
+    /// signed in, via <see cref="NewTenantBootstrapper.ClaimTicketAsync"/> - not a normal authenticated
+    /// Refit client. This method runs inside <c>RegisterUser</c>'s static form-post handler, before any
+    /// Blazor circuit exists, so a client relying on <c>JwtExchangeHandler</c> (which needs a live
+    /// circuit to resolve the current user) throws - caught live the first time this shipped. See
+    /// <see cref="NewTenantBootstrapper.ProvisionAsync"/>, a few lines above every call site of this
+    /// method, for the same constraint already solved the same way.
+    /// </summary>
+    /// <remarks>
+    /// Best-effort by design - see <c>AccountBootstrapController.ClaimTicket</c>'s remarks for why a
+    /// mismatch is refused server-side rather than trusted from here. Registration has already fully
+    /// succeeded by the time this runs, so a failure here (an expired or already-claimed token, a
+    /// transient Api error) is logged and swallowed rather than surfaced - nothing about the new
+    /// account should be rolled back over a "nice to have." Only reachable from the two branches above
+    /// that actually call <c>SignInManager.SignInAsync</c> synchronously during registration - the
+    /// <c>RequireConfirmedAccount</c> path below redirects to <c>RegisterConfirmation</c> with no
+    /// session yet, so there's nothing authenticated to make the call as; the ticket simply stays
+    /// reachable only via its guest link in that case, same as if the visitor never signed up at all.
+    /// </remarks>
+    private async Task TryClaimGuestTicketAsync(Guid userId)
+    {
+        if (string.IsNullOrWhiteSpace(TicketToken))
+        {
+            return;
+        }
+
+        try
+        {
+            await TenantBootstrapper.ClaimTicketAsync(userId, Input.Email, TicketToken);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(
+                ex, "Could not relink guest ticket for new user {UserId} - it stays reachable via its "
+                + "own guest link.", userId);
         }
     }
 
