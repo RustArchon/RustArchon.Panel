@@ -1489,9 +1489,14 @@ else
     private bool basesForbidden;
     private string? basesError;
 
-    /// <summary>The owner's name if they are authorized on their own cupboard (the plugin lists names only there), else just their id.</summary>
+    /// <summary>The owner's name as the Api resolved it (the plugin's, else the last session's), falling back to a name listed on their own cupboard, else just their id.</summary>
     private static string BaseOwnerName(BaseTcDto tc)
     {
+        if (!string.IsNullOrEmpty(tc.OwnerName))
+        {
+            return tc.OwnerName;
+        }
+
         var owner = tc.Authorized.FirstOrDefault(a => a.PlayerId == tc.OwnerId);
         return owner is null || string.IsNullOrEmpty(owner.Name) ? tc.OwnerId : owner.Name;
     }
