@@ -4,11 +4,13 @@
 @using System.Net
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.JSInterop
 @using RustArchon.Panel.Clients
 @using RustArchon.Panel.Services
 @using RustArchon.Shared.DTOs
 @attribute [Authorize]
 @inject IPluginAdminApiClient Client
+@inject IJSRuntime JS
 @rendermode RenderModes.NonPrerenderedServer
 
 <PageTitle>@Localizer["Plugin"]</PageTitle>
@@ -171,6 +173,107 @@ else
                 <p class="small text-muted mt-2 mb-0">
                     @Localizer["The count is only what servers last reported. An offline or lagging server reports nothing, so a low number never means a key is unused."]
                 </p>
+            </div>
+        </div>
+
+        @* ============================ Back up and copy the keys ============================ *@
+        <div class="card mb-4" data-testid="plugin-key-transfer">
+            <div class="card-body">
+                <h2 class="h5">@Localizer["Back up and copy signing keys"]</h2>
+                <p class="small text-muted">
+                    @Localizer["Export every signing key into a passphrase-protected file, to keep as a backup or to import into another Panel so both can sign for the same servers."]
+                </p>
+                <div class="alert alert-warning small" data-testid="key-transfer-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    @Localizer["The file holds private signing keys. Anyone with the file and its passphrase can sign code that every server trusting these keys will run. Keep it like a password, and only import it into a Panel you trust as much as this one."]
+                </div>
+
+                <div class="row g-4">
+                    <div class="col-lg-6" data-testid="key-export">
+                        <h3 class="h6">@Localizer["Export"]</h3>
+                        <label class="form-label small" for="export-passphrase">@Localizer["Passphrase (at least 12 characters)"]</label>
+                        <input id="export-passphrase" type="password" class="form-control form-control-sm mb-2" autocomplete="new-password"
+                               data-testid="export-passphrase" @bind="exportPassphrase" @bind:event="oninput" />
+                        <label class="form-label small" for="export-passphrase-repeat">@Localizer["Repeat the passphrase"]</label>
+                        <input id="export-passphrase-repeat" type="password" class="form-control form-control-sm mb-2" autocomplete="new-password"
+                               data-testid="export-passphrase-repeat" @bind="exportPassphraseRepeat" @bind:event="oninput" />
+                        @if (exportProblem is not null)
+                        {
+                            <div class="text-danger small mb-2" data-testid="export-problem">@exportProblem</div>
+                        }
+                        <button type="button" class="btn btn-sm btn-outline-primary" data-testid="export-keys" disabled="@busy" @onclick="ExportAsync">
+                            <i class="bi bi-download"></i> @Localizer["Export keys"]
+                        </button>
+                    </div>
+
+                    <div class="col-lg-6" data-testid="key-import">
+                        <h3 class="h6">@Localizer["Import"]</h3>
+                        <label class="form-label small" for="import-file">@Localizer["Key file"]</label>
+                        <InputFile id="import-file" class="form-control form-control-sm mb-2" accept=".json" OnChange="OnKeyFileChosen" />
+                        <label class="form-label small" for="import-passphrase">@Localizer["Passphrase"]</label>
+                        <input id="import-passphrase" type="password" class="form-control form-control-sm mb-2" autocomplete="off"
+                               data-testid="import-passphrase" @bind="importPassphrase" @bind:event="oninput" />
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-testid="check-import"
+                                disabled="@(busy || importBundle is null || string.IsNullOrEmpty(importPassphrase))" @onclick="() => CheckImportAsync()">
+                            <i class="bi bi-search"></i> @Localizer["Check the file"]
+                        </button>
+
+                        @if (importPlan is not null)
+                        {
+                            <div class="mt-3" data-testid="import-plan">
+                                <p class="small mb-2">@Localizer["This is what importing will do. Nothing has changed yet."]</p>
+                                <table class="table table-sm small align-middle mb-2">
+                                    <thead>
+                                        <tr>
+                                            <th>@Localizer["Key"]</th>
+                                            <th>@Localizer["In the file"]</th>
+                                            <th>@Localizer["What happens"]</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var item in importPlan.Items)
+                                        {
+                                            <tr data-testid="import-plan-row" data-fingerprint="@item.Fingerprint" data-action="@item.Action">
+                                                <td><code>@item.Fingerprint</code></td>
+                                                <td>@BundleStateLabel(item.BundleState)</td>
+                                                <td>@ActionLabel(item.Action)</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+
+                                @if (importHasActiveKey)
+                                {
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" id="import-activate" data-testid="import-activate"
+                                               checked="@importActivate" disabled="@busy" @onchange="OnActivateChanged" />
+                                        <label class="form-check-label" for="import-activate">
+                                            @Localizer["Also make the file's active key the active key here. The current active key is kept, and servers that trust it can still be updated."]
+                                        </label>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <p class="small text-muted" data-testid="import-no-active">@Localizer["The file has no active key, so its keys can only be added to the history."]</p>
+                                }
+
+                                @if (importPlan.ChangesAnything)
+                                {
+                                    <input type="text" class="form-control form-control-sm mb-2" maxlength="500" data-testid="import-note"
+                                           placeholder="@Localizer["Note for the audit log (optional)"]" @bind="importNote" />
+                                    <button type="button" class="btn btn-sm @(importPlan.ChangesActiveKey ? "btn-danger" : "btn-primary")" data-testid="confirm-import"
+                                            disabled="@busy" @onclick="ImportAsync">
+                                        <i class="bi bi-box-arrow-in-down"></i> @(importPlan.ChangesActiveKey ? Localizer["Import and change the active key"] : Localizer["Import keys"])
+                                    </button>
+                                }
+                                else
+                                {
+                                    <p class="small text-muted mb-0" data-testid="import-nothing">@Localizer["Nothing to import: this Panel already has everything in the file."]</p>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -370,6 +473,17 @@ else
     private string? revokeTarget;
     private PluginReleaseDto? releaseTarget;
 
+    // Key export and import. The passphrases and the file's text are held only until the action finishes, and cleared then.
+    private string? exportPassphrase;
+    private string? exportPassphraseRepeat;
+    private string? exportProblem;
+    private string? importBundle;
+    private string? importPassphrase;
+    private string? importNote;
+    private bool importActivate;
+    private bool importHasActiveKey;
+    private PluginKeyImportResultDto? importPlan;
+
     private string uploadKind = "main";
     private string? uploadNotes;
     private IBrowserFile? chosenFile;
@@ -465,6 +579,159 @@ else
         return string.Format(Localizer["Key {0} was revoked."], target);
     }, "revoke the key");
 
+    // ---- exporting and importing keys ----------------------------------------------------------------------
+
+    private const int MinPassphraseLength = 12;
+    private const int MaxBundleBytes = 128 * 1024;
+
+    private void ClearKeyTransfer()
+    {
+        exportPassphrase = exportPassphraseRepeat = exportProblem = null;
+        importBundle = importPassphrase = importNote = null;
+        importActivate = importHasActiveKey = false;
+        importPlan = null;
+    }
+
+    private async Task ExportAsync()
+    {
+        exportProblem = null;
+        if (string.IsNullOrEmpty(exportPassphrase) || exportPassphrase.Length < MinPassphraseLength)
+        {
+            exportProblem = string.Format(Localizer["The passphrase must be at least {0} characters."], MinPassphraseLength);
+            return;
+        }
+
+        if (exportPassphrase != exportPassphraseRepeat)
+        {
+            exportProblem = Localizer["The two passphrases are not the same."];
+            return;
+        }
+
+        busy = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            using var response = await Client.ExportKeysAsync(new ExportPluginKeysRequestDto { Passphrase = exportPassphrase });
+            if (!response.IsSuccessStatusCode)
+            {
+                errorMessage = response.StatusCode == HttpStatusCode.BadRequest
+                    ? await response.Content.ReadAsStringAsync()
+                    : ApiErrorMessage.For(new InvalidOperationException($"The Api answered {(int)response.StatusCode}."), "export the keys");
+                return;
+            }
+
+            var fileName = response.Content.Headers.ContentDisposition?.FileNameStar
+                ?? response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
+                ?? "rustarchon-signing-keys.json";
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            var module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/fileDownload.js");
+            await module.InvokeVoidAsync("downloadBytes", fileName, Convert.ToBase64String(bytes), "application/json");
+
+            ClearKeyTransfer();
+            successMessage = string.Format(
+                Localizer["The keys were exported to {0}. Keep the file and its passphrase safe: together they can sign code for every server that trusts these keys."], fileName);
+            events = await Client.GetEventsAsync(50);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "export the keys");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task OnKeyFileChosen(InputFileChangeEventArgs e)
+    {
+        importPlan = null;
+        importBundle = null;
+        importActivate = false;
+        errorMessage = null;
+
+        if (e.File.Size > MaxBundleBytes)
+        {
+            errorMessage = Localizer["That file is too large to be a key file."];
+            return;
+        }
+
+        try
+        {
+            await using var stream = e.File.OpenReadStream(MaxBundleBytes);
+            using var reader = new StreamReader(stream);
+            importBundle = await reader.ReadToEndAsync();
+        }
+        catch (Exception)
+        {
+            errorMessage = Localizer["That file could not be read."];
+        }
+    }
+
+    // Asks the Api what importing would do (nothing is changed). Runs again whenever the "make it active" box is ticked or cleared.
+    private async Task CheckImportAsync()
+    {
+        busy = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            importPlan = await Client.ImportKeysAsync(new ImportPluginKeysRequestDto
+            {
+                Bundle = importBundle!, Passphrase = importPassphrase!, ActivateBundleKey = importActivate, DryRun = true
+            });
+            importHasActiveKey = importPlan.Items.Any(i => i.BundleState == "active");
+        }
+        catch (Exception ex)
+        {
+            importPlan = null;
+            errorMessage = ApiErrorMessage.For(ex, "check the key file");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task OnActivateChanged(ChangeEventArgs e)
+    {
+        importActivate = e.Value is true;
+        await CheckImportAsync();
+    }
+
+    private Task ImportAsync() => RunAsync(async () =>
+    {
+        var result = await Client.ImportKeysAsync(new ImportPluginKeysRequestDto
+        {
+            Bundle = importBundle!, Passphrase = importPassphrase!, ActivateBundleKey = importActivate, DryRun = false,
+            Note = string.IsNullOrWhiteSpace(importNote) ? null : importNote.Trim()
+        });
+        ClearKeyTransfer();
+        var added = result.Items.Count(i => i.Action == "added");
+        return result.ChangesActiveKey
+            ? string.Format(Localizer["Imported {0} key(s). The active key is now {1}."], added, result.ActiveAfter)
+            : string.Format(Localizer["Imported {0} key(s). The active key is unchanged."], added);
+    }, "import the keys");
+
+    private string BundleStateLabel(string state) => state switch
+    {
+        "active" => Localizer["Active"],
+        "retired" => Localizer["Retired"],
+        "revoked" => Localizer["Revoked"],
+        _ => Localizer["Not in the file"]
+    };
+
+    private string ActionLabel(string action) => action switch
+    {
+        "added" => Localizer["Added to the history (can sign an update for servers that trust it)"],
+        "already_present" => Localizer["Already here"],
+        "already_active" => Localizer["Already the active key"],
+        "revoked" => Localizer["Revoked here too, as the file has it"],
+        "activated" => Localizer["Becomes the active key"],
+        "previous_active_retired" => Localizer["Was the active key here; kept in the history"],
+        _ => action
+    };
+
     // ---- releases ------------------------------------------------------------------------------------------
 
     private void OnFileChosen(InputFileChangeEventArgs e) => chosenFile = e.File;
@@ -521,6 +788,8 @@ else
     {
         "KeyRotated" => Localizer["Key rotated"],
         "KeyRevoked" => Localizer["Key revoked"],
+        "KeysExported" => Localizer["Keys exported"],
+        "KeysImported" => Localizer["Keys imported"],
         "ReleaseUploaded" => Localizer["Release uploaded"],
         "ReleasePublished" => Localizer["Release published"],
         "ReleaseWithdrawn" => Localizer["Release withdrawn"],
