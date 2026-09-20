@@ -580,6 +580,12 @@ app.MapGet("/theme-assets/{themeId:guid}/{*path}", async (
 // The RustArchon Updater's download door - anonymous by design (a game server has no login); the single-use,
 // per-server, short-lived token in the URL is the credential, and Api alone decides whether it is good. See
 // PluginDownloadProxy.
+app.MapGet("/ingest/plugin", (
+    IHttpClientFactory httpClientFactory, HttpContext httpContext, CancellationToken cancellationToken) =>
+    PluginDownloadProxy.HandleHeaderTokenAsync(
+        httpContext.Request, httpClientFactory.CreateClient(PluginDownloadProxy.ClientName),
+        httpContext.Response, cancellationToken));
+
 app.MapGet("/ingest/plugin/{serverId:guid}/{token}", (
     Guid serverId, string token, IHttpClientFactory httpClientFactory, HttpContext httpContext,
     CancellationToken cancellationToken) =>

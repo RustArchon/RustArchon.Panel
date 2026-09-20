@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using RustArchon.Messaging.Contracts;
 
 namespace RustArchon.Panel.Services;
 
@@ -25,6 +26,47 @@ public static class PluginDownloadProxy
 
     /// <summary>The longest token that is even forwarded. A real one is 43 characters.</summary>
     public const int MaxTokenLength = 128;
+
+    /// <summary>
+    /// The door an Updater from 0.3.0 uses: the token comes in the <c>X-RustArchon-Update-Token</c> header (so no access log or proxy
+    /// keeps it) and is passed on to Api in the same header; Api works out the server from it. Like the address form, every refusal is a
+    /// bare 404 and nothing is ever cached.
+    /// </summary>
+    public static async Task<IResult> HandleHeaderTokenAsync(
+        HttpRequest request, HttpClient client, HttpResponse response, CancellationToken cancellationToken)
+    {
+        response.Headers.CacheControl = "no-store";
+
+        string? token = request.Headers[RustArchonPlugin.UpdateTokenHeader];
+        if (string.IsNullOrEmpty(token) || token.Length > MaxTokenLength)
+        {
+            return Results.NotFound();
+        }
+
+        try
+        {
+            using var upstreamRequest = new HttpRequestMessage(HttpMethod.Get, "/internal/plugin/download");
+            upstreamRequest.Headers.TryAddWithoutValidation(RustArchonPlugin.UpdateTokenHeader, token);
+            using var upstream = await client.SendAsync(upstreamRequest, cancellationToken);
+
+            if (!upstream.IsSuccessStatusCode)
+            {
+                return Results.NotFound();
+            }
+
+            var bytes = await upstream.Content.ReadAsByteArrayAsync(cancellationToken);
+            if (upstream.Headers.TryGetValues("X-RustArchon-Plugin-Version", out var version))
+            {
+                response.Headers["X-RustArchon-Plugin-Version"] = string.Join(",", version);
+            }
+
+            return Results.File(bytes, "text/plain; charset=utf-8", "RustArchon.cs");
+        }
+        catch (HttpRequestException)
+        {
+            return Results.NotFound();
+        }
+    }
 
     public static async Task<IResult> HandleAsync(
         Guid serverId, string token, HttpClient client, HttpResponse response, CancellationToken cancellationToken)
