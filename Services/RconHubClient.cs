@@ -49,6 +49,7 @@ public class RconHubClient : IRconHubClient
     public event Action<string>? PlayerDisconnected;
     public event Action<PlayerSessionDto>? PlayerGeolocated;
     public event Action<PlayerKillEventDto>? PlayerKilled;
+    public event Action? ServerReportsChanged;
 
     public RconHubClient(ITokenStore tokenStore, IConfiguration configuration)
     {
@@ -78,6 +79,7 @@ public class RconHubClient : IRconHubClient
         _connection.On<string>("ReceivePlayerDisconnected", steamId => PlayerDisconnected?.Invoke(steamId));
         _connection.On<PlayerSessionDto>("ReceivePlayerGeolocated", dto => PlayerGeolocated?.Invoke(dto));
         _connection.On<PlayerKillEventDto>("ReceivePlayerKilled", dto => PlayerKilled?.Invoke(dto));
+        _connection.On("ReceiveServerReportsChanged", () => ServerReportsChanged?.Invoke());
 
         // Re-join whichever group is currently selected on every (re)connect, including automatic
         // reconnect - SignalR groups don't survive a dropped connection, even a briefly-reconnected

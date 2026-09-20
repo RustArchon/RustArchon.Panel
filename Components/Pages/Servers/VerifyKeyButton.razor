@@ -1,0 +1,116 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@using RustArchon.Panel.Clients
+@using RustArchon.Shared.DTOs
+@inject IIntegrationApiClient IntegrationClient
+
+@*
+    A "Verify" button beside a third-party key field: asks the provider (through the Api) whether it accepts the key that has been
+    typed, before it is saved. Shared by the add-server wizard and the edit form. The answer is only ever a positive claim when the
+    provider positively said so - "could not confirm" is a different message from "valid", never a green tick nobody earned - and
+    verifying stores nothing: the key is saved only when the surrounding form is saved. Typing a different key clears the answer, since
+    it was about the old one.
+*@
+
+<button type="button" class="btn btn-outline-secondary btn-sm" data-testid="@TestId"
+        @onclick="VerifyAsync" disabled="@(verifying || string.IsNullOrWhiteSpace(Key))">
+    @(verifying ? Localizer["Checking..."] : Localizer["Verify"])
+</button>
+
+@if (message is not null)
+{
+    <span class="ms-2 small @messageClass" data-testid="@($"{TestId}-result")" role="status">
+        <i class="bi @messageIcon"></i> @message
+    </span>
+}
+
+@code {
+    [Parameter, EditorRequired] public IntegrationKeyKind Kind { get; set; }
+
+    /// <summary>Which geolocation provider the key belongs to; ignored for the Steam key.</summary>
+    [Parameter] public GeolocationProviderKind Provider { get; set; }
+
+    [Parameter] public string? Key { get; set; }
+
+    [Parameter] public string TestId { get; set; } = "verify-key";
+
+    /// <summary>Told each verdict, so a page can show a summary (or refuse to call a key "verified" that was not).</summary>
+    [Parameter] public EventCallback<IntegrationKeyVerdict?> VerdictChanged { get; set; }
+
+    private bool verifying;
+    private string? message;
+    private string messageClass = string.Empty;
+    private string messageIcon = string.Empty;
+    private string? checkedKey;
+    private GeolocationProviderKind checkedProvider;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // The answer was about a particular key at a particular provider; it says nothing about a different one.
+        if (message is not null && (Key != checkedKey || Provider != checkedProvider))
+        {
+            message = null;
+            await VerdictChanged.InvokeAsync(null);
+        }
+    }
+
+    private async Task VerifyAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Key))
+        {
+            return;
+        }
+
+        verifying = true;
+        message = null;
+        checkedKey = Key;
+        checkedProvider = Provider;
+        IntegrationKeyVerdict? verdict = null;
+
+        try
+        {
+            var result = await IntegrationClient.VerifyKeyAsync(new VerifyIntegrationKeyRequest
+            {
+                Kind = Kind,
+                Provider = Provider,
+                Key = Key
+            });
+            verdict = result.Verdict;
+            Show(result.Verdict);
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+        {
+            Show(IntegrationKeyVerdict.RateLimited);
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            message = Localizer["You are not allowed to check keys."];
+            messageClass = "text-danger";
+            messageIcon = "bi-slash-circle";
+        }
+        catch (Exception)
+        {
+            message = Localizer["The check could not be completed. You can still save the key."];
+            messageClass = "text-warning";
+            messageIcon = "bi-exclamation-triangle";
+        }
+        finally
+        {
+            verifying = false;
+        }
+
+        await VerdictChanged.InvokeAsync(verdict);
+    }
+
+    private void Show(IntegrationKeyVerdict verdict)
+    {
+        (message, messageClass, messageIcon) = verdict switch
+        {
+            IntegrationKeyVerdict.Valid => (Localizer["The provider accepted this key."].Value, "text-success", "bi-check-circle-fill"),
+            IntegrationKeyVerdict.InvalidKey => (Localizer["The provider rejected this key."].Value, "text-danger", "bi-x-circle-fill"),
+            IntegrationKeyVerdict.RateLimited => (Localizer["The provider is limiting requests right now. Try again in a minute."].Value, "text-warning", "bi-exclamation-triangle"),
+            IntegrationKeyVerdict.Unreachable => (Localizer["We could not reach the provider. Try again."].Value, "text-warning", "bi-exclamation-triangle"),
+            _ => (Localizer["We could not confirm this key with the provider. You can still save it."].Value, "text-muted", "bi-question-circle")
+        };
+    }
+}

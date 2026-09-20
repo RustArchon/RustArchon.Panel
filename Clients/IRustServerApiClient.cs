@@ -198,6 +198,46 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     /// </summary>
     [Get("/plan-limit")]
     Task<ServerPlanLimitDto> GetPlanLimitAsync();
+
+    /// <summary>
+    /// A server's in-game (F7) reports, newest first. Needs <c>RustServer.ViewReports</c>: without it the Api answers <c>403</c>,
+    /// which the caller shows as "not allowed", not as an error.
+    /// </summary>
+    [Get("/{id}/reports")]
+    Task<ServerReportListDto> GetReportsAsync(
+        Guid id,
+        [Query] int pageNumber = 1,
+        [Query] int pageSize = 25,
+        [Query] ServerReportType? type = null,
+        [Query] ServerReportStatus? status = null,
+        [Query] string? targetSteamId = null);
+
+    /// <summary>How many of the server's reports are still new, for the tab's badge. Same permission as the list.</summary>
+    [Get("/{id}/reports/count")]
+    Task<ServerReportCountDto> GetReportCountAsync(Guid id);
+
+    /// <summary>A report's screenshot as the raw response, so the caller can hand it to the browser without buffering it here.</summary>
+    [Get("/{id}/reports/{reportId}/screenshot")]
+    Task<HttpResponseMessage> GetReportScreenshotAsync(Guid id, Guid reportId);
+
+    /// <summary>Changes what has been done about a report. Needs <c>RustServer.ManageReports</c> as well as the view permission.</summary>
+    [Put("/{id}/reports/{reportId}/status")]
+    Task<ServerReportDto> SetReportStatusAsync(Guid id, Guid reportId, [Body] UpdateServerReportStatusDto status);
+
+    /// <summary>
+    /// The address to paste into the game server's <c>server.reportsServerEndpoint</c>. The first ask mints the secret in it. Needs
+    /// <c>RustServer.ManageReportForwarding</c> (<c>403</c> otherwise), because the address contains that secret.
+    /// </summary>
+    [Get("/{id}/report-forwarding")]
+    Task<ReportForwardingDto> GetReportForwardingAsync(Guid id);
+
+    /// <summary>Replaces the secret; the previous address stops working immediately.</summary>
+    [Post("/{id}/report-forwarding/rotate")]
+    Task<ReportForwardingDto> RotateReportForwardingAsync(Guid id);
+
+    /// <summary>Asks the game server what it is set to and compares it to the address.</summary>
+    [Post("/{id}/report-forwarding/verify")]
+    Task<VerifyReportForwardingResultDto> VerifyReportForwardingAsync(Guid id);
 }
 
 /// <summary>

@@ -35,6 +35,12 @@ public interface IRconHubClient : IAsyncDisposable
     event Action<PlayerSessionDto>? PlayerGeolocated;
     event Action<PlayerKillEventDto>? PlayerKilled;
 
+    /// <summary>
+    /// Fires when a report arrived on, or changed for, this server. Carries no report - the group it comes down is everyone who may see
+    /// the server, wider than everyone who may read its reports - so a listener re-reads through the endpoint that checks the permission.
+    /// </summary>
+    event Action? ServerReportsChanged;
+
     Task ConnectAsync(Guid serverId);
 
     /// <summary>

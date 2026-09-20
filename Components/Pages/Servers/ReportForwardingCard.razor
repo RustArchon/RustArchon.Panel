@@ -1,0 +1,281 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@using Microsoft.JSInterop
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Components.Shared
+@using RustArchon.Shared.DTOs
+@inject IRustServerApiClient RustServerClient
+@inject IJSRuntime JS
+
+@*
+    The address an admin pastes into their game server so it forwards in-game (F7) reports here (ADR-0001). The address contains the
+    secret that lets a game server file reports for this one server, so it is only shown to someone who asks, and only to someone
+    holding RustServer.ManageReportForwarding: a 403 from the Api simply hides the card. Nothing is fetched until the card is opened -
+    the first fetch is what mints the secret, and merely opening the Reports tab must not do that.
+*@
+
+<div class="card mb-3" data-testid="report-forwarding-card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-send"></i> @Localizer["Report forwarding"]</span>
+        @if (!forbidden)
+        {
+            <button class="btn btn-sm btn-outline-secondary" data-testid="report-forwarding-toggle" @onclick="ToggleAsync" disabled="@loading">
+                @(expanded ? Localizer["Hide"] : Localizer["Set up report forwarding"])
+            </button>
+        }
+    </div>
+
+    @if (forbidden)
+    {
+        <div class="card-body small text-muted" data-testid="report-forwarding-forbidden">
+            @Localizer["Only someone allowed to manage report forwarding can see this server's report address."]
+        </div>
+    }
+    else if (expanded)
+    {
+        <div class="card-body">
+            @if (loading)
+            {
+                <p class="mb-0"><em>@Localizer["Loading..."]</em></p>
+            }
+
+            @* Independent blocks rather than an else-if chain: an error (a failed check, a failed change) is shown above the address, not
+               instead of it - the address the admin already has must not vanish because a check failed. *@
+            @if (!loading && error is not null)
+            {
+                <div class="alert alert-danger py-2 small mb-2" data-testid="report-forwarding-error">@error</div>
+            }
+
+            @if (!loading && address is not null)
+            {
+                <p class="small">
+                    @Localizer["Point your game server at this address and it will send the reports players file from the F7 menu here."]
+                </p>
+
+                <label class="form-label small" for="report-forwarding-url">@Localizer["Report address"]</label>
+                <div class="input-group mb-3">
+                    <input id="report-forwarding-url" class="form-control font-monospace" readonly value="@address.Url" data-testid="report-forwarding-url" />
+                    <button class="btn btn-outline-secondary" data-testid="report-forwarding-copy-url" @onclick="() => CopyAsync(address.Url)">
+                        <i class="bi bi-clipboard"></i> @(copied == address.Url ? Localizer["Copied"] : Localizer["Copy"])
+                    </button>
+                </div>
+
+                <ol class="small">
+                    <li>
+                        @Localizer["Run this in your server console, or add it to your server config:"]
+                        <div class="input-group my-2">
+                            <input class="form-control font-monospace" readonly value="@address.Command" data-testid="report-forwarding-command" />
+                            <button class="btn btn-outline-secondary" data-testid="report-forwarding-copy-command" @onclick="() => CopyAsync(address.Command)">
+                                <i class="bi bi-clipboard"></i> @(copied == address.Command ? Localizer["Copied"] : Localizer["Copy"])
+                            </button>
+                        </div>
+                    </li>
+                    <li>@Localizer["Run server.writecfg so the setting survives a restart."]</li>
+                    <li>@Localizer["Press Check to confirm your game server is set to this address."]</li>
+                </ol>
+
+                <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                    <button class="btn btn-primary btn-sm" data-testid="report-forwarding-verify" @onclick="VerifyAsync" disabled="@verifying">
+                        @(verifying ? Localizer["Checking..."] : Localizer["Check"])
+                    </button>
+                    <button class="btn btn-outline-danger btn-sm" data-testid="report-forwarding-rotate" @onclick="() => confirmingRotate = true">
+                        @Localizer["Change address"]
+                    </button>
+
+                    @if (address.Verified)
+                    {
+                        <span class="badge text-bg-success" data-testid="report-forwarding-verified">
+                            <i class="bi bi-check-circle"></i> @Localizer["Confirmed"]
+                            @if (address.VerifiedAtUtc is { } verifiedAt)
+                            {
+                                <span> @verifiedAt.ToLocalTime().ToString("g")</span>
+                            }
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="badge text-bg-secondary" data-testid="report-forwarding-unverified">@Localizer["Not confirmed yet"]</span>
+                    }
+                </div>
+
+                @if (verdict is not null)
+                {
+                    <div class="alert @VerdictClass(verdict.Verdict) py-2 small mb-2" data-testid="report-forwarding-verdict">
+                        @VerdictText(verdict)
+                    </div>
+                }
+
+                @if (address.LastReportReceivedAtUtc is { } last)
+                {
+                    <p class="small text-muted mb-2" data-testid="report-forwarding-last-received">
+                        @Localizer["The last report arrived this way on"] @last.ToLocalTime().ToString("g").
+                    </p>
+                }
+
+                <div class="alert alert-secondary py-2 small mb-0" data-testid="report-forwarding-caveat">
+                    <i class="bi bi-info-circle"></i>
+                    @Localizer["Rust may not send reports about a specific player (cheating, abuse) to this address - Facepunch's documentation says it only sends general, bug and idea reports. The RustArchon plugin can report those."]
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@if (confirmingRotate)
+{
+    <ConfirmationModal Title="@Localizer["Change the report address?"]"
+                       ConfirmButtonText="@Localizer["Change address"]"
+                       CancelButtonText="@Localizer["Cancel"]"
+                       OnClose="OnRotateClosedAsync">
+        <Message>
+            <p>@Localizer["The current address stops working immediately. Your game server will not be able to send reports until you set it to the new one."]</p>
+        </Message>
+    </ConfirmationModal>
+}
+
+@code {
+    [Parameter, EditorRequired] public Guid ServerId { get; set; }
+
+    /// <summary>
+    /// Opens the card (and so reads the address, which is what mints the secret) as soon as it appears. For the add-server wizard, where
+    /// the user has just chosen to set forwarding up; the Reports tab leaves it collapsed so that merely opening the tab mints nothing.
+    /// </summary>
+    [Parameter] public bool InitiallyExpanded { get; set; }
+
+    private bool expanded;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (InitiallyExpanded)
+        {
+            expanded = true;
+            await LoadAsync();
+        }
+    }
+    private bool loading;
+    private bool forbidden;
+    private bool verifying;
+    private bool confirmingRotate;
+    private string? error;
+    private string? copied;
+    private ReportForwardingDto? address;
+    private VerifyReportForwardingResultDto? verdict;
+
+    private async Task ToggleAsync()
+    {
+        expanded = !expanded;
+        if (expanded && address is null)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        error = null;
+        try
+        {
+            address = await RustServerClient.GetReportForwardingAsync(ServerId);
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            forbidden = true;
+        }
+        catch (Exception)
+        {
+            error = Localizer["Failed to load the report address."];
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task CopyAsync(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            copied = text;
+        }
+        catch (Exception)
+        {
+            // A browser that refuses the clipboard (an insecure page, a blocked permission) is not an error worth showing: the
+            // address is in a selectable box right there.
+            copied = null;
+        }
+    }
+
+    private async Task VerifyAsync()
+    {
+        verifying = true;
+        verdict = null;
+        error = null;
+        try
+        {
+            verdict = await RustServerClient.VerifyReportForwardingAsync(ServerId);
+
+            // A match is remembered by the Api, so re-read to show it as confirmed.
+            if (verdict.Verdict == ReportForwardingVerdict.Matches)
+            {
+                address = await RustServerClient.GetReportForwardingAsync(ServerId);
+            }
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            forbidden = true;
+        }
+        catch (Exception)
+        {
+            error = Localizer["The check could not be completed."];
+        }
+        finally
+        {
+            verifying = false;
+        }
+    }
+
+    private async Task OnRotateClosedAsync(bool confirmed)
+    {
+        confirmingRotate = false;
+        if (!confirmed)
+        {
+            return;
+        }
+
+        loading = true;
+        error = null;
+        verdict = null;
+        try
+        {
+            address = await RustServerClient.RotateReportForwardingAsync(ServerId);
+        }
+        catch (Exception)
+        {
+            error = Localizer["Failed to change the report address."];
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private static string VerdictClass(ReportForwardingVerdict verdict) => verdict switch
+    {
+        ReportForwardingVerdict.Matches => "alert-success",
+        ReportForwardingVerdict.Unavailable or ReportForwardingVerdict.Unreadable => "alert-warning",
+        _ => "alert-danger"
+    };
+
+    private string VerdictText(VerifyReportForwardingResultDto result) => result.Verdict switch
+    {
+        ReportForwardingVerdict.Matches => Localizer["Your game server is set to this address."],
+        ReportForwardingVerdict.NotSet => Localizer["Your game server has no report address set yet."],
+        ReportForwardingVerdict.Mismatch => result.ObservedRedacted is { Length: > 0 } observed
+            ? Localizer["Your game server is set to a different address:"] + " " + observed
+            : Localizer["Your game server is set to a different address."],
+        ReportForwardingVerdict.Unreadable => Localizer["Your game server answered, but not in a form we could read. Check the setting by hand."],
+        _ => Localizer["We could not reach your game server's console to check. Make sure it is connected and try again."]
+    };
+}

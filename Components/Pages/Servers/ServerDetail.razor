@@ -103,6 +103,15 @@ else
             </button>
         </li>
         <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Reports ? "active" : "")" data-testid="tab-reports" @onclick="() => SwitchTabAsync(Tab.Reports)">
+                <i class="bi bi-flag"></i> @Localizer["Reports"]
+                @if (newReportCount > 0)
+                {
+                    <span class="badge text-bg-danger ms-1" data-testid="reports-badge">@newReportCount</span>
+                }
+            </button>
+        </li>
+        <li class="nav-item">
             <button class="nav-link @(activeTab == Tab.Plugins ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Plugins)">
                 <i class="bi bi-puzzle"></i> @Localizer["Plugins"]
             </button>
@@ -875,6 +884,12 @@ else
         @if (activeTab == Tab.Map)
         {
             <ServerMapPane ServerId="Id" PluginListed="PluginListed" PluginSupportsMap="PluginReports(RustArchonPlugin.MapCapability)" />
+        }
+
+        @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
+        @if (activeTab == Tab.Reports)
+        {
+            <ServerReportsPane ServerId="Id" RefreshToken="reportsRefreshToken" NewCountChanged="OnNewReportCountChanged" />
         }
 
         @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
@@ -1922,6 +1937,7 @@ else
             "bases" => Tab.Bases,
             "positions" => Tab.Positions,
             "map" => Tab.Map,
+            "reports" => Tab.Reports,
             "control" => Tab.Control,
             _ => Tab.Console
         };
@@ -1973,6 +1989,10 @@ else
             // it here would hold up the whole page's "loading" state on a fetch only the ban list needs.
             _ = LoadBanListAsync();
 
+            // Not awaited either: it only feeds the Reports tab's badge, and a caller without RustServer.ViewReports just gets a
+            // 403 that leaves the badge off.
+            _ = LoadReportCountAsync();
+
             if (activeTab == Tab.Stats)
             {
                 pendingStatsChartRender = true;
@@ -1995,6 +2015,7 @@ else
             HubClient.PlayerDisconnected += OnPlayerDisconnected;
             HubClient.PlayerGeolocated += OnPlayerGeolocated;
             HubClient.PlayerKilled += OnPlayerKilled;
+            HubClient.ServerReportsChanged += OnServerReportsChanged;
             await HubClient.ConnectAsync(Id);
         }
 
@@ -2093,7 +2114,7 @@ else
         // Console (the default) so the plain "/servers/{id}" URL stays the common case. This also
         // re-fires OnParametersSet with the same tab we just set directly above - a harmless,
         // idempotent confirmation, not a fight over which value wins.
-        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", Tab.Stats => "stats", Tab.Logs => "logs", Tab.Plugins => "plugins", Tab.Combat => "combat", Tab.Bases => "bases", Tab.Positions => "positions", Tab.Map => "map", Tab.Control => "control", _ => null };
+        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", Tab.Stats => "stats", Tab.Logs => "logs", Tab.Plugins => "plugins", Tab.Combat => "combat", Tab.Bases => "bases", Tab.Positions => "positions", Tab.Map => "map", Tab.Reports => "reports", Tab.Control => "control", _ => null };
         var newUri = tabQueryValue is null ? $"servers/{Id}" : $"servers/{Id}?tab={tabQueryValue}";
         NavigationManager.NavigateTo(newUri, replace: true);
 
@@ -2889,6 +2910,43 @@ else
         });
     }
 
+    // ---- in-game (F7) reports ----
+
+    private int newReportCount;
+    private int reportsRefreshToken;
+
+    private async Task LoadReportCountAsync()
+    {
+        try
+        {
+            var count = await RustServerClient.GetReportCountAsync(Id);
+            newReportCount = count.New;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception)
+        {
+            // No badge: the caller may not read reports (a 403), or the count is simply unavailable. The Reports tab itself says which.
+        }
+    }
+
+    private Task OnNewReportCountChanged(int count)
+    {
+        newReportCount = count;
+        return Task.CompletedTask;
+    }
+
+    // Fires on a SignalR callback thread, so it goes through InvokeAsync. The hub only says "something changed"; the pane and the badge
+    // re-read through the endpoints that check the permission.
+    private void OnServerReportsChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            reportsRefreshToken++;
+            await LoadReportCountAsync();
+            StateHasChanged();
+        });
+    }
+
     private void OnPlayerKilled(PlayerKillEventDto dto)
     {
         InvokeAsync(() =>
@@ -3439,6 +3497,7 @@ else
         HubClient.PlayerDisconnected -= OnPlayerDisconnected;
         HubClient.PlayerGeolocated -= OnPlayerGeolocated;
         HubClient.PlayerKilled -= OnPlayerKilled;
+        HubClient.ServerReportsChanged -= OnServerReportsChanged;
         await HubClient.DisposeAsync();
 
         try
@@ -3451,5 +3510,5 @@ else
         }
     }
 
-    private enum Tab { Console, Chat, Players, Stats, Logs, Control, Plugins, Combat, Bases, Positions, Map }
+    private enum Tab { Console, Chat, Players, Stats, Logs, Control, Plugins, Combat, Bases, Positions, Map, Reports }
 }

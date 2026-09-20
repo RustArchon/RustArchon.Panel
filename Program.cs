@@ -2,6 +2,7 @@
 
 using System.Globalization;
 using System.Linq;
+using System.Threading.RateLimiting;
 using JumpStart.Api.Clients;
 using JumpStart.Services;
 using JumpStart.Services.Authentication;
@@ -11,6 +12,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Localization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
 using RustArchon.Panel;
@@ -227,6 +229,11 @@ builder.Services.AddApiClient<IRustServerApiClient>($"{apiBaseUrl}/api/rustserve
 // Same handler chain as IRustServerApiClient - only the account matching the API's
 // RUSTARCHON_ADMIN_EMAIL can actually use this; everyone else's calls 403.
 builder.Services.AddApiClient<IInvitationCodeApiClient>($"{apiBaseUrl}/api/invitation-codes")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// Same handler chain - the add-server wizard's and the edit form's Verify buttons (IntegrationVerificationController).
+builder.Services.AddApiClient<IIntegrationApiClient>($"{apiBaseUrl}/api/integrations")
     .AddHttpMessageHandler<JwtExchangeHandler>()
     .AddHttpMessageHandler<JwtAuthenticationHandler>();
 
@@ -469,6 +476,33 @@ builder.Services.AddHttpClient(PluginMapUploadProxy.ClientName, client =>
     client.Timeout = TimeSpan.FromMinutes(10);
 });
 
+// Backs /ingest/reports below - forwards a game server's in-game (F7) report to Api's internal endpoint (ADR-0001). Same shape as the
+// map upload's client: a named HttpClient carrying the internal-service key, since the body is streamed raw. Its own client (not the
+// map's) so the two can be timed out independently; a report with a screenshot is small next to a map, so the default timeout stands.
+builder.Services.AddHttpClient(ReportIngestProxy.ClientName, client =>
+{
+    client.BaseAddress = new Uri(apiBaseUrl);
+    client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+});
+
+// The one anonymous door a game server can POST reports to, so it is limited per caller address (forwarded headers below make that the
+// real one, not the proxy's): a game server files a handful of reports a minute at the very most, and everything past the limit is
+// refused before it reaches the Api. The Api adds a per-server ceiling after authenticating, which is the one an attacker cannot use up
+// on a real server's behalf.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(ReportIngestProxy.RateLimitPolicy, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 120,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+});
+
 builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
@@ -600,6 +634,14 @@ app.MapPost("/ingest/plugin-map", (
     PluginMapUploadProxy.HandleAsync(
         httpContext.Request, httpClientFactory.CreateClient(PluginMapUploadProxy.ClientName), cancellationToken));
 
+// A game server's in-game (F7) reports - anonymous by design (a game server has no login); the per-server secret in the address is the
+// credential, and Api alone decides whether it is good. The address is never logged here (see ReportIngestProxy for why that holds).
+app.MapPost("/ingest/reports/{serverId:guid}/{token}", (
+    Guid serverId, string token, HttpContext httpContext, IHttpClientFactory httpClientFactory, CancellationToken cancellationToken) =>
+    ReportIngestProxy.HandleAsync(
+        serverId, token, httpContext.Request, httpClientFactory.CreateClient(ReportIngestProxy.ClientName), cancellationToken))
+    .RequireRateLimiting(ReportIngestProxy.RateLimitPolicy);
+
 // Stripe's webhook target - anonymous and unconditional, same "one public door" reasoning as the
 // tracking pixel and theme assets above: RustArchon.Api never publishes a port, so Stripe's servers
 // reach this Panel instead, and StripeWebhookHandler verifies the payload itself (hand-rolled
@@ -627,6 +669,9 @@ app.MapPost("/webhooks/stripe", async (
 // request, not just with stale cookies.
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Applies the per-address limit declared on /ingest/reports above; routes with no policy are untouched.
+app.UseRateLimiter();
 
 app.UseAntiforgery();
 
