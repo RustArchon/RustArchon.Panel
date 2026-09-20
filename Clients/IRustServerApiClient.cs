@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Net.Http;
 using System.Threading.Tasks;
 using JumpStart.Api.Clients;
 using JumpStart.Repositories;
@@ -104,6 +105,83 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     /// </summary>
     [Get("/{id}/plugins")]
     Task<List<ServerPluginDto>> GetPluginsAsync(Guid id);
+
+    /// <summary>
+    /// What the optional RustArchon companion plugin last reported on this server. <c>204 No Content</c> (a null
+    /// <c>Content</c>) is the ordinary answer when the plugin is not installed or has not answered yet, which is
+    /// why this returns the raw response rather than throwing on it. Only trust it while the plugin is also in
+    /// <see cref="GetPluginsAsync"/>'s list: it can be stale after an uninstall.
+    /// </summary>
+    [Get("/{id}/plugin-status")]
+    Task<IApiResponse<ServerPluginStatusDto>> GetPluginStatusAsync(Guid id);
+
+    /// <summary>
+    /// The RustArchon plugin script, signed by this deployment - what an admin uploads to the game server. Returns
+    /// the raw response (not throwing on an error status) so the caller can check <c>IsSuccessStatusCode</c> and read
+    /// the bytes exactly as sent: the signature covers them, so they must not pass through anything that re-encodes.
+    /// </summary>
+    [Get("/plugin/download")]
+    Task<HttpResponseMessage> DownloadPluginAsync();
+
+    /// <summary>
+    /// The server's combat log from the RustArchon plugin, newest first. <paramref name="playerId"/> is a SteamID64;
+    /// <paramref name="since"/> and <paramref name="until"/> bound the time window; <paramref name="limit"/> is 1 to 500.
+    /// </summary>
+    [Get("/{id}/combat")]
+    Task<CombatLogDto> GetCombatLogAsync(
+        Guid id, [Query] DateTimeOffset? since = null, [Query] DateTimeOffset? until = null,
+        [Query] string? playerId = null, [Query] int limit = 100);
+
+    /// <summary>
+    /// The server's tool cupboards (bases) from the RustArchon plugin. Needs the <c>RustServer.ViewBases</c> permission:
+    /// without it the Api answers <c>403</c>, which the caller shows as "not allowed", not as an error.
+    /// </summary>
+    [Get("/{id}/bases")]
+    Task<BasesDto> GetBasesAsync(Guid id);
+
+    /// <summary>
+    /// What the Panel knows about the server's current world map: its size, seed and named places, and whether the picture has
+    /// arrived. Needs only ordinary access to the server (the map is the game's own public map).
+    /// </summary>
+    [Get("/{id}/map")]
+    Task<MapDto> GetMapAsync(Guid id);
+
+    /// <summary>
+    /// The map picture, as the raw response so the caller can stream it (it is tens of megabytes) instead of buffering it here.
+    /// </summary>
+    [Get("/{id}/map/image")]
+    Task<HttpResponseMessage> GetMapImageAsync(Guid id);
+
+    /// <summary>
+    /// Where players were and are, from the positions the RustArchon plugin records, newest first. Needs the
+    /// <c>RustServer.ViewPositions</c> permission: without it the Api answers <c>403</c>, which the caller shows as "not
+    /// allowed", not as an error. <paramref name="playerId"/> is a SteamID64; <paramref name="limit"/> is 1 to 5000.
+    /// </summary>
+    [Get("/{id}/positions")]
+    Task<PositionsDto> GetPositionsAsync(
+        Guid id, [Query] DateTimeOffset? since = null, [Query] DateTimeOffset? until = null,
+        [Query] string? playerId = null, [Query] int limit = 500);
+
+    /// <summary>
+    /// The signed Updater plugin - the small second plugin an admin installs once so later RustArchon updates can be
+    /// applied from the Panel. Raw response for the same reason as <see cref="DownloadPluginAsync"/>.
+    /// </summary>
+    [Get("/plugin/download-updater")]
+    Task<HttpResponseMessage> DownloadPluginUpdaterAsync();
+
+    /// <summary>
+    /// Asks the server's Updater to install the version this Panel serves. Every refusal is an ordinary result with a
+    /// <see cref="PluginUpdateResultDto.Code"/> saying why, not an HTTP error.
+    /// </summary>
+    [Post("/{id}/plugin/update")]
+    Task<PluginUpdateResultDto> StartPluginUpdateAsync(Guid id);
+
+    /// <summary>
+    /// Saves the plugin's Recording and Combat log switches for this server. A separate call from the full-record
+    /// <c>UpdateAsync</c> on purpose - see <see cref="UpdateServerPluginSettingsDto"/>.
+    /// </summary>
+    [Put("/{id}/plugin-settings")]
+    Task<RustServerDto> UpdatePluginSettingsAsync(Guid id, [Body] UpdateServerPluginSettingsDto settings);
 
     /// <summary>
     /// The calling tenant's current Plan limits and server count - lets the Servers page warn "you're

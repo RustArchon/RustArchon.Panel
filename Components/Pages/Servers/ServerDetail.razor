@@ -83,6 +83,26 @@ else
             </button>
         </li>
         <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Combat ? "active" : "")" data-testid="tab-combat" @onclick="() => SwitchTabAsync(Tab.Combat)">
+                <i class="bi bi-crosshair"></i> @Localizer["Combat"]
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Map ? "active" : "")" data-testid="tab-map" @onclick="() => SwitchTabAsync(Tab.Map)">
+                <i class="bi bi-map"></i> @Localizer["Map"]
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Positions ? "active" : "")" data-testid="tab-positions" @onclick="() => SwitchTabAsync(Tab.Positions)">
+                <i class="bi bi-geo-alt"></i> @Localizer["Positions"]
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Bases ? "active" : "")" data-testid="tab-bases" @onclick="() => SwitchTabAsync(Tab.Bases)">
+                <i class="bi bi-house-door"></i> @Localizer["Bases"]
+            </button>
+        </li>
+        <li class="nav-item">
             <button class="nav-link @(activeTab == Tab.Plugins ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Plugins)">
                 <i class="bi bi-puzzle"></i> @Localizer["Plugins"]
             </button>
@@ -719,6 +739,423 @@ else
         }
 
         @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
+        @if (activeTab == Tab.Combat)
+        {
+            <div class="combat-pane" data-testid="combat-pane">
+                @if (!PluginListed)
+                {
+                    <div class="alert alert-secondary" data-testid="combat-needs-plugin">
+                        <i class="bi bi-plug"></i>
+                        @Localizer["The combat log needs the RustArchon plugin, which is not detected on this server. Install it from the Plugins tab."]
+                    </div>
+                }
+                else if (pluginStatus is null)
+                {
+                    <div class="alert alert-secondary" data-testid="combat-no-handshake">
+                        @Localizer["The RustArchon plugin is loaded but has not answered yet. This can take a few minutes after it loads."]
+                    </div>
+                }
+                else if (!PluginReports(RustArchonPlugin.CombatCapability))
+                {
+                    <div class="alert alert-secondary" data-testid="combat-not-supported">
+                        @Localizer["This version of the RustArchon plugin cannot record combat yet. Update it from the Plugins tab."]
+                    </div>
+                }
+                else
+                {
+                    @if (server is not null && !server.PluginCombatLogEnabled)
+                    {
+                        <div class="alert alert-warning py-2 small" data-testid="combat-switched-off">
+                            @Localizer["The combat log is switched off, so nothing new is being recorded. Turn it on in the Plugins tab. What was recorded before is shown below."]
+                        </div>
+                    }
+
+                    <div class="d-flex flex-wrap gap-2 align-items-end mb-3" data-testid="combat-filters">
+                        <div>
+                            <label class="form-label small mb-1" for="combat-window">@Localizer["Time window"]</label>
+                            <select id="combat-window" class="form-select form-select-sm" @bind="combatWindow" @bind:after="ReloadCombatAsync">
+                                <option value="1h">@Localizer["Last hour"]</option>
+                                <option value="24h">@Localizer["Last 24 hours"]</option>
+                                <option value="7d">@Localizer["Last 7 days"]</option>
+                                <option value="all">@Localizer["Everything"]</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label small mb-1" for="combat-player">@Localizer["Player (SteamID64)"]</label>
+                            <input id="combat-player" class="form-control form-control-sm" maxlength="20" placeholder="7656119..."
+                                   @bind="combatPlayerId" @bind:event="oninput" />
+                        </div>
+                        <button type="button" class="btn btn-sm btn-primary" data-testid="combat-apply" disabled="@loadingCombat" @onclick="ReloadCombatAsync">
+                            @Localizer["Apply"]
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-testid="combat-refresh" disabled="@loadingCombat" @onclick="ReloadCombatAsync">
+                            <i class="bi bi-arrow-clockwise"></i> @Localizer["Refresh"]
+                        </button>
+                    </div>
+
+                    @if (combatError is not null)
+                    {
+                        <div class="alert alert-danger py-2 small" data-testid="combat-error">@combatError</div>
+                    }
+
+                    @if (loadingCombat && combatEvents.Count == 0)
+                    {
+                        <p><em>@Localizer["Loading..."]</em></p>
+                    }
+                    else if (combatEvents.Count == 0)
+                    {
+                        <p class="text-muted" data-testid="combat-empty">@Localizer["No combat recorded in this window."]</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle" data-testid="combat-table">
+                                <thead>
+                                    <tr>
+                                        <th>@Localizer["Time"]</th>
+                                        <th>@Localizer["Attacker"]</th>
+                                        <th>@Localizer["Victim"]</th>
+                                        <th>@Localizer["Weapon"]</th>
+                                        <th class="text-end">@Localizer["Damage"]</th>
+                                        <th class="text-end">@Localizer["Distance"]</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var e in combatEvents)
+                                    {
+                                        <tr data-testid="combat-row" data-kind="@e.Kind">
+                                            <td class="text-nowrap small">@e.OccurredAtUtc.ToString("yyyy-MM-dd HH:mm:ss") UTC</td>
+                                            <td>
+                                                @CombatParty(e.AttackerName, e.AttackerId, e.AttackerIsPlayer)
+                                            </td>
+                                            <td>
+                                                @CombatParty(e.VictimName, e.VictimId, e.VictimIsPlayer)
+                                                @if (e.Kind == "death")
+                                                {
+                                                    <span class="badge bg-danger ms-1" data-testid="combat-death">@Localizer["killed"]</span>
+                                                }
+                                            </td>
+                                            <td class="small">@e.Weapon</td>
+                                            <td class="text-end">
+                                                @e.Damage.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)
+                                                @if (!string.IsNullOrEmpty(e.DamageType))
+                                                {
+                                                    <span class="text-muted small">@e.DamageType</span>
+                                                }
+                                                @if (e.Headshot)
+                                                {
+                                                    <span class="badge bg-warning text-dark ms-1" data-testid="combat-headshot">@Localizer["headshot"]</span>
+                                                }
+                                            </td>
+                                            <td class="text-end small">
+                                                @(e.Distance is null ? "" : e.Distance.Value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " m")
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        @if (combatHasMore && combatLimit < 500)
+                        {
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-testid="combat-more" disabled="@loadingCombat" @onclick="ShowMoreCombatAsync">
+                                @Localizer["Show older"]
+                            </button>
+                        }
+                        else if (combatHasMore)
+                        {
+                            <p class="small text-muted" data-testid="combat-capped">@Localizer["Showing the newest 500. Narrow the time window or pick a player to see more."]</p>
+                        }
+                    }
+                }
+            </div>
+        }
+
+        @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
+        @if (activeTab == Tab.Map)
+        {
+            <ServerMapPane ServerId="Id" PluginListed="PluginListed" PluginSupportsMap="PluginReports(RustArchonPlugin.MapCapability)" />
+        }
+
+        @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
+        @if (activeTab == Tab.Positions)
+        {
+            <div class="positions-pane" data-testid="positions-pane">
+                @if (!PluginListed)
+                {
+                    <div class="alert alert-secondary" data-testid="positions-needs-plugin">
+                        <i class="bi bi-plug"></i>
+                        @Localizer["The positions view needs the RustArchon plugin, which is not detected on this server. Install it from the Plugins tab."]
+                    </div>
+                }
+                else if (pluginStatus is null)
+                {
+                    <div class="alert alert-secondary" data-testid="positions-no-handshake">
+                        @Localizer["The RustArchon plugin is loaded but has not answered yet. This can take a few minutes after it loads."]
+                    </div>
+                }
+                else if (!PluginReports(RustArchonPlugin.PositionsCapability))
+                {
+                    <div class="alert alert-secondary" data-testid="positions-not-supported">
+                        @Localizer["This version of the RustArchon plugin cannot record positions yet. Update it from the Plugins tab."]
+                    </div>
+                }
+                else if (positionsForbidden)
+                {
+                    <div class="alert alert-warning" data-testid="positions-forbidden">
+                        <i class="bi bi-shield-lock"></i>
+                        @Localizer["You don't have permission to see where players are. The organization's owner can grant it to a role."]
+                    </div>
+                }
+                else
+                {
+                    @if (server is not null && !server.PluginRecordingEnabled)
+                    {
+                        <div class="alert alert-warning py-2 small" data-testid="positions-recording-off">
+                            @Localizer["Recording is switched off, so positions are not being recorded. Turn it on in the Plugins tab."]
+                        </div>
+                    }
+
+                    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-testid="positions-refresh" disabled="@loadingPositions" @onclick="LoadPositionsAsync">
+                            <i class="bi bi-arrow-clockwise"></i> @Localizer["Refresh"]
+                        </button>
+                        @if (positionsLoadedAt is not null)
+                        {
+                            <span class="small text-muted" data-testid="positions-captured">
+                                @Localizer["As of"] @positionsLoadedAt.Value.ToString("yyyy-MM-dd HH:mm:ss") UTC
+                            </span>
+                        }
+                    </div>
+
+                    @if (positionsError is not null)
+                    {
+                        <div class="alert alert-danger py-2 small" data-testid="positions-error">@positionsError</div>
+                    }
+
+                    @if (loadingPositions && positions is null)
+                    {
+                        <p><em>@Localizer["Loading..."]</em></p>
+                    }
+                    else if (PositionRows().Count == 0)
+                    {
+                        <p class="text-muted" data-testid="positions-empty">@Localizer["No players seen in the last 10 minutes."]</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle" data-testid="positions-table">
+                                <thead>
+                                    <tr>
+                                        <th>@Localizer["Player"]</th>
+                                        <th>@Localizer["Status"]</th>
+                                        <th>@Localizer["Location"]</th>
+                                        <th>@Localizer["Facing"]</th>
+                                        <th>@Localizer["Last seen"]</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in PositionRows())
+                                    {
+                                        <tr data-testid="position-row">
+                                            <td>
+                                                <span>@row.Name</span>
+                                                <br />
+                                                <span class="text-muted small">@row.PlayerId</span>
+                                            </td>
+                                            <td data-testid="position-status">@(row.Online ? Localizer["Online"] : Localizer["Left"])</td>
+                                            <td class="text-nowrap small">
+                                                x @row.Latest.X.ToString("0", System.Globalization.CultureInfo.InvariantCulture),
+                                                z @row.Latest.Z.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+                                                <span class="text-muted">(@Localizer["height"] @row.Latest.Y.ToString("0", System.Globalization.CultureInfo.InvariantCulture))</span>
+                                            </td>
+                                            <td class="text-nowrap small" data-testid="position-facing">@Compass(row.Latest.Yaw) (@row.Latest.Yaw°)</td>
+                                            <td class="text-nowrap small">@row.Latest.OccurredAtUtc.ToString("HH:mm:ss") UTC</td>
+                                            <td class="text-end">
+                                                <button type="button" class="btn btn-sm btn-outline-primary" data-testid="position-track" @onclick="() => SelectPlayerAsync(row.PlayerId)">
+                                                    @Localizer["Show track"]
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
+                    @if (selectedPlayerId is not null)
+                    {
+                        <div class="card mt-3" data-testid="track-pane">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span>@Localizer["Movement in the last hour"]: <strong>@PlayerNameFor(selectedPlayerId)</strong></span>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" data-testid="track-close" @onclick="CloseTrack">@Localizer["Close"]</button>
+                            </div>
+                            <div class="card-body">
+                                @if (trackError is not null)
+                                {
+                                    <div class="alert alert-danger py-2 small" data-testid="track-error">@trackError</div>
+                                }
+                                else if (loadingTrack)
+                                {
+                                    <p><em>@Localizer["Loading..."]</em></p>
+                                }
+                                else if (selectedTrack is null || selectedTrack.Samples.Count == 0)
+                                {
+                                    <p class="text-muted" data-testid="track-empty">@Localizer["No movement recorded for this player in the last hour."]</p>
+                                }
+                                else
+                                {
+                                    <p class="small" data-testid="track-total">@Localizer["Total distance"]: @TrackDistance(selectedTrack).ToString("0", System.Globalization.CultureInfo.InvariantCulture) m</p>
+                                    @if (selectedTrack.HasMore)
+                                    {
+                                        <p class="small text-muted" data-testid="track-truncated">@Localizer["Only the most recent points are shown."]</p>
+                                    }
+                                    <div class="table-responsive">
+                                        <table class="table table-sm" data-testid="track-table">
+                                            <thead>
+                                                <tr><th>@Localizer["Time"]</th><th>@Localizer["Location"]</th><th></th></tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var s in selectedTrack.Samples.Take(100))
+                                                {
+                                                    <tr data-testid="track-row">
+                                                        <td class="text-nowrap small">@s.OccurredAtUtc.ToString("HH:mm:ss") UTC</td>
+                                                        <td class="text-nowrap small">
+                                                            x @s.X.ToString("0", System.Globalization.CultureInfo.InvariantCulture),
+                                                            z @s.Z.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+                                                        </td>
+                                                        <td class="small text-muted">@(s.Marker == "on" ? Localizer["Joined"] : s.Marker == "off" ? Localizer["Left"] : "")</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        }
+
+        @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
+        @if (activeTab == Tab.Bases)
+        {
+            <div class="bases-pane" data-testid="bases-pane">
+                @if (!PluginListed)
+                {
+                    <div class="alert alert-secondary" data-testid="bases-needs-plugin">
+                        <i class="bi bi-plug"></i>
+                        @Localizer["The bases list needs the RustArchon plugin, which is not detected on this server. Install it from the Plugins tab."]
+                    </div>
+                }
+                else if (pluginStatus is null)
+                {
+                    <div class="alert alert-secondary" data-testid="bases-no-handshake">
+                        @Localizer["The RustArchon plugin is loaded but has not answered yet. This can take a few minutes after it loads."]
+                    </div>
+                }
+                else if (!PluginReports(RustArchonPlugin.TcsCapability))
+                {
+                    <div class="alert alert-secondary" data-testid="bases-not-supported">
+                        @Localizer["This version of the RustArchon plugin cannot list bases yet. Update it from the Plugins tab."]
+                    </div>
+                }
+                else if (basesForbidden)
+                {
+                    <div class="alert alert-warning" data-testid="bases-forbidden">
+                        <i class="bi bi-shield-lock"></i>
+                        @Localizer["You don't have permission to see where players' bases are. The organization's owner can grant it to a role."]
+                    </div>
+                }
+                else
+                {
+                    @if (server is not null && !server.PluginRecordingEnabled)
+                    {
+                        <div class="alert alert-warning py-2 small" data-testid="bases-recording-off">
+                            @Localizer["Recording is switched off, so the bases list is not being kept up to date. Turn it on in the Plugins tab."]
+                        </div>
+                    }
+
+                    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-testid="bases-refresh" disabled="@loadingBases" @onclick="LoadBasesAsync">
+                            <i class="bi bi-arrow-clockwise"></i> @Localizer["Refresh"]
+                        </button>
+                        @if (bases?.CapturedAtUtc is not null)
+                        {
+                            <span class="small text-muted" data-testid="bases-captured">
+                                @Localizer["As of"] @bases.CapturedAtUtc.Value.ToString("yyyy-MM-dd HH:mm:ss") UTC
+                            </span>
+                        }
+                    </div>
+
+                    @if (basesError is not null)
+                    {
+                        <div class="alert alert-danger py-2 small" data-testid="bases-error">@basesError</div>
+                    }
+
+                    @if (bases is not null && bases.CapturedAtUtc is not null && !bases.Ready)
+                    {
+                        <div class="alert alert-info py-2 small" data-testid="bases-not-ready">
+                            @Localizer["The plugin is still scanning the world for bases, so this list may be incomplete."]
+                        </div>
+                    }
+
+                    @if (loadingBases && bases is null)
+                    {
+                        <p><em>@Localizer["Loading..."]</em></p>
+                    }
+                    else if (bases is null || bases.Tcs.Count == 0)
+                    {
+                        <p class="text-muted" data-testid="bases-empty">@Localizer["No bases found yet."]</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle" data-testid="bases-table">
+                                <thead>
+                                    <tr>
+                                        <th>@Localizer["Owner"]</th>
+                                        <th>@Localizer["Location"]</th>
+                                        <th>@Localizer["Authorized"]</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var tc in bases.Tcs.OrderBy(x => x.OwnerId).ThenBy(x => x.Id))
+                                    {
+                                        <tr data-testid="base-row">
+                                            <td>
+                                                <span>@BaseOwnerName(tc)</span>
+                                                <br />
+                                                <span class="text-muted small">@tc.OwnerId</span>
+                                            </td>
+                                            <td class="text-nowrap small">
+                                                x @tc.X.ToString("0", System.Globalization.CultureInfo.InvariantCulture),
+                                                z @tc.Z.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+                                                <span class="text-muted">(@Localizer["height"] @tc.Y.ToString("0", System.Globalization.CultureInfo.InvariantCulture))</span>
+                                            </td>
+                                            <td class="small" data-testid="base-authorized">
+                                                @if (tc.Authorized.Count == 0)
+                                                {
+                                                    <span class="text-muted">@Localizer["Nobody"]</span>
+                                                }
+                                                else
+                                                {
+                                                    @string.Join(", ", tc.Authorized.Select(a => string.IsNullOrEmpty(a.Name) ? a.PlayerId : a.Name))
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+            </div>
+        }
+
+        @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
         @if (activeTab == Tab.Plugins)
         {
             <div class="plugins-pane">
@@ -734,6 +1171,229 @@ else
                         <i class="bi bi-arrow-clockwise"></i> @Localizer["Refresh"]
                     </button>
                 </div>
+
+                @* The optional RustArchon companion plugin. Fail closed: nothing here is offered unless the plugin
+                   is positively in the plugin list AND has answered its handshake, and each feature only claims to
+                   work when the plugin reported that capability. *@
+                <div class="card mb-3 rustarchon-plugin-card">
+                    <div class="card-body">
+                        <h3 class="h6 mb-2"><i class="bi bi-plug"></i> @Localizer["RustArchon plugin"]</h3>
+                        @if (!PluginListed)
+                        {
+                            <p class="small text-muted mb-2" data-testid="plugin-not-detected">
+                                @Localizer["Not detected on this server. Plugin features (recording, combat log) need it and stay off until it is installed."]
+                            </p>
+                            @DownloadPluginButton
+                        }
+                        else if (pluginStatus is null)
+                        {
+                            <p class="small text-muted mb-0" data-testid="plugin-no-handshake">
+                                @Localizer["Detected, but it has not answered yet. This can take a few minutes after it loads. Plugin features stay off until it does."]
+                            </p>
+                        }
+                        else
+                        {
+                            <p class="small mb-2" data-testid="plugin-version">
+                                @Localizer["Version"] @pluginStatus.PluginVersion
+                                <span class="text-muted">· @Localizer["Protocol"] @pluginStatus.ProtocolVersion</span>
+                            </p>
+
+                            @* Whether the installed file is one THIS Panel signed. The plugin checks itself; the Panel
+                               only compares the key it reports with its own. *@
+                            @if (pluginStatus.SigningState == PluginSigningStates.Valid && pluginStatus.SigningKeyMatchesThisPanel == true)
+                            {
+                                <p class="small text-success mb-2" data-testid="plugin-signing-ok">
+                                    <i class="bi bi-patch-check"></i> @Localizer["Signed by this Panel"]
+                                    <span class="text-muted">· @Localizer["Key"] <code>@pluginStatus.SigningKeyFingerprint</code></span>
+                                </p>
+                            }
+                            else if (pluginStatus.SigningState == PluginSigningStates.Valid && pluginStatus.SigningKeyState == "retired")
+                            {
+                                @* An earlier key of THIS Panel: still updatable, and the update moves it to the current key. *@
+                                <p class="small text-muted mb-2" data-testid="plugin-signing-retired">
+                                    <i class="bi bi-patch-check"></i> @Localizer["Signed by an earlier key of this Panel. An update will move it to the current key."]
+                                    <span class="text-muted">· @Localizer["Key"] <code>@pluginStatus.SigningKeyFingerprint</code></span>
+                                </p>
+                            }
+                            else if (pluginStatus.SigningState == PluginSigningStates.Valid && pluginStatus.SigningKeyState == "revoked")
+                            {
+                                <p class="small text-danger mb-2" data-testid="plugin-signing-revoked">
+                                    @Localizer["Signed with a key that has been revoked. Updates from this Panel are refused. Download the plugin from this Panel and install it by hand."]
+                                    <span class="text-muted">· @Localizer["Key"] <code>@pluginStatus.SigningKeyFingerprint</code></span>
+                                </p>
+                                @DownloadPluginButton
+                            }
+                            else if (pluginStatus.SigningState == PluginSigningStates.Valid && pluginStatus.SigningKeyMatchesThisPanel == false)
+                            {
+                                <p class="small text-warning mb-2" data-testid="plugin-signing-other-panel">
+                                    @Localizer["Signed by a different Panel. Updates from this Panel will be refused. Download the plugin from this Panel to change that."]
+                                    <span class="text-muted">· @Localizer["Key"] <code>@pluginStatus.SigningKeyFingerprint</code></span>
+                                </p>
+                                @DownloadPluginButton
+                            }
+                            else if (pluginStatus.SigningState == PluginSigningStates.Valid)
+                            {
+                                <p class="small text-muted mb-2" data-testid="plugin-signing-valid-unmatched">
+                                    @Localizer["Signed"]
+                                    <span class="text-muted">· @Localizer["Key"] <code>@pluginStatus.SigningKeyFingerprint</code></span>
+                                </p>
+                            }
+                            else if (pluginStatus.SigningState == PluginSigningStates.Invalid)
+                            {
+                                <p class="small text-danger mb-2" data-testid="plugin-signing-invalid">
+                                    @Localizer["The plugin file does not match its signature. It was altered, or copied in a way that changed it (for example an FTP client in text mode). Download it again and upload it in binary mode."]
+                                </p>
+                                @DownloadPluginButton
+                            }
+                            else if (pluginStatus.SigningState == PluginSigningStates.Unsigned)
+                            {
+                                <p class="small text-muted mb-2" data-testid="plugin-signing-unsigned">
+                                    @Localizer["Unsigned copy (for example a developer build). Download the plugin from this Panel to enable signed updates."]
+                                </p>
+                                @DownloadPluginButton
+                            }
+                            else if (pluginStatus.SigningState == PluginSigningStates.Unknown)
+                            {
+                                @* A build from before signing existed: it cannot say. Replacing it is the fix. *@
+                                <p class="small text-muted mb-2" data-testid="plugin-signing-predates">
+                                    @Localizer["This plugin build does not report its signature. Download the current plugin from this Panel to get signed updates."]
+                                </p>
+                                @DownloadPluginButton
+                            }
+                            else
+                            {
+                                @* unlocated / error: the plugin could not check, and a fresh download would not change that. *@
+                                <p class="small text-muted mb-2" data-testid="plugin-signing-unchecked">
+                                    @Localizer["Signature not checked."]
+                                </p>
+                            }
+                            @if (pluginDownloadError is not null)
+                            {
+                                <p class="small text-danger mb-2" data-testid="plugin-download-error">@pluginDownloadError</p>
+                            }
+
+                            @* Updates. Only ever offered for a plugin this Panel signed - the Api re-checks everything, this
+                               just does not dangle a button that would be refused. *@
+                            @if (PluginSignedByThisPanel && server is not null)
+                            {
+                                <div class="border-top pt-2 mt-2 mb-2" data-testid="plugin-updates">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="plugin-updates"
+                                               checked="@server.PluginUpdatesEnabled"
+                                               disabled="@savingPluginSettings"
+                                               @onchange="e => SavePluginSettingsAsync(server.PluginRecordingEnabled, server.PluginCombatLogEnabled, (bool)e.Value!)" />
+                                        <label class="form-check-label" for="plugin-updates">@Localizer["Allow updates from this Panel"]</label>
+                                        <div class="form-text">@Localizer["Lets an administrator update the plugin from here. Off by default."]</div>
+                                    </div>
+
+                                    @if (!pluginStatus.UpdaterInstalled)
+                                    {
+                                        <p class="small text-muted mt-2 mb-1" data-testid="plugin-updater-missing">
+                                            @Localizer["Updating needs a small second plugin, the RustArchon Updater. Install it once; it is only ever replaced by hand."]
+                                        </p>
+                                        <button type="button" class="btn btn-sm btn-outline-primary mb-2" data-testid="plugin-download-updater"
+                                                @onclick="DownloadPluginUpdaterAsync" disabled="@downloadingPlugin">
+                                            <i class="bi bi-download"></i> @Localizer["Download Updater"]
+                                        </button>
+                                    }
+
+                                    @if (pluginStatus.UpdaterInstalled && pluginStatus.UpdaterUpdateAvailable)
+                                    {
+                                        <p class="small text-muted mt-2 mb-1" data-testid="plugin-updater-outdated">
+                                            @Localizer["A newer Updater is available"]: @pluginStatus.UpdaterVersion → @pluginStatus.LatestUpdaterVersion.
+                                            @Localizer["The Updater is only ever replaced by hand. Servers whose signing key has changed need it before they can be updated from here."]
+                                        </p>
+                                        <button type="button" class="btn btn-sm btn-outline-primary mb-2" data-testid="plugin-download-updater"
+                                                @onclick="DownloadPluginUpdaterAsync" disabled="@downloadingPlugin">
+                                            <i class="bi bi-download"></i> @Localizer["Download Updater"]
+                                        </button>
+                                    }
+
+                                    @if (pluginStatus.UpdateAvailable)
+                                    {
+                                        <p class="small mt-2 mb-1" data-testid="plugin-update-available">
+                                            <i class="bi bi-arrow-up-circle"></i>
+                                            @Localizer["Update available"]: @pluginStatus.PluginVersion → @pluginStatus.LatestPluginVersion
+                                        </p>
+                                        @if (server.PluginUpdatesEnabled && pluginStatus.UpdaterInstalled)
+                                        {
+                                            <button type="button" class="btn btn-sm btn-primary mb-1" data-testid="plugin-update"
+                                                    @onclick="StartPluginUpdateAsync" disabled="@updatingPlugin">
+                                                @if (updatingPlugin)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                                }
+                                                @Localizer["Update plugin"]
+                                            </button>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <p class="small text-muted mt-2 mb-1" data-testid="plugin-up-to-date">@Localizer["Up to date."]</p>
+                                    }
+
+                                    @if (pluginUpdateMessage is not null)
+                                    {
+                                        <p class="small @(pluginUpdateStarted ? "text-success" : "text-danger") mt-1 mb-0" data-testid="plugin-update-result">@pluginUpdateMessage</p>
+                                    }
+                                </div>
+                            }
+
+                            @if (!PluginCanBeConfigured)
+                            {
+                                <p class="small text-muted mb-0" data-testid="plugin-not-configurable">
+                                    @Localizer["This plugin version cannot be configured from the panel."]
+                                </p>
+                            }
+                            else if (server is not null)
+                            {
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="plugin-recording"
+                                           checked="@server.PluginRecordingEnabled"
+                                           disabled="@savingPluginSettings"
+                                           @onchange="e => SavePluginSettingsAsync((bool)e.Value!, server.PluginCombatLogEnabled)" />
+                                    <label class="form-check-label" for="plugin-recording">@Localizer["Recording"]</label>
+                                    <div class="form-text">@Localizer["Records player positions and events."]</div>
+                                    @if (!PluginReports(RustArchonPlugin.RecordingCapability))
+                                    {
+                                        <div class="form-text" data-testid="plugin-recording-unavailable">@Localizer["Not available in this plugin version yet."]</div>
+                                    }
+                                    @if (pluginStatus.RecordingEnabled != server.PluginRecordingEnabled)
+                                    {
+                                        <div class="form-text" data-testid="plugin-recording-pending">@Localizer["Applying..."]</div>
+                                    }
+                                </div>
+                                <div class="form-check form-switch mt-2">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="plugin-combat"
+                                           checked="@server.PluginCombatLogEnabled"
+                                           disabled="@savingPluginSettings"
+                                           @onchange="e => SavePluginSettingsAsync(server.PluginRecordingEnabled, (bool)e.Value!)" />
+                                    <label class="form-check-label" for="plugin-combat">@Localizer["Combat log"]</label>
+                                    <div class="form-text">@Localizer["Tracks damage for the combat log."]</div>
+                                    @if (!PluginReports(RustArchonPlugin.CombatCapability))
+                                    {
+                                        <div class="form-text" data-testid="plugin-combat-unavailable">@Localizer["Not available in this plugin version yet."]</div>
+                                    }
+                                    @if (pluginStatus.CombatLogEnabled != server.PluginCombatLogEnabled)
+                                    {
+                                        <div class="form-text" data-testid="plugin-combat-pending">@Localizer["Applying..."]</div>
+                                    }
+                                </div>
+                                @if (!pluginStatus.SettingsPersisted)
+                                {
+                                    <p class="small text-warning mt-2 mb-0" data-testid="plugin-not-persisted">
+                                        @Localizer["The plugin could not save its settings, so they revert if it reloads. The panel re-applies them."]
+                                    </p>
+                                }
+                                @if (pluginSettingsError is not null)
+                                {
+                                    <p class="small text-danger mt-2 mb-0" data-testid="plugin-settings-error">@pluginSettingsError</p>
+                                }
+                            }
+                        }
+                    </div>
+                </div>
+
                 @if (pluginsError is not null)
                 {
                     <div class="alert alert-warning py-2 px-3 small mb-0">@pluginsError</div>
@@ -823,11 +1483,324 @@ else
 
     private record BanListEntry(string SteamId, string Name, string Reason, bool IsPermanent, string Expiry);
 
+    // ---- Bases tab ----
+    private BasesDto? bases;
+    private bool loadingBases;
+    private bool basesForbidden;
+    private string? basesError;
+
+    /// <summary>The owner's name if they are authorized on their own cupboard (the plugin lists names only there), else just their id.</summary>
+    private static string BaseOwnerName(BaseTcDto tc)
+    {
+        var owner = tc.Authorized.FirstOrDefault(a => a.PlayerId == tc.OwnerId);
+        return owner is null || string.IsNullOrEmpty(owner.Name) ? tc.OwnerId : owner.Name;
+    }
+
+    /// <summary>
+    /// Loads the server's bases. Sensitive: the Api answers 403 to anyone without the bases permission, and that is shown
+    /// as "you are not allowed" rather than as a failure. Nothing is asked unless the plugin is here and reports the
+    /// capability (fail closed, like every plugin feature).
+    /// </summary>
+    private async Task LoadBasesAsync()
+    {
+        if (!PluginListed || !PluginReports(RustArchonPlugin.TcsCapability))
+        {
+            return;
+        }
+
+        loadingBases = true;
+        basesError = null;
+        basesForbidden = false;
+        StateHasChanged();
+
+        try
+        {
+            bases = await RustServerClient.GetBasesAsync(Id);
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            basesForbidden = true;
+            bases = null;
+        }
+        catch (Exception)
+        {
+            basesError = Localizer["Failed to load the bases."];
+        }
+        finally
+        {
+            loadingBases = false;
+        }
+
+        StateHasChanged();
+    }
+
+    // ---- Positions tab ----
+    private static readonly TimeSpan PositionsLiveWindow = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan PositionsTrackWindow = TimeSpan.FromHours(1);
+    private const int PositionsQueryLimit = 2000;
+
+    private PositionsDto? positions;
+    private DateTimeOffset? positionsLoadedAt;
+    private bool loadingPositions;
+    private bool positionsForbidden;
+    private string? positionsError;
+
+    private string? selectedPlayerId;
+    private PositionsDto? selectedTrack;
+    private bool loadingTrack;
+    private string? trackError;
+
+    private sealed record PositionRow(string PlayerId, string Name, PositionSampleDto Latest, bool Online);
+
+    /// <summary>
+    /// One row per player seen in the recent window: their newest sample, their name (the plugin includes it only on some
+    /// samples, so the newest one that has it), and whether that newest sample is the "left" marker.
+    /// </summary>
+    private IReadOnlyList<PositionRow> PositionRows() =>
+        positions is null
+            ? []
+            : positions.Samples
+                .GroupBy(s => s.PlayerId)
+                .Select(g =>
+                {
+                    var newest = g.OrderByDescending(s => s.OccurredAtUtc).ThenByDescending(s => s.Sequence).First();
+                    var name = g.OrderByDescending(s => s.OccurredAtUtc).Select(s => s.PlayerName).FirstOrDefault(n => !string.IsNullOrEmpty(n));
+                    return new PositionRow(g.Key, string.IsNullOrEmpty(name) ? g.Key : name, newest, newest.Marker != "off");
+                })
+                .OrderByDescending(r => r.Online)
+                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+    private string PlayerNameFor(string playerId) => PositionRows().FirstOrDefault(r => r.PlayerId == playerId)?.Name ?? playerId;
+
+    private static readonly string[] CompassPoints = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+
+    /// <summary>The compass point for a yaw in degrees (0 is north, 90 east).</summary>
+    private static string Compass(int yaw) => CompassPoints[(int)Math.Round((((yaw % 360) + 360) % 360) / 45.0) % 8];
+
+    /// <summary>How far the player travelled along the track, flat distance (height is ignored), oldest sample to newest.</summary>
+    private static double TrackDistance(PositionsDto track)
+    {
+        double total = 0;
+        var ordered = track.Samples.OrderBy(s => s.OccurredAtUtc).ThenBy(s => s.Sequence).ToList();
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            var dx = ordered[i].X - ordered[i - 1].X;
+            var dz = ordered[i].Z - ordered[i - 1].Z;
+            total += Math.Sqrt(dx * dx + dz * dz);
+        }
+
+        return total;
+    }
+
+    /// <summary>
+    /// Loads who was seen in the last few minutes. Sensitive: the Api answers 403 to anyone without the positions permission,
+    /// shown as "you are not allowed" rather than as a failure. Nothing is asked unless the plugin is here and reports the
+    /// capability (fail closed, like every plugin feature).
+    /// </summary>
+    private async Task LoadPositionsAsync()
+    {
+        if (!PluginListed || !PluginReports(RustArchonPlugin.PositionsCapability))
+        {
+            return;
+        }
+
+        loadingPositions = true;
+        positionsError = null;
+        positionsForbidden = false;
+        StateHasChanged();
+
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            positions = await RustServerClient.GetPositionsAsync(Id, since: now - PositionsLiveWindow, limit: PositionsQueryLimit);
+            positionsLoadedAt = now;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            positionsForbidden = true;
+            positions = null;
+        }
+        catch (Exception)
+        {
+            positionsError = Localizer["Failed to load positions."];
+        }
+        finally
+        {
+            loadingPositions = false;
+        }
+
+        StateHasChanged();
+
+        if (selectedPlayerId is not null && !positionsForbidden)
+        {
+            await SelectPlayerAsync(selectedPlayerId);
+        }
+    }
+
+    private async Task SelectPlayerAsync(string playerId)
+    {
+        selectedPlayerId = playerId;
+        loadingTrack = true;
+        trackError = null;
+        StateHasChanged();
+
+        try
+        {
+            selectedTrack = await RustServerClient.GetPositionsAsync(
+                Id, since: DateTimeOffset.UtcNow - PositionsTrackWindow, playerId: playerId, limit: PositionsQueryLimit);
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            positionsForbidden = true;
+            selectedTrack = null;
+        }
+        catch (Exception)
+        {
+            trackError = Localizer["Failed to load positions."];
+            selectedTrack = null;
+        }
+        finally
+        {
+            loadingTrack = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private void CloseTrack()
+    {
+        selectedPlayerId = null;
+        selectedTrack = null;
+        trackError = null;
+    }
+
+    // ---- Combat tab ----
+    private readonly List<CombatEventDto> combatEvents = new();
+    private bool combatHasMore;
+    private bool loadingCombat;
+    private string? combatError;
+    private string combatWindow = "24h";
+    private string? combatPlayerId;
+    private int combatLimit = 100;
+
+    /// <summary>What a party in a fight looks like: a player's name with their SteamID underneath, or just the entity's name.</summary>
+    private RenderFragment CombatParty(string name, string id, bool isPlayer) => @<span>
+        @if (isPlayer)
+        {
+            <span>@(string.IsNullOrEmpty(name) ? id : name)</span>
+            <br />
+            <span class="text-muted small">@id</span>
+        }
+        else
+        {
+            <span class="text-muted">@(string.IsNullOrEmpty(id) ? "-" : id)</span>
+        }
+    </span>;
+
+    private Task ReloadCombatAsync()
+    {
+        combatLimit = 100;
+        return LoadCombatAsync();
+    }
+
+    private Task ShowMoreCombatAsync()
+    {
+        combatLimit = Math.Min(combatLimit + 100, 500);
+        return LoadCombatAsync();
+    }
+
+    /// <summary>
+    /// Loads the combat log for the chosen window and player. Read from the Api's stored copy (the Worker drains the
+    /// plugin into it every ~30 seconds), so this is a plain database read. A player id that is not a SteamID64 is not
+    /// sent at all: the Api would refuse it, and saying so here is kinder than a generic error.
+    /// </summary>
+    private async Task LoadCombatAsync()
+    {
+        // Fail closed, like every plugin feature: nothing is asked of the Api unless the plugin is here and reports the capability.
+        if (!PluginListed || !PluginReports(RustArchonPlugin.CombatCapability))
+        {
+            return;
+        }
+
+        loadingCombat = true;
+        combatError = null;
+        StateHasChanged();
+
+        var player = combatPlayerId?.Trim();
+        if (!string.IsNullOrEmpty(player) && (player.Length > 20 || !player.All(char.IsAsciiDigit)))
+        {
+            combatError = Localizer["A player id is a SteamID64: digits only."];
+            loadingCombat = false;
+            return;
+        }
+
+        DateTimeOffset? since = combatWindow switch
+        {
+            "1h" => DateTimeOffset.UtcNow.AddHours(-1),
+            "24h" => DateTimeOffset.UtcNow.AddDays(-1),
+            "7d" => DateTimeOffset.UtcNow.AddDays(-7),
+            _ => null
+        };
+
+        try
+        {
+            var log = await RustServerClient.GetCombatLogAsync(Id, since, null, string.IsNullOrEmpty(player) ? null : player, combatLimit);
+            combatEvents.Clear();
+            combatEvents.AddRange(log.Events);
+            combatHasMore = log.HasMore;
+        }
+        catch (Exception)
+        {
+            combatError = Localizer["Failed to load the combat log."];
+        }
+        finally
+        {
+            loadingCombat = false;
+        }
+
+        StateHasChanged();
+    }
+
     // ---- Plugins tab ----
     private readonly List<ServerPluginDto> plugins = new();
     private ServerModFramework? pluginFramework;
     private bool loadingPlugins = true;
     private string? pluginsError;
+
+    // What the optional RustArchon companion plugin last reported - null when it has never answered (not
+    // installed, not polled yet, or too old to understand the handshake). Only meaningful while PluginListed.
+    private ServerPluginStatusDto? pluginStatus;
+    private bool savingPluginSettings;
+    private string? pluginSettingsError;
+    private bool downloadingPlugin;
+    private string? pluginDownloadError;
+    private bool updatingPlugin;
+    private bool pluginUpdateStarted;
+    private string? pluginUpdateMessage;
+
+    /// <summary>
+    /// The installed plugin's file is valid and signed with THIS Panel's active key, or with an earlier key of it that has
+    /// not been revoked (the update then moves it to the current key) - the precondition for offering to update it.
+    /// </summary>
+    private bool PluginSignedByThisPanel =>
+        pluginStatus is { SigningState: PluginSigningStates.Valid }
+            && (pluginStatus.SigningKeyMatchesThisPanel == true || pluginStatus.SigningKeyState == "retired");
+
+    private RenderFragment DownloadPluginButton => @<button type="button" class="btn btn-sm btn-outline-primary mb-2"
+                                                            data-testid="plugin-download"
+                                                            @onclick="DownloadPluginAsync" disabled="@downloadingPlugin">
+        <i class="bi bi-download"></i> @Localizer["Download plugin"]
+    </button>;
+
+    /// <summary>The plugin is positively in the server's plugin list - the gate for everything about it.</summary>
+    private bool PluginListed => RustArchonPlugin.IsListed(plugins.Select(p => p.Name));
+
+    /// <summary>The installed build reported it understands <c>archon.config</c>, so its switches can be set.</summary>
+    private bool PluginCanBeConfigured => PluginReports(RustArchonPlugin.ConfigCapability);
+
+    private bool PluginReports(string capability) =>
+        pluginStatus is not null && pluginStatus.Capabilities.Contains(capability, StringComparer.Ordinal);
 
     // ---- Stats tab ----
     private ServerInfoLiveDto? liveServerInfo;
@@ -911,6 +1884,10 @@ else
             "stats" => Tab.Stats,
             "logs" => Tab.Logs,
             "plugins" => Tab.Plugins,
+            "combat" => Tab.Combat,
+            "bases" => Tab.Bases,
+            "positions" => Tab.Positions,
+            "map" => Tab.Map,
             "control" => Tab.Control,
             _ => Tab.Console
         };
@@ -942,6 +1919,20 @@ else
             await LoadServerInfoHistoryAsync();
             await LoadConnectionLogAsync();
             await LoadPluginsAsync();
+
+            // activeTab is set from the URL only AFTER this method finishes (OnParametersSet runs later), so ask the query itself.
+            if (string.Equals(TabQuery, "combat", StringComparison.OrdinalIgnoreCase))
+            {
+                await LoadCombatAsync();
+            }
+            else if (string.Equals(TabQuery, "bases", StringComparison.OrdinalIgnoreCase))
+            {
+                await LoadBasesAsync();
+            }
+            else if (string.Equals(TabQuery, "positions", StringComparison.OrdinalIgnoreCase))
+            {
+                await LoadPositionsAsync();
+            }
 
             // Not awaited, same reasoning as LoadLiveServerInfoAsync below - global.banlistex is a live
             // RCON round-trip, not a local DB query like the other Players-tab loads above, so awaiting
@@ -1068,7 +2059,7 @@ else
         // Console (the default) so the plain "/servers/{id}" URL stays the common case. This also
         // re-fires OnParametersSet with the same tab we just set directly above - a harmless,
         // idempotent confirmation, not a fight over which value wins.
-        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", Tab.Stats => "stats", Tab.Logs => "logs", Tab.Plugins => "plugins", Tab.Control => "control", _ => null };
+        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", Tab.Stats => "stats", Tab.Logs => "logs", Tab.Plugins => "plugins", Tab.Combat => "combat", Tab.Bases => "bases", Tab.Positions => "positions", Tab.Map => "map", Tab.Control => "control", _ => null };
         var newUri = tabQueryValue is null ? $"servers/{Id}" : $"servers/{Id}?tab={tabQueryValue}";
         NavigationManager.NavigateTo(newUri, replace: true);
 
@@ -1083,7 +2074,19 @@ else
         }
 
         StateHasChanged();
-        await Task.CompletedTask;
+
+        if (tab == Tab.Combat)
+        {
+            await LoadCombatAsync();
+        }
+        else if (tab == Tab.Bases)
+        {
+            await LoadBasesAsync();
+        }
+        else if (tab == Tab.Positions)
+        {
+            await LoadPositionsAsync();
+        }
     }
 
     private async Task LoadConsoleHistoryAsync(bool resetScroll = true)
@@ -1421,8 +2424,143 @@ else
             loadingPlugins = false;
         }
 
+        // Separate from the list above so a failure here cannot hide the list. A failure just means "no
+        // handshake known", which leaves every plugin feature off - the safe direction.
+        try
+        {
+            var response = await RustServerClient.GetPluginStatusAsync(Id);
+            pluginStatus = response is { IsSuccessStatusCode: true } ? response.Content : null;
+        }
+        catch (Exception)
+        {
+            pluginStatus = null;
+        }
+
         StateHasChanged();
     }
+
+    /// <summary>
+    /// Downloads the RustArchon plugin script this Panel has signed and hands it to the browser. The bytes are passed
+    /// to the browser untouched (base64, then written out exactly by <c>js/fileDownload.js</c>): the signature covers
+    /// them, so nothing here may re-encode, trim, or change line endings.
+    /// </summary>
+    private Task DownloadPluginAsync() => DownloadPluginFileAsync(RustServerClient.DownloadPluginAsync, "RustArchon.cs");
+
+    /// <summary>The signed Updater plugin, downloaded the same byte-exact way as the main plugin.</summary>
+    private Task DownloadPluginUpdaterAsync() => DownloadPluginFileAsync(RustServerClient.DownloadPluginUpdaterAsync, "RustArchonUpdater.cs");
+
+    private async Task DownloadPluginFileAsync(Func<Task<HttpResponseMessage>> fetch, string fileName)
+    {
+        downloadingPlugin = true;
+        pluginDownloadError = null;
+        StateHasChanged();
+
+        try
+        {
+            using var response = await fetch();
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException($"The Api answered {(int)response.StatusCode}.");
+            }
+
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            var module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/fileDownload.js");
+            await module.InvokeVoidAsync("downloadBytes", fileName, Convert.ToBase64String(bytes), "text/plain");
+        }
+        catch (Exception)
+        {
+            pluginDownloadError = Localizer["Failed to download the plugin."];
+        }
+        finally
+        {
+            downloadingPlugin = false;
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Saves the plugin's two switches. The Api tells the plugin right away, so the "Applying..." note clears on
+    /// the next Refresh once the plugin reports the new state. Sends both values every time, since the endpoint
+    /// requires both and an omitted one is rejected rather than read as off.
+    /// </summary>
+    private async Task SavePluginSettingsAsync(bool recording, bool combat, bool? updates = null)
+    {
+        savingPluginSettings = true;
+        pluginSettingsError = null;
+        StateHasChanged();
+
+        try
+        {
+            // The endpoint requires all three, so the one not being changed is sent at its saved value.
+            server = await RustServerClient.UpdatePluginSettingsAsync(
+                Id, new UpdateServerPluginSettingsDto
+                {
+                    RecordingEnabled = recording,
+                    CombatLogEnabled = combat,
+                    UpdatesEnabled = updates ?? server?.PluginUpdatesEnabled ?? false
+                });
+        }
+        catch (Exception)
+        {
+            pluginSettingsError = Localizer["Failed to save the plugin settings."];
+        }
+        finally
+        {
+            savingPluginSettings = false;
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Asks the server's Updater to install the version this Panel serves. The Api re-checks every precondition; a
+    /// refusal comes back as a code, shown here as a plain sentence. "Started" only means the Updater accepted the
+    /// request - the outcome (updated, or rolled back) shows in the plugin's version on the next Refresh.
+    /// </summary>
+    private async Task StartPluginUpdateAsync()
+    {
+        updatingPlugin = true;
+        pluginUpdateMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await RustServerClient.StartPluginUpdateAsync(Id);
+            pluginUpdateStarted = result.Started;
+            pluginUpdateMessage = result.Started
+                ? Localizer["Update started. The plugin reloads within a minute - press Refresh to see the new version."]
+                : PluginUpdateRefusal(result.Code);
+        }
+        catch (Exception)
+        {
+            pluginUpdateStarted = false;
+            pluginUpdateMessage = Localizer["The update could not be started."];
+        }
+        finally
+        {
+            updatingPlugin = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private string PluginUpdateRefusal(string code) => code switch
+    {
+        "updates_disabled" => Localizer["Updates are turned off for this server."],
+        "server_disabled" => Localizer["This server is disabled."],
+        "no_handshake" => Localizer["The plugin has not reported in yet."],
+        "not_signed_by_this_panel" => Localizer["The installed plugin was not signed by this Panel, so it cannot be updated from here."],
+        "updater_missing" => Localizer["The RustArchon Updater is not installed or not responding."],
+        "updater_too_old" => Localizer["Updating needs a newer Updater on this server. Download the Updater and the plugin from this Panel and install them by hand."],
+        "key_revoked" => Localizer["The key this plugin was signed with has been revoked. Download the plugin from this Panel and install it by hand."],
+        "up_to_date" or "not_newer" => Localizer["Nothing newer to install."],
+        "panel_url_invalid" => Localizer["The Panel's public address is not set up, so the server would not know where to download from."],
+        "not_connected" => Localizer["The server is not connected right now."],
+        "timeout" => Localizer["The server did not answer in time."],
+        "busy" => Localizer["An update is already in progress."],
+        _ => Localizer["The update could not be started."]
+    };
 
     /// <summary>Loads the last 24 hours of <see cref="ServerInfoSnapshotDto"/> history for the charts.</summary>
     private async Task LoadServerInfoHistoryAsync()
@@ -2250,5 +3388,5 @@ else
         }
     }
 
-    private enum Tab { Console, Chat, Players, Stats, Logs, Control, Plugins }
+    private enum Tab { Console, Chat, Players, Stats, Logs, Control, Plugins, Combat, Bases, Positions, Map }
 }

@@ -1,0 +1,317 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@using Microsoft.JSInterop
+@using RustArchon.Panel.Clients
+@using RustArchon.Shared.DTOs
+@inject IRustServerApiClient RustServerClient
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@*
+    The server's world map: the picture the game drew, with named places, players and bases drawn over it on a canvas (see
+    wwwroot/js/serverMap.js). The picture and the named places are shown to anyone who may see the server; players and bases
+    are the sensitive layers, each behind its own permission, and are simply left out (with a note) for someone who lacks it.
+*@
+
+<div class="map-pane" data-testid="map-pane">
+    @if (loading)
+    {
+        <p><em>@Localizer["Loading..."]</em></p>
+    }
+    else if (error is not null)
+    {
+        <div class="alert alert-danger py-2 small" data-testid="map-error">@error</div>
+    }
+    else if (map is null || !map.Available)
+    {
+        @if (!PluginListed)
+        {
+            <div class="alert alert-secondary" data-testid="map-needs-plugin">
+                <i class="bi bi-plug"></i>
+                @Localizer["The map needs the RustArchon plugin, which is not detected on this server. Install it from the Plugins tab."]
+            </div>
+        }
+        else if (!PluginSupportsMap)
+        {
+            <div class="alert alert-secondary" data-testid="map-not-supported">
+                @Localizer["This version of the RustArchon plugin cannot draw the map yet. Update it from the Plugins tab."]
+            </div>
+        }
+        else
+        {
+            <div class="alert alert-info" data-testid="map-pending">
+                @Localizer["The map has not reached the Panel yet. The plugin draws it once per wipe and it is collected automatically, usually within a few minutes."]
+            </div>
+        }
+    }
+    else
+    {
+        <div class="d-flex flex-wrap gap-3 align-items-center mb-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-testid="map-refresh" disabled="@refreshing" @onclick="RefreshAsync">
+                <i class="bi bi-arrow-clockwise"></i> @Localizer["Refresh"]
+            </button>
+            <div class="btn-group btn-group-sm" role="group" aria-label="@Localizer["Zoom"]">
+                <button type="button" class="btn btn-outline-secondary" data-testid="map-zoom-in" title="@Localizer["Zoom in"]" @onclick="() => ZoomAsync(ZoomStep)">
+                    <i class="bi bi-plus-lg"></i>
+                </button>
+                <button type="button" class="btn btn-outline-secondary" data-testid="map-zoom-out" title="@Localizer["Zoom out"]" @onclick="() => ZoomAsync(1 / ZoomStep)">
+                    <i class="bi bi-dash-lg"></i>
+                </button>
+                <button type="button" class="btn btn-outline-secondary" data-testid="map-reset-view" title="@Localizer["Show the whole map"]" @onclick="ResetViewAsync">
+                    <i class="bi bi-arrows-fullscreen"></i>
+                </button>
+            </div>
+            <label class="form-check-label small">
+                <input type="checkbox" class="form-check-input" data-testid="map-toggle-monuments" checked="@showMonuments" @onchange="e => ToggleAsync(Layer.Monuments, e)" />
+                @Localizer["Places"]
+            </label>
+            <label class="form-check-label small">
+                <input type="checkbox" class="form-check-input" data-testid="map-toggle-bases" checked="@showBases" disabled="@basesForbidden" @onchange="e => ToggleAsync(Layer.Bases, e)" />
+                @Localizer["Bases"]
+            </label>
+            <label class="form-check-label small">
+                <input type="checkbox" class="form-check-input" data-testid="map-toggle-players" checked="@showPlayers" disabled="@playersForbidden" @onchange="e => ToggleAsync(Layer.Players, e)" />
+                @Localizer["Players"]
+            </label>
+            <span class="small text-muted" data-testid="map-info">
+                @map.WorldSize m · @Localizer["seed"] @map.WorldSeed
+                @if (map.UploadedAtUtc is not null)
+                {
+                    <text> · @Localizer["Map collected"] @map.UploadedAtUtc.Value.ToString("yyyy-MM-dd HH:mm") UTC</text>
+                }
+            </span>
+        </div>
+
+        @if (playersForbidden || basesForbidden)
+        {
+            <div class="alert alert-warning py-2 small" data-testid="map-layers-forbidden">
+                <i class="bi bi-shield-lock"></i>
+                @Localizer["Some layers are hidden because you don't have permission to see where players and bases are. The organization's owner can grant it to a role."]
+            </div>
+        }
+
+        @if (imageError is not null)
+        {
+            <div class="alert alert-danger py-2 small" data-testid="map-image-error">@imageError</div>
+        }
+
+        <p class="small text-muted mb-2" data-testid="map-hint">@Localizer["Scroll to zoom, drag to pan, double-click to zoom in."]</p>
+
+        <div class="map-canvas-wrap" style="max-width: 1100px;">
+            <canvas id="@CanvasId" data-testid="map-canvas" style="display: block; max-width: 100%;"></canvas>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Guid ServerId { get; set; }
+
+    /// <summary>Whether the RustArchon plugin is listed on the server; only used to say why there is no map.</summary>
+    [Parameter] public bool PluginListed { get; set; }
+
+    /// <summary>Whether the plugin reports the map capability; only used to say why there is no map.</summary>
+    [Parameter] public bool PluginSupportsMap { get; set; }
+
+    private enum Layer { Monuments, Bases, Players }
+
+    private static readonly TimeSpan PlayersWindow = TimeSpan.FromMinutes(10);
+
+    private string CanvasId => $"server-map-{ServerId:N}";
+
+    private MapDto? map;
+    private bool loading = true;
+    private bool refreshing;
+    private string? error;
+    private string? imageError;
+    private bool imageLoaded;
+    private bool needsImage;
+
+    private bool showMonuments = true;
+    private bool showBases = true;
+    private bool showPlayers = true;
+    private bool basesForbidden;
+    private bool playersForbidden;
+
+    private List<object> baseMarkers = [];
+    private List<object> playerMarkers = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            map = await RustServerClient.GetMapAsync(ServerId);
+            needsImage = map.Available;
+        }
+        catch (Exception)
+        {
+            error = Localizer["Failed to load the map."];
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // The canvas only exists once the map is known to be available and the page has rendered it.
+        if (needsImage && map is { Available: true })
+        {
+            needsImage = false;
+            await LoadImageAsync();
+            await LoadOverlaysAsync();
+            await DrawAsync();
+        }
+    }
+
+    private async Task LoadImageAsync()
+    {
+        imageError = null;
+        try
+        {
+            using var response = await RustServerClient.GetMapImageAsync(ServerId);
+            response.EnsureSuccessStatusCode();
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            using var reference = new DotNetStreamReference(stream, leaveOpen: false);
+            await JS.InvokeAsync<object>("serverMap.load", CanvasId, reference);
+            imageLoaded = true;
+        }
+        catch (Exception)
+        {
+            imageLoaded = false;
+            imageError = Localizer["The map picture could not be loaded."];
+            StateHasChanged();
+        }
+    }
+
+    // The sensitive layers: each is asked for on its own, and a 403 only hides that layer.
+    private async Task LoadOverlaysAsync()
+    {
+        try
+        {
+            var bases = await RustServerClient.GetBasesAsync(ServerId);
+            basesForbidden = false;
+            baseMarkers = bases.Tcs
+                .Select(tc => (object)new { name = Owner(tc), x = tc.X, z = tc.Z })
+                .ToList();
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            basesForbidden = true;
+            baseMarkers = [];
+        }
+        catch (Exception)
+        {
+            baseMarkers = [];
+        }
+
+        try
+        {
+            var positions = await RustServerClient.GetPositionsAsync(ServerId, since: DateTimeOffset.UtcNow - PlayersWindow, limit: 2000);
+            playersForbidden = false;
+            playerMarkers = positions.Samples
+                .GroupBy(s => s.PlayerId)
+                .Select(g =>
+                {
+                    var newest = g.OrderByDescending(s => s.OccurredAtUtc).ThenByDescending(s => s.Sequence).First();
+                    var name = g.OrderByDescending(s => s.OccurredAtUtc).Select(s => s.PlayerName).FirstOrDefault(n => !string.IsNullOrEmpty(n));
+                    return (object)new { name = string.IsNullOrEmpty(name) ? g.Key : name, x = newest.X, z = newest.Z, online = newest.Marker != "off" };
+                })
+                .ToList();
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            playersForbidden = true;
+            playerMarkers = [];
+        }
+        catch (Exception)
+        {
+            playerMarkers = [];
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>The owner's name if they are authorized on their own cupboard (the plugin lists names only there), else empty.</summary>
+    private static string Owner(BaseTcDto tc) =>
+        tc.Authorized.FirstOrDefault(a => a.PlayerId == tc.OwnerId)?.Name ?? string.Empty;
+
+    private async Task DrawAsync()
+    {
+        if (!imageLoaded || map is null)
+        {
+            return;
+        }
+
+        await JS.InvokeAsync<bool>("serverMap.draw", CanvasId, new
+        {
+            size = map.WorldSize,
+            showMonuments,
+            showBases = showBases && !basesForbidden,
+            showPlayers = showPlayers && !playersForbidden,
+            monuments = map.Monuments.Select(m => new { name = m.Name, x = m.X, z = m.Z }),
+            bases = baseMarkers,
+            players = playerMarkers
+        });
+    }
+
+    private async Task ToggleAsync(Layer layer, ChangeEventArgs e)
+    {
+        var on = e.Value is true;
+        switch (layer)
+        {
+            case Layer.Monuments: showMonuments = on; break;
+            case Layer.Bases: showBases = on; break;
+            case Layer.Players: showPlayers = on; break;
+        }
+
+        await DrawAsync();
+    }
+
+    /// <summary>How much one press of a zoom button zooms by.</summary>
+    private const double ZoomStep = 1.6;
+
+    // The view (zoom and pan) lives in the page's script, not here: a drag or a wheel turn must not cross the Blazor connection.
+    private async Task ZoomAsync(double factor)
+    {
+        if (imageLoaded)
+        {
+            await JS.InvokeVoidAsync("serverMap.zoomBy", CanvasId, factor);
+        }
+    }
+
+    private async Task ResetViewAsync()
+    {
+        if (imageLoaded)
+        {
+            await JS.InvokeVoidAsync("serverMap.resetView", CanvasId);
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        refreshing = true;
+        StateHasChanged();
+        try
+        {
+            await LoadOverlaysAsync();
+            await DrawAsync();
+        }
+        finally
+        {
+            refreshing = false;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("serverMap.dispose", CanvasId);
+        }
+        catch (Exception)
+        {
+            // The circuit is going away; there is nothing left to clean up on the page.
+        }
+    }
+}
