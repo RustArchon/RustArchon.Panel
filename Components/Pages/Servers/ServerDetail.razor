@@ -1301,6 +1301,18 @@ else
                                         <div class="form-text">@Localizer["Lets an administrator update the plugin from here. Off by default."]</div>
                                     </div>
 
+                                    @if (server.PluginUpdatesEnabled)
+                                    {
+                                        <div class="form-check form-switch ms-4 mt-2" data-testid="plugin-auto-update-setting">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="plugin-auto-update"
+                                                   checked="@server.PluginAutoUpdateEnabled"
+                                                   disabled="@savingPluginSettings"
+                                                   @onchange="e => SavePluginSettingsAsync(server.PluginRecordingEnabled, server.PluginCombatLogEnabled, server.PluginUpdatesEnabled, (bool)e.Value!)" />
+                                            <label class="form-check-label" for="plugin-auto-update">@Localizer["Update automatically"]</label>
+                                            <div class="form-text">@Localizer["Installs the newest plugin and Updater this Panel serves by itself, one at a time, and puts the old one back if the new one does not start. Off by default."]</div>
+                                        </div>
+                                    }
+
                                     @if (!pluginStatus.UpdaterInstalled)
                                     {
                                         @if (UpdaterSelfUpdateOffered)
@@ -1393,6 +1405,19 @@ else
                                     @if (pluginUpdateMessage is not null)
                                     {
                                         <p class="small @(pluginUpdateStarted ? "text-success" : "text-danger") mt-1 mb-0" data-testid="plugin-update-result">@pluginUpdateMessage</p>
+                                    }
+
+                                    @if (pluginAttempts.Count > 0)
+                                    {
+                                        <div class="small mt-2" data-testid="plugin-update-attempts">
+                                            <div class="text-muted">@Localizer["Recent updates"]</div>
+                                            <ul class="list-unstyled mb-0">
+                                                @foreach (var attempt in pluginAttempts.Take(5))
+                                                {
+                                                    <li data-testid="plugin-update-attempt" data-state="@attempt.State">@AttemptText(attempt)</li>
+                                                }
+                                            </ul>
+                                        </div>
                                     }
                                 </div>
                             }
@@ -1857,6 +1882,7 @@ else
     private readonly List<ServerPluginDto> plugins = new();
     private ServerModFramework? pluginFramework;
     private readonly List<PluginUpdateNoticeDto> pluginUpdates = new();
+    private readonly List<PluginUpdateAttemptDto> pluginAttempts = new();
     private bool loadingPlugins = true;
     private string? pluginsError;
 
@@ -2538,6 +2564,18 @@ else
             loadingPlugins = false;
         }
 
+        // The recent update attempts, separately again: they only ever add to the card.
+        try
+        {
+            var recent = await RustServerClient.GetPluginUpdateAttemptsAsync(Id);
+            pluginAttempts.Clear();
+            pluginAttempts.AddRange(recent);
+        }
+        catch (Exception)
+        {
+            pluginAttempts.Clear();
+        }
+
         // Separate from the list so a failure here (or a server that has never reported one) simply shows no update notices.
         try
         {
@@ -2563,6 +2601,24 @@ else
         }
 
         StateHasChanged();
+    }
+
+    /// <summary>One recent update, in plain words: who started it, what, from and to which version, how it went and when.</summary>
+    private string AttemptText(PluginUpdateAttemptDto a)
+    {
+        var who = a.Trigger == "auto" ? Localizer["Automatic"] : Localizer["Manual"];
+        var what = a.Kind == "updater" ? Localizer["Updater"] : Localizer["Plugin"];
+        var outcome = a.State switch
+        {
+            "succeeded" => Localizer["succeeded"],
+            "started" => Localizer["in progress"],
+            "failed" => Localizer["did not take effect and was put back"],
+            "refused" => Localizer["refused"],
+            _ => Localizer[a.State]
+        };
+        var from = string.IsNullOrEmpty(a.FromVersion) ? "-" : a.FromVersion;
+        var code = string.IsNullOrEmpty(a.Code) ? "" : $" ({a.Code})";
+        return $"{who} · {what} {from} → {a.ToVersion} · {outcome}{code} · {a.StartedAtUtc:yyyy-MM-dd HH:mm} UTC";
     }
 
     /// <summary>The update notice for an installed plugin, if UpdateChecker reported one that still holds.</summary>
@@ -2627,7 +2683,7 @@ else
     /// the next Refresh once the plugin reports the new state. Sends both values every time, since the endpoint
     /// requires both and an omitted one is rejected rather than read as off.
     /// </summary>
-    private async Task SavePluginSettingsAsync(bool recording, bool combat, bool? updates = null)
+    private async Task SavePluginSettingsAsync(bool recording, bool combat, bool? updates = null, bool? auto = null)
     {
         savingPluginSettings = true;
         pluginSettingsError = null;
@@ -2641,7 +2697,9 @@ else
                 {
                     RecordingEnabled = recording,
                     CombatLogEnabled = combat,
-                    UpdatesEnabled = updates ?? server?.PluginUpdatesEnabled ?? false
+                    UpdatesEnabled = updates ?? server?.PluginUpdatesEnabled ?? false,
+                    // Left out (unchanged) unless this call is about that switch.
+                    AutoUpdateEnabled = auto
                 });
         }
         catch (Exception)

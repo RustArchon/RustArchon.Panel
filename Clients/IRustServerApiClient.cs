@@ -115,6 +115,13 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     Task<List<PluginUpdateNoticeDto>> GetPluginUpdatesAsync(Guid id);
 
     /// <summary>
+    /// The recent times the Panel asked this server to update its plugin or Updater (by a click or automatically) and how each turned out,
+    /// newest first.
+    /// </summary>
+    [Get("/{id}/plugin-update-attempts")]
+    Task<List<PluginUpdateAttemptDto>> GetPluginUpdateAttemptsAsync(Guid id);
+
+    /// <summary>
     /// What the optional RustArchon companion plugin last reported on this server. <c>204 No Content</c> (a null
     /// <c>Content</c>) is the ordinary answer when the plugin is not installed or has not answered yet, which is
     /// why this returns the raw response rather than throwing on it. Only trust it while the plugin is also in
