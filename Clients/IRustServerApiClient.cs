@@ -205,6 +205,10 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     [Post("/{id}/plugin/update-updater")]
     Task<PluginUpdateResultDto> StartUpdaterUpdateAsync(Guid id);
 
+    /// <summary>Records that the Add Server wizard was finished for this server. Idempotent.</summary>
+    [Post("/{id}/setup-complete")]
+    Task<RustServerDto> CompleteSetupAsync(Guid id);
+
     /// <summary>
     /// Saves the plugin's Recording and Combat log switches for this server. A separate call from the full-record
     /// <c>UpdateAsync</c> on purpose - see <see cref="UpdateServerPluginSettingsDto"/>.

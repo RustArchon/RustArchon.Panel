@@ -418,7 +418,39 @@
     /// <summary>How long a server may stay unconnected before the wizard offers troubleshooting.</summary>
     [Parameter] public TimeSpan TroubleshootAfter { get; set; } = TimeSpan.FromSeconds(15);
 
-    private Step step = Step.Basics;
+    private Step stepValue = Step.Basics;
+
+    // Reaching Done - by finishing, or by skipping the optional steps - is what "setup complete" means; it is saved so the servers list stops
+    // offering "Finish setup". A failure to save it just leaves the link there, which is the safe direction, so nothing waits on it or shows it.
+    private Step step
+    {
+        get => stepValue;
+        set
+        {
+            stepValue = value;
+            if (value == Step.Done)
+            {
+                _ = MarkSetupCompleteAsync();
+            }
+        }
+    }
+
+    private async Task MarkSetupCompleteAsync()
+    {
+        if (serverId is not { } id)
+        {
+            return;
+        }
+
+        try
+        {
+            await RustServerClient.CompleteSetupAsync(id);
+        }
+        catch (Exception)
+        {
+            // See above.
+        }
+    }
     private Guid? serverId;
     private RustServerDto? server;
     private string name = string.Empty;
