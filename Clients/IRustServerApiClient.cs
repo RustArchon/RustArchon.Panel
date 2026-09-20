@@ -107,6 +107,14 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     Task<List<ServerPluginDto>> GetPluginsAsync(Guid id);
 
     /// <summary>
+    /// The installed plugins that UpdateChecker (a third-party plugin on the game server) says have a newer version, with everything it
+    /// reported. Only notices that still hold are returned. Empty when the server does not run UpdateChecker, has the RustArchon
+    /// plugin without the updates capability, or every plugin is current.
+    /// </summary>
+    [Get("/{id}/plugin-updates")]
+    Task<List<PluginUpdateNoticeDto>> GetPluginUpdatesAsync(Guid id);
+
+    /// <summary>
     /// What the optional RustArchon companion plugin last reported on this server. <c>204 No Content</c> (a null
     /// <c>Content</c>) is the ordinary answer when the plugin is not installed or has not answered yet, which is
     /// why this returns the raw response rather than throwing on it. Only trust it while the plugin is also in

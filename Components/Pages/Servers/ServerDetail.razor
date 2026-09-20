@@ -1411,6 +1411,13 @@ else
                 }
                 else
                 {
+                    if (pluginUpdates.Count > 0)
+                    {
+                        <p class="small mb-2" data-testid="plugin-updates-summary">
+                            <span class="badge text-bg-warning">@pluginUpdates.Count</span>
+                            @Localizer["plugins have updates available, according to the UpdateChecker plugin on this server."]
+                        </p>
+                    }
                     <div class="table-responsive">
                         <table class="table table-sm player-table">
                             <thead>
@@ -1423,10 +1430,31 @@ else
                             <tbody>
                                 @foreach (var p in plugins)
                                 {
-                                    <tr>
+                                    var update = UpdateFor(p);
+                                    <tr data-testid="plugin-row">
                                         <td>@p.Name</td>
                                         <td>@p.Author</td>
-                                        <td>@p.Version</td>
+                                        <td>
+                                            @p.Version
+                                            @if (update is not null)
+                                            {
+                                                <div class="small mt-1" data-testid="plugin-update">
+                                                    <span class="badge text-bg-warning" data-testid="plugin-update-badge"
+                                                          title="@UpdateDetail(update)">@Localizer["Update available: {0}", update.LatestVersion]</span>
+                                                    @if (IsWebAddress(update.Url))
+                                                    {
+                                                        <a href="@update.Url" target="_blank" rel="noopener noreferrer nofollow" class="ms-1" data-testid="plugin-update-link">
+                                                            @(string.IsNullOrEmpty(update.Marketplace) ? Localizer["View update page"] : Localizer["View on {0}", update.Marketplace])
+                                                            <i class="bi bi-box-arrow-up-right"></i>
+                                                        </a>
+                                                    }
+                                                    else if (!string.IsNullOrEmpty(update.Marketplace))
+                                                    {
+                                                        <span class="text-muted ms-1" data-testid="plugin-update-marketplace">@update.Marketplace</span>
+                                                    }
+                                                </div>
+                                            }
+                                        </td>
                                     </tr>
                                 }
                             </tbody>
@@ -1770,6 +1798,7 @@ else
     // ---- Plugins tab ----
     private readonly List<ServerPluginDto> plugins = new();
     private ServerModFramework? pluginFramework;
+    private readonly List<PluginUpdateNoticeDto> pluginUpdates = new();
     private bool loadingPlugins = true;
     private string? pluginsError;
 
@@ -2429,6 +2458,18 @@ else
             loadingPlugins = false;
         }
 
+        // Separate from the list so a failure here (or a server that has never reported one) simply shows no update notices.
+        try
+        {
+            var updates = await RustServerClient.GetPluginUpdatesAsync(Id);
+            pluginUpdates.Clear();
+            pluginUpdates.AddRange(updates);
+        }
+        catch (Exception)
+        {
+            pluginUpdates.Clear();
+        }
+
         // Separate from the list above so a failure here cannot hide the list. A failure just means "no
         // handshake known", which leaves every plugin feature off - the safe direction.
         try
@@ -2443,6 +2484,23 @@ else
 
         StateHasChanged();
     }
+
+    /// <summary>The update notice for an installed plugin, if UpdateChecker reported one that still holds.</summary>
+    private PluginUpdateNoticeDto? UpdateFor(ServerPluginDto plugin) =>
+        pluginUpdates.FirstOrDefault(u => string.Equals(u.Name, plugin.Name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// True for an absolute http or https address. The Api only passes those on; this is the page's own check, since an address from
+    /// another plugin becomes a link a person clicks.
+    /// </summary>
+    private static bool IsWebAddress(string? url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+
+    /// <summary>Everything the notice carries, as a tooltip: what was installed, the newest, and when and how often it was heard.</summary>
+    private string UpdateDetail(PluginUpdateNoticeDto update) =>
+        Localizer["Installed {0}, newest {1}. Reported by UpdateChecker: first {2} UTC, last {3} UTC, {4} time(s).",
+            update.InstalledVersion, update.LatestVersion,
+            update.FirstSeenUtc.ToString("yyyy-MM-dd HH:mm"), update.LastSeenUtc.ToString("yyyy-MM-dd HH:mm"), update.TimesSeen];
 
     /// <summary>
     /// Downloads the RustArchon plugin script this Panel has signed and hands it to the browser. The bytes are passed
