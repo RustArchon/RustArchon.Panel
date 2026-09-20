@@ -185,6 +185,13 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     Task<PluginUpdateResultDto> StartPluginUpdateAsync(Guid id);
 
     /// <summary>
+    /// Asks the server's RustArchon plugin to install, or update, the Updater plugin (the Updater cannot replace itself). Same result
+    /// shape as <see cref="StartPluginUpdateAsync"/>: every refusal is an ordinary result with a code.
+    /// </summary>
+    [Post("/{id}/plugin/update-updater")]
+    Task<PluginUpdateResultDto> StartUpdaterUpdateAsync(Guid id);
+
+    /// <summary>
     /// Saves the plugin's Recording and Combat log switches for this server. A separate call from the full-record
     /// <c>UpdateAsync</c> on purpose - see <see cref="UpdateServerPluginSettingsDto"/>.
     /// </summary>

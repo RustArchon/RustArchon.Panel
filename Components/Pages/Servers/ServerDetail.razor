@@ -1303,25 +1303,68 @@ else
 
                                     @if (!pluginStatus.UpdaterInstalled)
                                     {
-                                        <p class="small text-muted mt-2 mb-1" data-testid="plugin-updater-missing">
-                                            @Localizer["Updating needs a small second plugin, the RustArchon Updater. Install it once; it is only ever replaced by hand."]
-                                        </p>
-                                        <button type="button" class="btn btn-sm btn-outline-primary mb-2" data-testid="plugin-download-updater"
-                                                @onclick="DownloadPluginUpdaterAsync" disabled="@downloadingPlugin">
-                                            <i class="bi bi-download"></i> @Localizer["Download Updater"]
-                                        </button>
+                                        @if (UpdaterSelfUpdateOffered)
+                                        {
+                                            <p class="small text-muted mt-2 mb-1" data-testid="plugin-updater-missing">
+                                                @Localizer["Updating needs a small second plugin, the RustArchon Updater. It is not installed on this server, but the RustArchon plugin can install it for you."]
+                                            </p>
+                                            <button type="button" class="btn btn-sm btn-outline-primary mb-2" data-testid="plugin-install-updater"
+                                                    @onclick="StartUpdaterUpdateAsync" disabled="@updatingUpdater">
+                                                @if (updatingUpdater)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                                }
+                                                @Localizer["Install Updater"]
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <p class="small text-muted mt-2 mb-1" data-testid="plugin-updater-missing">
+                                                @Localizer["Updating needs a small second plugin, the RustArchon Updater. Install it once by hand, or update the plugin first: a newer plugin can install and update the Updater itself."]
+                                            </p>
+                                            @if (UpdaterSelfUpdateBlockedByUpdatesOff)
+                                            {
+                                                <p class="small text-muted mb-1" data-testid="plugin-updater-enable-hint">@Localizer["Turn on Allow updates from this Panel and the plugin can do this for you."]</p>
+                                            }
+                                            <button type="button" class="btn btn-sm btn-outline-primary mb-2" data-testid="plugin-download-updater"
+                                                    @onclick="DownloadPluginUpdaterAsync" disabled="@downloadingPlugin">
+                                                <i class="bi bi-download"></i> @Localizer["Download Updater"]
+                                            </button>
+                                        }
                                     }
 
                                     @if (pluginStatus.UpdaterInstalled && pluginStatus.UpdaterUpdateAvailable)
                                     {
-                                        <p class="small text-muted mt-2 mb-1" data-testid="plugin-updater-outdated">
-                                            @Localizer["A newer Updater is available"]: @pluginStatus.UpdaterVersion → @pluginStatus.LatestUpdaterVersion.
-                                            @Localizer["The Updater is only ever replaced by hand. Servers whose signing key has changed need it before they can be updated from here."]
-                                        </p>
-                                        <button type="button" class="btn btn-sm btn-outline-primary mb-2" data-testid="plugin-download-updater"
-                                                @onclick="DownloadPluginUpdaterAsync" disabled="@downloadingPlugin">
-                                            <i class="bi bi-download"></i> @Localizer["Download Updater"]
-                                        </button>
+                                        @if (UpdaterSelfUpdateOffered)
+                                        {
+                                            <p class="small text-muted mt-2 mb-1" data-testid="plugin-updater-outdated">
+                                                @Localizer["A newer Updater is available"]: @pluginStatus.UpdaterVersion → @pluginStatus.LatestUpdaterVersion.
+                                                @Localizer["The RustArchon plugin will replace it, and put the old one back if the new one does not start."]
+                                            </p>
+                                            <button type="button" class="btn btn-sm btn-outline-primary mb-2" data-testid="plugin-update-updater"
+                                                    @onclick="StartUpdaterUpdateAsync" disabled="@updatingUpdater">
+                                                @if (updatingUpdater)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                                }
+                                                @Localizer["Update Updater"]
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <p class="small text-muted mt-2 mb-1" data-testid="plugin-updater-outdated">
+                                                @Localizer["A newer Updater is available"]: @pluginStatus.UpdaterVersion → @pluginStatus.LatestUpdaterVersion.
+                                                @Localizer["Install it by hand, or update the plugin first: a newer plugin can update the Updater itself. Servers whose signing key has changed need the newer Updater before they can be updated from here."]
+                                            </p>
+                                            @if (UpdaterSelfUpdateBlockedByUpdatesOff)
+                                            {
+                                                <p class="small text-muted mb-1" data-testid="plugin-updater-enable-hint">@Localizer["Turn on Allow updates from this Panel and the plugin can do this for you."]</p>
+                                            }
+                                            <button type="button" class="btn btn-sm btn-outline-primary mb-2" data-testid="plugin-download-updater"
+                                                    @onclick="DownloadPluginUpdaterAsync" disabled="@downloadingPlugin">
+                                                <i class="bi bi-download"></i> @Localizer["Download Updater"]
+                                            </button>
+                                        }
                                     }
 
                                     @if (pluginStatus.UpdateAvailable)
@@ -1825,6 +1868,7 @@ else
     private bool downloadingPlugin;
     private string? pluginDownloadError;
     private bool updatingPlugin;
+    private bool updatingUpdater;
     private bool pluginUpdateStarted;
     private string? pluginUpdateMessage;
 
@@ -1850,6 +1894,21 @@ else
 
     private bool PluginReports(string capability) =>
         pluginStatus is not null && pluginStatus.Capabilities.Contains(capability, StringComparer.Ordinal);
+
+    /// <summary>
+    /// Whether the Panel can install or update the Updater on this server by itself: the plugin can do it (the Updater cannot replace
+    /// itself, so the plugin does), the plugin is signed by this Panel's current key (the Updater is signed with it), and updates are
+    /// turned on for the server. Otherwise the Updater is installed by hand, or the plugin is updated first.
+    /// </summary>
+    private bool UpdaterSelfUpdateBlockedByUpdatesOff =>
+        server is not null && !server.PluginUpdatesEnabled && PluginReports(RustArchonPlugin.UpdaterUpdateCapability)
+        && pluginStatus is not null && pluginStatus.SigningKeyMatchesThisPanel == true
+        && string.Equals(pluginStatus.SigningKeyState, "active", StringComparison.OrdinalIgnoreCase);
+
+    private bool UpdaterSelfUpdateOffered =>
+        server is not null && server.PluginUpdatesEnabled && PluginReports(RustArchonPlugin.UpdaterUpdateCapability)
+        && pluginStatus is not null && pluginStatus.SigningKeyMatchesThisPanel == true
+        && string.Equals(pluginStatus.SigningKeyState, "active", StringComparison.OrdinalIgnoreCase);
 
     // ---- Stats tab ----
     private ServerInfoLiveDto? liveServerInfo;
@@ -2629,8 +2688,42 @@ else
         StateHasChanged();
     }
 
+    /// <summary>
+    /// Asks the server's RustArchon plugin to install or update the Updater. "Started" only means the plugin accepted the request - the
+    /// outcome (updated, or put back) shows in the Updater's version on the next Refresh.
+    /// </summary>
+    private async Task StartUpdaterUpdateAsync()
+    {
+        updatingUpdater = true;
+        pluginUpdateMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await RustServerClient.StartUpdaterUpdateAsync(Id);
+            pluginUpdateStarted = result.Started;
+            pluginUpdateMessage = result.Started
+                ? Localizer["Updater update started. It takes under a minute - press Refresh to see the new version."]
+                : PluginUpdateRefusal(result.Code);
+        }
+        catch (Exception)
+        {
+            pluginUpdateStarted = false;
+            pluginUpdateMessage = Localizer["The update could not be started."];
+        }
+        finally
+        {
+            updatingUpdater = false;
+        }
+
+        StateHasChanged();
+    }
+
     private string PluginUpdateRefusal(string code) => code switch
     {
+        "plugin_too_old" => Localizer["The installed plugin is too old to do this. Update the plugin first."],
+        "update_plugin_first" => Localizer["This server's plugin trusts an older signing key. Update the plugin first."],
+        "no_updater_version" => Localizer["This Panel does not serve an Updater."],
         "updates_disabled" => Localizer["Updates are turned off for this server."],
         "server_disabled" => Localizer["This server is disabled."],
         "no_handshake" => Localizer["The plugin has not reported in yet."],
