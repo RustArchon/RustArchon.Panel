@@ -33,11 +33,11 @@
 <h1 class="mb-3">@Localizer["Add Server"]</h1>
 
 <ol class="list-inline mb-4" data-testid="wizard-progress">
-    @foreach (var s in Enum.GetValues<Step>())
+    @foreach (var s in VisibleSteps())
     {
         <li class="list-inline-item">
             <span class="badge @(s == step ? "text-bg-primary" : s < step ? "text-bg-success" : "text-bg-secondary")" data-testid="@($"progress-{s.ToString().ToLowerInvariant()}")">
-                @(Array.IndexOf(Enum.GetValues<Step>(), s) + 1). @StepTitle(s)
+                @(VisibleSteps().IndexOf(s) + 1). @StepTitle(s)
             </span>
         </li>
     }
@@ -303,11 +303,60 @@
                 </div>
             }
 
-            <button class="btn btn-primary" data-testid="wizard-plugin-next" @onclick="() => step = Step.Done">
-                @(PluginReady ? Localizer["Finish"] : Localizer["Finish anyway"])
+            <button class="btn btn-primary" data-testid="wizard-plugin-next" @onclick="EnterUpdates">
+                @(PluginReady ? Localizer["Next"] : Localizer["Next anyway"])
             </button>
             <button class="btn btn-outline-secondary" data-testid="wizard-back" @onclick="() => pluginChoice = null">@Localizer["Back"]</button>
         }
+    </div>
+}
+
+@if (!loadingResume && step == Step.Updates)
+{
+    <div data-testid="step-updates">
+        <p>@Localizer["Optional. Decide how the RustArchon plugin on this server stays up to date. You can change all of this later on the server's Plugins tab."]</p>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="wizard-allow-updates" data-testid="wizard-allow-updates"
+                           checked="@allowUpdates" disabled="@working" @onchange="e => SetAllowUpdates((bool)e.Value!)" />
+                    <label class="form-check-label fw-semibold" for="wizard-allow-updates">@Localizer["Allow updates from this Panel"]</label>
+                </div>
+                <p class="small text-muted mb-0 mt-1" data-testid="wizard-allow-updates-why">
+                    @Localizer["Lets you update the plugin with one click from this Panel instead of downloading and uploading a new file each time. Nothing is installed without your click, and only a file this Panel signed is accepted: your server checks the signature itself, and puts the previous version back if the new one does not start."]
+                </p>
+
+                <div class="form-check form-switch mt-3 ms-4">
+                    <input class="form-check-input" type="checkbox" role="switch" id="wizard-auto-update" data-testid="wizard-auto-update"
+                           checked="@(allowUpdates && autoUpdate)" disabled="@(working || !allowUpdates)" @onchange="e => autoUpdate = (bool)e.Value!" />
+                    <label class="form-check-label fw-semibold" for="wizard-auto-update">@Localizer["Update automatically"]</label>
+                </div>
+                <p class="small text-muted mb-0 mt-1 ms-4" data-testid="wizard-auto-update-why">
+                    @Localizer["Installs new plugin versions on this server by itself, one at a time, so you get fixes and new features without having to remember. The same checks apply as for a click, players do not need to leave (the plugin reloads in a moment), and a version that fails to start is put back and not tried again. Leave it off if you would rather choose when your server changes."]
+                </p>
+                @if (!allowUpdates)
+                {
+                    <p class="small text-muted mb-0 mt-1 ms-4" data-testid="wizard-auto-update-needs-allow">@Localizer["Turn on Allow updates first."]</p>
+                }
+            </div>
+        </div>
+
+        <p class="small text-muted" data-testid="wizard-updater-note">
+            @Localizer["Updates are carried out with a small helper plugin, the RustArchon Updater."]
+            @if (pluginStatus is { UpdaterInstalled: true })
+            {
+                <span data-testid="wizard-updater-installed">@Localizer["It is already installed on this server."]</span>
+            }
+            else
+            {
+                <span data-testid="wizard-updater-missing">@Localizer["It is not installed on this server yet. Once updates are allowed this Panel can install it for you - automatically, or with the Install Updater button on the Plugins tab."]</span>
+            }
+        </p>
+
+        <button class="btn btn-primary" data-testid="wizard-updates-save" disabled="@working" @onclick="SaveUpdatesAsync">@Localizer["Save and finish"]</button>
+        <button class="btn btn-outline-secondary" data-testid="wizard-updates-skip" disabled="@working" @onclick="() => step = Step.Done">@Localizer["Skip"]</button>
+        <button class="btn btn-outline-secondary" data-testid="wizard-back" disabled="@working" @onclick="() => step = Step.Plugin">@Localizer["Back"]</button>
     </div>
 }
 
@@ -331,6 +380,10 @@
             {
                 <li data-testid="done-plugin-pending">@Localizer["The plugin is not detected yet. Its status shows on the server's Plugins tab once it is installed."]</li>
             }
+            @if (updatesSaved && server is { PluginUpdatesEnabled: true })
+            {
+                <li data-testid="done-updates">@(server.PluginAutoUpdateEnabled ? Localizer["Plugin updates are installed automatically."] : Localizer["Plugin updates are one click away on the Plugins tab."])</li>
+            }
         </ul>
         @if (serverId is { } doneId)
         {
@@ -353,7 +406,7 @@
 }
 
 @code {
-    private enum Step { Basics, Connect, Integrations, Reports, Plugin, Done }
+    private enum Step { Basics, Connect, Integrations, Reports, Plugin, Updates, Done }
 
     /// <summary>Set when resuming a half-set-up server from <c>/servers/{id}/setup</c>.</summary>
     [Parameter] public Guid? ServerId { get; set; }
@@ -403,7 +456,16 @@
     private bool downloadingPlugin;
     private string? pluginDownloadError;
 
+    // updates
+    private bool allowUpdates;
+    private bool autoUpdate;
+    private bool updatesSaved;
+
     private CancellationTokenSource? pollCts;
+
+    // The Updates step only exists for someone who chose to set the plugin up: without the plugin there is nothing to update.
+    private List<Step> VisibleSteps() =>
+        Enum.GetValues<Step>().Where(s => s != Step.Updates || pluginChoice == true).ToList();
 
     private bool HasIntegrationInput =>
         !string.IsNullOrEmpty(steamKey) || !string.IsNullOrEmpty(geoKey)
@@ -669,6 +731,56 @@
         }
     }
 
+    private void EnterUpdates()
+    {
+        errorMessage = null;
+        allowUpdates = server?.PluginUpdatesEnabled ?? false;
+        autoUpdate = allowUpdates && (server?.PluginAutoUpdateEnabled ?? false);
+        step = Step.Updates;
+    }
+
+    private void SetAllowUpdates(bool value)
+    {
+        allowUpdates = value;
+        if (!value)
+        {
+            autoUpdate = false;       // automatic updating is only ever a way of pressing the buttons, so it cannot outlive the permission
+        }
+    }
+
+    private async Task SaveUpdatesAsync()
+    {
+        errorMessage = null;
+        if (serverId is not { } id || server is null || (allowUpdates == server.PluginUpdatesEnabled && (allowUpdates && autoUpdate) == server.PluginAutoUpdateEnabled))
+        {
+            step = Step.Done;
+            return;
+        }
+
+        working = true;
+        try
+        {
+            // The endpoint takes all three switches: the two that are not being changed here are sent at their saved values.
+            server = await RustServerClient.UpdatePluginSettingsAsync(id, new UpdateServerPluginSettingsDto
+            {
+                RecordingEnabled = server.PluginRecordingEnabled,
+                CombatLogEnabled = server.PluginCombatLogEnabled,
+                UpdatesEnabled = allowUpdates,
+                AutoUpdateEnabled = allowUpdates && autoUpdate
+            });
+            updatesSaved = true;
+            step = Step.Done;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "save the update settings");
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
     private void AcceptPlugin()
     {
         pluginChoice = true;
@@ -691,6 +803,7 @@
         pluginChoice = null;
         pluginStatus = null;
         plugins = [];
+        allowUpdates = autoUpdate = updatesSaved = false;
         step = Step.Basics;
     }
 
@@ -850,6 +963,7 @@
         Step.Integrations => Localizer["Integrations"],
         Step.Reports => Localizer["Reports"],
         Step.Plugin => Localizer["Plugin"],
+        Step.Updates => Localizer["Updates"],
         _ => Localizer["Done"]
     };
 
