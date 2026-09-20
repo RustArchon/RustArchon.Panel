@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Net.Http;
 using System.Threading.Tasks;
 using Refit;
 using RustArchon.Shared.DTOs;
@@ -24,6 +25,17 @@ public interface IPluginAdminApiClient
 
     [Post("/keys/{fingerprint}/revoke")]
     Task<PluginKeyDto> RevokeKeyAsync(string fingerprint, [Body] RevokePluginKeyRequestDto request);
+
+    /// <summary>
+    /// Exports every signing key into a passphrase-protected file. Returned as the raw response so the caller can hand the file to
+    /// the browser byte for byte; a refusal is a <c>400</c> whose body is a sentence. The file holds private keys.
+    /// </summary>
+    [Post("/keys/export")]
+    Task<HttpResponseMessage> ExportKeysAsync([Body] ExportPluginKeysRequestDto request);
+
+    /// <summary>Imports an exported bundle, or with <c>DryRun</c> only reports what importing would do.</summary>
+    [Post("/keys/import")]
+    Task<PluginKeyImportResultDto> ImportKeysAsync([Body] ImportPluginKeysRequestDto request);
 
     [Get("/releases")]
     Task<PluginReleasesDto> GetReleasesAsync();
