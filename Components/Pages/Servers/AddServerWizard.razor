@@ -243,6 +243,7 @@
         @if (pluginChoice is null)
         {
             <p>@Localizer["Optional. The RustArchon plugin runs on your game server and adds live positions, a combat log, a map, base locations and more detailed reports. It is a single file you upload."]</p>
+            <RecordingDisclosure Open="true" />
             <button class="btn btn-primary" data-testid="wizard-plugin-yes" @onclick="AcceptPlugin">@Localizer["Yes, set it up"]</button>
             <button class="btn btn-outline-secondary" data-testid="wizard-plugin-skip" @onclick="() => step = Step.Done">@Localizer["Skip"]</button>
             <button class="btn btn-outline-secondary" data-testid="wizard-back" @onclick="() => step = Step.Reports">@Localizer["Back"]</button>
@@ -314,7 +315,7 @@
 @if (!loadingResume && step == Step.Updates)
 {
     <div data-testid="step-updates">
-        <p>@Localizer["Optional. Decide how the RustArchon plugin on this server stays up to date. You can change all of this later on the server's Plugins tab."]</p>
+        <p>@Localizer["Decide how the RustArchon plugin on this server stays up to date. Both switches below start on for a new server; turn either one off if you would rather not. You can change all of this later on the server's Plugins tab."]</p>
 
         <div class="card mb-3">
             <div class="card-body">
@@ -324,7 +325,7 @@
                     <label class="form-check-label fw-semibold" for="wizard-allow-updates">@Localizer["Allow updates from this Panel"]</label>
                 </div>
                 <p class="small text-muted mb-0 mt-1" data-testid="wizard-allow-updates-why">
-                    @Localizer["Lets you update the plugin with one click from this Panel instead of downloading and uploading a new file each time. Nothing is installed without your click, and only a file this Panel signed is accepted: your server checks the signature itself, and puts the previous version back if the new one does not start."]
+                    @Localizer["Lets you update the plugin with one click from this Panel instead of downloading and uploading a new file each time. Only a file this Panel signed is accepted: your server checks the signature itself, and puts the previous version back if the new one does not start."]
                 </p>
 
                 <div class="form-check form-switch mt-3 ms-4">
@@ -333,7 +334,7 @@
                     <label class="form-check-label fw-semibold" for="wizard-auto-update">@Localizer["Update automatically"]</label>
                 </div>
                 <p class="small text-muted mb-0 mt-1 ms-4" data-testid="wizard-auto-update-why">
-                    @Localizer["Installs new plugin versions on this server by itself, one at a time, so you get fixes and new features without having to remember. The same checks apply as for a click, players do not need to leave (the plugin reloads in a moment), and a version that fails to start is put back and not tried again. Leave it off if you would rather choose when your server changes."]
+                    @Localizer["Installs new plugin versions on this server by itself, one at a time, so you get fixes and new features without having to remember. The same checks apply as for a click, players do not need to leave (the plugin reloads in a moment), and a version that fails to start is put back and not tried again. Turn it off if you would rather choose when your server changes."]
                 </p>
                 @if (!allowUpdates)
                 {
@@ -355,7 +356,7 @@
         </p>
 
         <button class="btn btn-primary" data-testid="wizard-updates-save" disabled="@working" @onclick="SaveUpdatesAsync">@Localizer["Save and finish"]</button>
-        <button class="btn btn-outline-secondary" data-testid="wizard-updates-skip" disabled="@working" @onclick="() => step = Step.Done">@Localizer["Skip"]</button>
+        <button class="btn btn-outline-secondary" data-testid="wizard-updates-skip" disabled="@working" @onclick="() => step = Step.Done">@Localizer["Keep as they are"]</button>
         <button class="btn btn-outline-secondary" data-testid="wizard-back" disabled="@working" @onclick="() => step = Step.Plugin">@Localizer["Back"]</button>
     </div>
 }
@@ -380,7 +381,7 @@
             {
                 <li data-testid="done-plugin-pending">@Localizer["The plugin is not detected yet. Its status shows on the server's Plugins tab once it is installed."]</li>
             }
-            @if (updatesSaved && server is { PluginUpdatesEnabled: true })
+            @if (pluginChoice == true && server is { PluginUpdatesEnabled: true })
             {
                 <li data-testid="done-updates">@(server.PluginAutoUpdateEnabled ? Localizer["Plugin updates are installed automatically."] : Localizer["Plugin updates are one click away on the Plugins tab."])</li>
             }

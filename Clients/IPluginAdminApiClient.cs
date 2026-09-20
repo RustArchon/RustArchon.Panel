@@ -20,6 +20,10 @@ public interface IPluginAdminApiClient
     [Get("/keys")]
     Task<List<PluginKeyDto>> GetKeysAsync();
 
+    /// <summary>Whether the active key has gone long enough without being rotated that a reminder is due. Read-only.</summary>
+    [Get("/keys/reminder")]
+    Task<PluginKeyReminderDto> GetKeyReminderAsync();
+
     [Post("/keys/rotate")]
     Task<PluginKeyDto> RotateKeyAsync([Body] RotatePluginKeyRequestDto request);
 
@@ -45,6 +49,19 @@ public interface IPluginAdminApiClient
     [Post("/releases")]
     Task<PluginReleaseDto> UploadReleaseAsync(
         [AliasAs("kind")] string kind, [AliasAs("notes")] string? notes, [AliasAs("file")] StreamPart file);
+
+    /// <summary>
+    /// Signs a file that will not be published, for a hand install, and returns the signed file as the raw response. A refusal is a <c>400</c>
+    /// whose body is a sentence. The note (why) is required and goes into the audit log.
+    /// </summary>
+    [Multipart]
+    [Post("/sign")]
+    Task<HttpResponseMessage> SignFileAsync(
+        [AliasAs("kind")] string kind, [AliasAs("note")] string note, [AliasAs("file")] StreamPart file);
+
+    /// <summary>A draft's or published release, signed with the active key, as the raw response - to test it before publishing. Audit-logged.</summary>
+    [Get("/releases/{id}/download")]
+    Task<HttpResponseMessage> DownloadReleaseAsync(Guid id);
 
     [Post("/releases/{id}/publish")]
     Task<PluginReleaseDto> PublishReleaseAsync(Guid id);

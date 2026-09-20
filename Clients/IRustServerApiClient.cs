@@ -115,6 +115,13 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     Task<List<PluginUpdateNoticeDto>> GetPluginUpdatesAsync(Guid id);
 
     /// <summary>
+    /// The plugin files Carbon says failed to load on this server, and why, by file then position. Empty when nothing failed, the server does not
+    /// run Carbon, or no plugin-list poll has landed yet. The text came from the game server.
+    /// </summary>
+    [Get("/{id}/plugin-failures")]
+    Task<List<ServerPluginFailureDto>> GetPluginFailuresAsync(Guid id);
+
+    /// <summary>
     /// The recent times the Panel asked this server to update its plugin or Updater (by a click or automatically) and how each turned out,
     /// newest first.
     /// </summary>
