@@ -449,8 +449,8 @@
             if (limit.Quantity is { } slots && limit.CurrentServerCount >= slots)
             {
                 limitMessage = limit.CanBuyCapacity
-                    ? Localizer["You're using all {0} of your server slot(s) on the {1} plan. Buy more capacity from your subscription page to add another.", slots, limit.PlanName]
-                    : Localizer["Your plan ({0}) allows up to {1} server(s). Upgrade your plan to add more.", limit.PlanName, slots];
+                    ? Localizer["You're using all {0} of your server slot(s) on the {1} plan. Buy more capacity from your subscription page to add another.", slots, limit.PlanName ?? string.Empty]
+                    : Localizer["Your plan ({0}) allows up to {1} server(s). Upgrade your plan to add more.", limit.PlanName ?? string.Empty, slots];
             }
         }
         catch (Exception)
