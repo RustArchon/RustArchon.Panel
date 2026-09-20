@@ -1,0 +1,1035 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/servers/new"
+@page "/servers/{ServerId:guid}/setup"
+@using System.Diagnostics
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
+@using RustArchon.Messaging.Contracts
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Components.Shared
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@rendermode RenderModes.NonPrerenderedServer
+@inject IRustServerApiClient RustServerClient
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>@Localizer["Add Server"]</PageTitle>
+
+@*
+    A step-by-step way to add a server (ADR-0002). The connection test is not a separate probe: the server is created for real at the
+    Connect step and this watches the same live connection status the rest of the Panel shows, so "connected" here means exactly what it
+    means everywhere else - and the RCON password never has to travel anywhere it does not already go. Because the server exists from that
+    point, /servers/{id}/setup resumes the wizard, and Discard removes a half-set-up server (freeing its slot) instead of leaving it stuck.
+
+    Every step after Connect is optional and never blocks finishing; only a server that cannot connect is not much use, and even that can
+    be finished later from the servers list. Each block below is a standalone @if rather than an else-if chain, for the same reason as
+    the tabs on ServerDetail.
+*@
+
+<h1 class="mb-3">@Localizer["Add Server"]</h1>
+
+<ol class="list-inline mb-4" data-testid="wizard-progress">
+    @foreach (var s in VisibleSteps())
+    {
+        <li class="list-inline-item">
+            <span class="badge @(s == step ? "text-bg-primary" : s < step ? "text-bg-success" : "text-bg-secondary")" data-testid="@($"progress-{s.ToString().ToLowerInvariant()}")">
+                @(VisibleSteps().IndexOf(s) + 1). @StepTitle(s)
+            </span>
+        </li>
+    }
+</ol>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert" data-testid="wizard-error">
+        @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+
+@if (loadingResume)
+{
+    <p><em>@Localizer["Loading..."]</em></p>
+}
+
+@if (!loadingResume && step == Step.Basics)
+{
+    <div data-testid="step-basics">
+        <p>@Localizer["Give the server a name you will recognise. You can change it later."]</p>
+
+        @if (limitMessage is not null)
+        {
+            <div class="alert alert-warning" data-testid="wizard-limit">@limitMessage</div>
+        }
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label" for="wizard-name">@Localizer["Name"]</label>
+                <input id="wizard-name" class="form-control" maxlength="100" data-testid="wizard-name" @bind="name" @bind:event="oninput" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label" for="wizard-description">@Localizer["Description"]</label>
+                <input id="wizard-description" class="form-control" maxlength="500" data-testid="wizard-description" @bind="description" @bind:event="oninput" />
+            </div>
+        </div>
+
+        <button class="btn btn-primary" data-testid="wizard-basics-next" disabled="@(limitMessage is not null || checkingLimit)" @onclick="BasicsNext">@Localizer["Next"]</button>
+        <a class="btn btn-secondary" href="servers">@Localizer["Cancel"]</a>
+    </div>
+}
+
+@if (!loadingResume && step == Step.Connect)
+{
+    <div data-testid="step-connect">
+        @if (serverId is null)
+        {
+            <p>@Localizer["Enter the details RustArchon uses to talk to your server over RCON. RustArchon connects right away so you can see straight away whether it works."]</p>
+
+            <div class="alert alert-secondary small" data-testid="wizard-rcon-help">
+                <strong>@Localizer["Not sure where these come from?"]</strong>
+                <div>@Localizer["Your Rust server needs web RCON switched on. Add these to its startup command, then restart it:"]</div>
+                <code>+rcon.web 1 +rcon.port 28016 +rcon.password "your password"</code>
+                <div class="mt-1">@Localizer["The RCON port must also be open to RustArchon in your firewall or hosting panel."]</div>
+            </div>
+        }
+
+        @if (serverId is null || !connected)
+        {
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <label class="form-label" for="wizard-host">@Localizer["Host / IP address"]</label>
+                    <input id="wizard-host" class="form-control" maxlength="255" data-testid="wizard-host" @bind="host" @bind:event="oninput" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label" for="wizard-port">@Localizer["RCON Port"]</label>
+                    <input id="wizard-port" type="number" class="form-control" data-testid="wizard-port" @bind="port" @bind:event="oninput" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="wizard-password">
+                        @Localizer["RCON Password"]
+                        @if (serverId is not null)
+                        {
+                            <span class="text-muted">@Localizer["(leave blank to keep unchanged)"]</span>
+                        }
+                    </label>
+                    <input id="wizard-password" type="password" class="form-control" autocomplete="new-password" data-testid="wizard-password" @bind="password" @bind:event="oninput" />
+                </div>
+            </div>
+        }
+
+        @if (serverId is null)
+        {
+            <button class="btn btn-primary" data-testid="wizard-connect" disabled="@working" @onclick="CreateAndConnectAsync">
+                @(working ? Localizer["Connecting..."] : Localizer["Connect"])
+            </button>
+            <button class="btn btn-outline-secondary" data-testid="wizard-back" disabled="@working" @onclick="() => step = Step.Basics">@Localizer["Back"]</button>
+        }
+        else
+        {
+            <div class="card mb-3" data-testid="wizard-connection">
+                <div class="card-body">
+                    <span class="badge @StatusBadge(status)" data-testid="wizard-status">@StatusText(status)</span>
+                    @if (!string.IsNullOrEmpty(statusDetail))
+                    {
+                        <span class="ms-2 small text-muted" data-testid="wizard-status-detail">@statusDetail</span>
+                    }
+
+                    @if (connected)
+                    {
+                        <div class="alert alert-success mt-3 mb-0" data-testid="wizard-connected">
+                            <i class="bi bi-check-circle-fill"></i> @Localizer["Connected. RustArchon can talk to your server."]
+                            <div class="small mt-1" data-testid="wizard-framework">@FrameworkText()</div>
+                        </div>
+                    }
+                    else if (showTroubleshooting)
+                    {
+                        <div class="alert alert-warning mt-3 mb-0" data-testid="wizard-troubleshooting">
+                            <strong>@Localizer["Still not connected. Things to check:"]</strong>
+                            <ul class="mb-0 small">
+                                <li>@Localizer["The host and RCON port above are the ones your server listens on."]</li>
+                                <li>@Localizer["The RCON password matches +rcon.password exactly."]</li>
+                                <li>@Localizer["Web RCON is on (+rcon.web 1) and the server has finished starting."]</li>
+                                <li>@Localizer["The RCON port is open in your firewall or hosting panel."]</li>
+                            </ul>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @if (connected)
+            {
+                <button class="btn btn-primary" data-testid="wizard-connect-next" @onclick="() => step = Step.Integrations">@Localizer["Continue"]</button>
+            }
+            else
+            {
+                <button class="btn btn-primary" data-testid="wizard-retry" disabled="@working" @onclick="UpdateConnectionAsync">
+                    @(working ? Localizer["Saving..."] : Localizer["Update and retry"])
+                </button>
+                <button class="btn btn-outline-danger" data-testid="wizard-discard" disabled="@working" @onclick="() => confirmingDiscard = true">
+                    @Localizer["Discard this server"]
+                </button>
+            }
+        }
+    </div>
+}
+
+@if (!loadingResume && step == Step.Integrations)
+{
+    <div data-testid="step-integrations">
+        <p>@Localizer["Optional. These unlock extra information about your players. You can skip this and add them later."]</p>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label" for="wizard-steam-key">@Localizer["Steam Web API Key"]</label>
+                <input id="wizard-steam-key" type="password" class="form-control" autocomplete="new-password" data-testid="wizard-steam-key"
+                       placeholder="@(serverHasSteamKey ? Localizer["Already configured — leave blank to keep unchanged"] : Localizer["Not configured"])"
+                       @bind="steamKey" @bind:event="oninput" />
+                <div class="form-text">
+                    @Localizer["Powers VAC/game-ban status and hours-on-record for inactive players. Get one at"]
+                    <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">steamcommunity.com/dev/apikey</a>.
+                </div>
+                <div class="mt-2">
+                    <VerifyKeyButton Kind="IntegrationKeyKind.SteamWebApi" Key="@steamKey" TestId="verify-steam" VerdictChanged="v => steamVerdict = v" />
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="wizard-geo-provider">@Localizer["Geolocation Provider"]</label>
+                <select id="wizard-geo-provider" class="form-select" data-testid="wizard-geo-provider" @bind="geoProvider">
+                    <option value="@GeolocationProviderKind.None">@Localizer["None"]</option>
+                    <option value="@GeolocationProviderKind.ProxyCheckIo">proxycheck.io</option>
+                    <option value="@GeolocationProviderKind.IpHubInfo">iphub.info</option>
+                    <option value="@GeolocationProviderKind.IpInfoIo">ipinfo.io</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="wizard-geo-key">@Localizer["Geolocation API Key"]</label>
+                <input id="wizard-geo-key" type="password" class="form-control" autocomplete="new-password" data-testid="wizard-geo-key"
+                       disabled="@(geoProvider == GeolocationProviderKind.None)" @bind="geoKey" @bind:event="oninput" />
+                @if (geoProvider != GeolocationProviderKind.None)
+                {
+                    <div class="mt-2">
+                        <VerifyKeyButton Kind="IntegrationKeyKind.Geolocation" Provider="geoProvider" Key="@geoKey" TestId="verify-geo" VerdictChanged="v => geoVerdict = v" />
+                    </div>
+                }
+            </div>
+        </div>
+
+        <button class="btn btn-primary" data-testid="wizard-integrations-save" disabled="@working" @onclick="SaveIntegrationsAsync">
+            @(HasIntegrationInput ? Localizer["Save and continue"] : Localizer["Skip"])
+        </button>
+        <button class="btn btn-outline-secondary" data-testid="wizard-back" disabled="@working" @onclick="() => step = Step.Connect">@Localizer["Back"]</button>
+    </div>
+}
+
+@if (!loadingResume && step == Step.Reports && serverId is { } reportsServerId)
+{
+    <div data-testid="step-reports">
+        <p>@Localizer["Optional. Players can report each other from Rust's F7 menu. Point your game server at the address below and those reports appear in this server's Reports tab."]</p>
+
+        <ReportForwardingCard ServerId="reportsServerId" InitiallyExpanded="true" />
+
+        <button class="btn btn-primary" data-testid="wizard-reports-next" @onclick="() => step = Step.Plugin">@Localizer["Next"]</button>
+        <button class="btn btn-outline-secondary" data-testid="wizard-back" @onclick="() => step = Step.Integrations">@Localizer["Back"]</button>
+    </div>
+}
+
+@if (!loadingResume && step == Step.Plugin)
+{
+    <div data-testid="step-plugin">
+        @if (pluginChoice is null)
+        {
+            <p>@Localizer["Optional. The RustArchon plugin runs on your game server and adds live positions, a combat log, a map, base locations and more detailed reports. It is a single file you upload."]</p>
+            <button class="btn btn-primary" data-testid="wizard-plugin-yes" @onclick="AcceptPlugin">@Localizer["Yes, set it up"]</button>
+            <button class="btn btn-outline-secondary" data-testid="wizard-plugin-skip" @onclick="() => step = Step.Done">@Localizer["Skip"]</button>
+            <button class="btn btn-outline-secondary" data-testid="wizard-back" @onclick="() => step = Step.Reports">@Localizer["Back"]</button>
+        }
+        else
+        {
+            <ol class="mb-3">
+                <li>
+                    @Localizer["Download the plugin file:"]
+                    <button type="button" class="btn btn-sm btn-outline-primary ms-2" data-testid="wizard-plugin-download" disabled="@downloadingPlugin" @onclick="DownloadPluginAsync">
+                        <i class="bi bi-download"></i> @Localizer["Download plugin"]
+                    </button>
+                    @if (pluginDownloadError is not null)
+                    {
+                        <div class="text-danger small" data-testid="wizard-plugin-download-error">@pluginDownloadError</div>
+                    }
+                </li>
+                <li>
+                    @InstallPathText()
+                    <code>RustArchon.cs</code>
+                </li>
+                <li>@Localizer["Wait a moment. This page checks for it automatically - it can take up to a minute for the plugin to show up."]</li>
+            </ol>
+
+            <ul class="list-group mb-3" data-testid="wizard-plugin-checklist">
+                <li class="list-group-item d-flex justify-content-between" data-testid="check-installed">
+                    <span>@Localizer["The plugin is installed on your server"]</span>
+                    <span>@CheckIcon(PluginInstalled)</span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between" data-testid="check-responding">
+                    <span>@Localizer["The plugin is answering RustArchon"]</span>
+                    <span>@CheckIcon(PluginResponding)</span>
+                </li>
+                <li class="list-group-item" data-testid="check-signature">
+                    <div class="d-flex justify-content-between">
+                        <span>@Localizer["The plugin file is the one this Panel signed"]</span>
+                        <span>@CheckIcon(PluginResponding ? PluginSigned : null)</span>
+                    </div>
+                    @if (PluginResponding && pluginStatus is not null && !PluginSigned)
+                    {
+                        <div class="small text-danger" data-testid="check-signature-detail">@SignatureProblem()</div>
+                    }
+                </li>
+                <li class="list-group-item d-flex justify-content-between" data-testid="check-current">
+                    <span>@Localizer["The plugin is up to date"]</span>
+                    <span>@CheckIcon(PluginResponding ? !pluginStatus!.UpdateAvailable : null)</span>
+                </li>
+            </ul>
+
+            @if (PluginReady)
+            {
+                <div class="alert alert-success" data-testid="wizard-plugin-ready">
+                    <i class="bi bi-check-circle-fill"></i> @Localizer["The plugin is installed and working."]
+                    @if (pluginStatus is { PluginVersion.Length: > 0 })
+                    {
+                        <span class="small"> (@Localizer["version"] @pluginStatus.PluginVersion)</span>
+                    }
+                </div>
+            }
+
+            <button class="btn btn-primary" data-testid="wizard-plugin-next" @onclick="EnterUpdates">
+                @(PluginReady ? Localizer["Next"] : Localizer["Next anyway"])
+            </button>
+            <button class="btn btn-outline-secondary" data-testid="wizard-back" @onclick="() => pluginChoice = null">@Localizer["Back"]</button>
+        }
+    </div>
+}
+
+@if (!loadingResume && step == Step.Updates)
+{
+    <div data-testid="step-updates">
+        <p>@Localizer["Optional. Decide how the RustArchon plugin on this server stays up to date. You can change all of this later on the server's Plugins tab."]</p>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="wizard-allow-updates" data-testid="wizard-allow-updates"
+                           checked="@allowUpdates" disabled="@working" @onchange="e => SetAllowUpdates((bool)e.Value!)" />
+                    <label class="form-check-label fw-semibold" for="wizard-allow-updates">@Localizer["Allow updates from this Panel"]</label>
+                </div>
+                <p class="small text-muted mb-0 mt-1" data-testid="wizard-allow-updates-why">
+                    @Localizer["Lets you update the plugin with one click from this Panel instead of downloading and uploading a new file each time. Nothing is installed without your click, and only a file this Panel signed is accepted: your server checks the signature itself, and puts the previous version back if the new one does not start."]
+                </p>
+
+                <div class="form-check form-switch mt-3 ms-4">
+                    <input class="form-check-input" type="checkbox" role="switch" id="wizard-auto-update" data-testid="wizard-auto-update"
+                           checked="@(allowUpdates && autoUpdate)" disabled="@(working || !allowUpdates)" @onchange="e => autoUpdate = (bool)e.Value!" />
+                    <label class="form-check-label fw-semibold" for="wizard-auto-update">@Localizer["Update automatically"]</label>
+                </div>
+                <p class="small text-muted mb-0 mt-1 ms-4" data-testid="wizard-auto-update-why">
+                    @Localizer["Installs new plugin versions on this server by itself, one at a time, so you get fixes and new features without having to remember. The same checks apply as for a click, players do not need to leave (the plugin reloads in a moment), and a version that fails to start is put back and not tried again. Leave it off if you would rather choose when your server changes."]
+                </p>
+                @if (!allowUpdates)
+                {
+                    <p class="small text-muted mb-0 mt-1 ms-4" data-testid="wizard-auto-update-needs-allow">@Localizer["Turn on Allow updates first."]</p>
+                }
+            </div>
+        </div>
+
+        <p class="small text-muted" data-testid="wizard-updater-note">
+            @Localizer["Updates are carried out with a small helper plugin, the RustArchon Updater."]
+            @if (pluginStatus is { UpdaterInstalled: true })
+            {
+                <span data-testid="wizard-updater-installed">@Localizer["It is already installed on this server."]</span>
+            }
+            else
+            {
+                <span data-testid="wizard-updater-missing">@Localizer["It is not installed on this server yet. Once updates are allowed this Panel can install it for you - automatically, or with the Install Updater button on the Plugins tab."]</span>
+            }
+        </p>
+
+        <button class="btn btn-primary" data-testid="wizard-updates-save" disabled="@working" @onclick="SaveUpdatesAsync">@Localizer["Save and finish"]</button>
+        <button class="btn btn-outline-secondary" data-testid="wizard-updates-skip" disabled="@working" @onclick="() => step = Step.Done">@Localizer["Skip"]</button>
+        <button class="btn btn-outline-secondary" data-testid="wizard-back" disabled="@working" @onclick="() => step = Step.Plugin">@Localizer["Back"]</button>
+    </div>
+}
+
+@if (!loadingResume && step == Step.Done)
+{
+    <div data-testid="step-done">
+        <div class="alert alert-success">
+            <i class="bi bi-check-circle-fill"></i> @Localizer["'{0}' is set up.", name]
+        </div>
+        <ul>
+            <li>@(connected ? Localizer["RustArchon is connected to your server."] : Localizer["RustArchon is not connected to your server yet. You can fix the connection from the servers list."])</li>
+            @if (steamSaved || geoSaved)
+            {
+                <li data-testid="done-integrations">@Localizer["Player integrations were saved."]</li>
+            }
+            @if (PluginReady)
+            {
+                <li data-testid="done-plugin">@Localizer["The RustArchon plugin is working."]</li>
+            }
+            else if (pluginChoice == true)
+            {
+                <li data-testid="done-plugin-pending">@Localizer["The plugin is not detected yet. Its status shows on the server's Plugins tab once it is installed."]</li>
+            }
+            @if (updatesSaved && server is { PluginUpdatesEnabled: true })
+            {
+                <li data-testid="done-updates">@(server.PluginAutoUpdateEnabled ? Localizer["Plugin updates are installed automatically."] : Localizer["Plugin updates are one click away on the Plugins tab."])</li>
+            }
+        </ul>
+        @if (serverId is { } doneId)
+        {
+            <a class="btn btn-primary" data-testid="wizard-open-server" href="@($"servers/{doneId}")">@Localizer["Open the server"]</a>
+        }
+        <a class="btn btn-outline-secondary" href="servers/new" data-testid="wizard-add-another" @onclick="ResetForAnother">@Localizer["Add another server"]</a>
+    </div>
+}
+
+@if (confirmingDiscard)
+{
+    <ConfirmationModal Title="@Localizer["Discard this server?"]"
+                       ConfirmButtonText="@Localizer["Discard"]"
+                       CancelButtonText="@Localizer["Keep it"]"
+                       OnClose="OnDiscardClosedAsync">
+        <Message>
+            @Localizer["'{0}' is removed and its slot is freed. You can add it again any time.", name]
+        </Message>
+    </ConfirmationModal>
+}
+
+@code {
+    private enum Step { Basics, Connect, Integrations, Reports, Plugin, Updates, Done }
+
+    /// <summary>Set when resuming a half-set-up server from <c>/servers/{id}/setup</c>.</summary>
+    [Parameter] public Guid? ServerId { get; set; }
+
+    /// <summary>How often the wizard re-reads the connection and the plugin. A parameter so a test need not wait a second a time.</summary>
+    [Parameter] public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>How long a server may stay unconnected before the wizard offers troubleshooting.</summary>
+    [Parameter] public TimeSpan TroubleshootAfter { get; set; } = TimeSpan.FromSeconds(15);
+
+    private Step step = Step.Basics;
+    private Guid? serverId;
+    private RustServerDto? server;
+    private string name = string.Empty;
+    private string? description;
+    private string host = string.Empty;
+    private int port = 28016;
+    private string? password;
+    private string? errorMessage;
+    private string? limitMessage;
+    private bool loadingResume;
+    private bool checkingLimit;
+    private bool working;
+    private bool confirmingDiscard;
+
+    // connection
+    private RconConnectionStatus status = RconConnectionStatus.Connecting;
+    private string? statusDetail;
+    private bool connected;
+    private bool showTroubleshooting;
+    private readonly Stopwatch sinceConnectStarted = new();
+    private List<ServerPluginDto> plugins = [];
+
+    // integrations
+    private string? steamKey;
+    private string? geoKey;
+    private GeolocationProviderKind geoProvider = GeolocationProviderKind.None;
+    private bool serverHasSteamKey;
+    private IntegrationKeyVerdict? steamVerdict;
+    private IntegrationKeyVerdict? geoVerdict;
+    private bool steamSaved;
+    private bool geoSaved;
+
+    // plugin
+    private bool? pluginChoice;
+    private ServerPluginStatusDto? pluginStatus;
+    private bool downloadingPlugin;
+    private string? pluginDownloadError;
+
+    // updates
+    private bool allowUpdates;
+    private bool autoUpdate;
+    private bool updatesSaved;
+
+    private CancellationTokenSource? pollCts;
+
+    // The Updates step only exists for someone who chose to set the plugin up: without the plugin there is nothing to update.
+    private List<Step> VisibleSteps() =>
+        Enum.GetValues<Step>().Where(s => s != Step.Updates || pluginChoice == true).ToList();
+
+    private bool HasIntegrationInput =>
+        !string.IsNullOrEmpty(steamKey) || !string.IsNullOrEmpty(geoKey)
+        || (server is not null && geoProvider != server.GeolocationProvider);
+
+    private bool PluginInstalled => RustArchonPlugin.IsListed(plugins.Select(p => p.Name));
+    private bool PluginResponding => PluginInstalled && pluginStatus is not null;
+
+    private bool PluginSigned =>
+        pluginStatus is { SigningState: PluginSigningStates.Valid }
+        && (pluginStatus.SigningKeyMatchesThisPanel == true || pluginStatus.SigningKeyState == "retired");
+
+    private bool PluginReady => PluginResponding && PluginSigned;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (ServerId is { } existing)
+        {
+            await ResumeAsync(existing);
+            return;
+        }
+
+        await CheckLimitAsync();
+    }
+
+    // The URL after creating a server is /servers/{id}/setup, which lands here again with the id we already hold: nothing to reload.
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ServerId is { } incoming && serverId is null && !loadingResume && server is null)
+        {
+            await ResumeAsync(incoming);
+        }
+    }
+
+    // A failed check fails open, like the servers list did: the create call enforces the limit regardless, so a stale answer here costs
+    // nothing but a less helpful moment for the user.
+    private async Task CheckLimitAsync()
+    {
+        checkingLimit = true;
+        try
+        {
+            var limit = await RustServerClient.GetPlanLimitAsync();
+            if (limit.Quantity is { } slots && limit.CurrentServerCount >= slots)
+            {
+                limitMessage = limit.CanBuyCapacity
+                    ? Localizer["You're using all {0} of your server slot(s) on the {1} plan. Buy more capacity from your subscription page to add another.", slots, limit.PlanName ?? string.Empty]
+                    : Localizer["Your plan ({0}) allows up to {1} server(s). Upgrade your plan to add more.", limit.PlanName ?? string.Empty, slots];
+            }
+        }
+        catch (Exception)
+        {
+            // Best effort - see above.
+        }
+        finally
+        {
+            checkingLimit = false;
+        }
+    }
+
+    private async Task ResumeAsync(Guid id)
+    {
+        loadingResume = true;
+        try
+        {
+            server = await RustServerClient.GetByIdAsync(id);
+        }
+        catch (Exception)
+        {
+            server = null;
+        }
+
+        loadingResume = false;
+
+        if (server is null)
+        {
+            errorMessage = Localizer["That server could not be found. It may have been removed."];
+            step = Step.Basics;
+            await CheckLimitAsync();
+            return;
+        }
+
+        serverId = server.Id;
+        name = server.Name;
+        description = server.Description;
+        host = server.Host;
+        port = server.Port;
+        serverHasSteamKey = server.HasSteamApiKey;
+        geoProvider = server.GeolocationProvider;
+        step = Step.Connect;
+        ApplyStatus(server);
+        StartPolling();
+    }
+
+    private void BasicsNext()
+    {
+        errorMessage = null;
+        if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > 100)
+        {
+            errorMessage = Localizer["Give the server a name (up to 100 characters)."];
+            return;
+        }
+
+        name = name.Trim();
+        step = Step.Connect;
+    }
+
+    private async Task CreateAndConnectAsync()
+    {
+        errorMessage = null;
+        if (string.IsNullOrWhiteSpace(host) || port is < 1 or > 65535 || string.IsNullOrEmpty(password))
+        {
+            errorMessage = Localizer["Enter the host, a port between 1 and 65535, and the RCON password."];
+            return;
+        }
+
+        working = true;
+        try
+        {
+            var created = await RustServerClient.CreateAsync(new CreateRustServerDto
+            {
+                Name = name,
+                Description = string.IsNullOrWhiteSpace(description) ? null : description,
+                Host = host.Trim(),
+                Port = port,
+                RconPassword = password
+            });
+
+            server = created;
+            serverId = created.Id;
+            password = null;
+            ApplyStatus(created);
+            sinceConnectStarted.Restart();
+            StartPolling();
+
+            // So a refresh (or a bookmark) resumes here instead of starting again. Replace, not push: back should not return to a form
+            // for a server that now exists.
+            NavigationManager.NavigateTo($"servers/{created.Id}/setup", replace: true);
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            // A server with that name already exists: the fix is on the first step.
+            errorMessage = ApiErrorMessage.For(ex, "add the server");
+            step = Step.Basics;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "add the server");
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    private async Task UpdateConnectionAsync()
+    {
+        if (serverId is not { } id || server is null)
+        {
+            return;
+        }
+
+        errorMessage = null;
+        if (string.IsNullOrWhiteSpace(host) || port is < 1 or > 65535)
+        {
+            errorMessage = Localizer["Enter the host and a port between 1 and 65535."];
+            return;
+        }
+
+        working = true;
+        try
+        {
+            // A full-record PUT: everything else is sent as it already is, so fixing the connection cannot quietly reset the rest.
+            server = await RustServerClient.UpdateAsync(id, new UpdateRustServerDto
+            {
+                Id = id,
+                Name = server.Name,
+                Description = server.Description,
+                Host = host.Trim(),
+                Port = port,
+                RconPassword = string.IsNullOrEmpty(password) ? null : password,
+                GeolocationProvider = server.GeolocationProvider
+            });
+            password = null;
+            connected = false;
+            showTroubleshooting = false;
+            status = RconConnectionStatus.Connecting;
+            statusDetail = null;
+            sinceConnectStarted.Restart();
+            StartPolling();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "update the connection");
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    private async Task OnDiscardClosedAsync(bool confirmed)
+    {
+        confirmingDiscard = false;
+        if (!confirmed || serverId is not { } id)
+        {
+            return;
+        }
+
+        working = true;
+        try
+        {
+            await RustServerClient.DeleteAsync(id);
+            NavigationManager.NavigateTo("servers");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "discard the server");
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    private async Task SaveIntegrationsAsync()
+    {
+        errorMessage = null;
+        if (!HasIntegrationInput || serverId is not { } id || server is null)
+        {
+            step = Step.Reports;
+            return;
+        }
+
+        working = true;
+        try
+        {
+            // Sent only when something was entered, since saving reconnects the server. A blank key means "keep what is there".
+            server = await RustServerClient.UpdateAsync(id, new UpdateRustServerDto
+            {
+                Id = id,
+                Name = server.Name,
+                Description = server.Description,
+                Host = server.Host,
+                Port = server.Port,
+                SteamApiKey = string.IsNullOrEmpty(steamKey) ? null : steamKey,
+                GeolocationProvider = geoProvider,
+                GeolocationApiKey = string.IsNullOrEmpty(geoKey) ? null : geoKey
+            });
+            steamSaved |= !string.IsNullOrEmpty(steamKey);
+            geoSaved |= !string.IsNullOrEmpty(geoKey);
+            serverHasSteamKey = server.HasSteamApiKey;
+            steamKey = null;
+            geoKey = null;
+            step = Step.Reports;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "save the integrations");
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    private void EnterUpdates()
+    {
+        errorMessage = null;
+        allowUpdates = server?.PluginUpdatesEnabled ?? false;
+        autoUpdate = allowUpdates && (server?.PluginAutoUpdateEnabled ?? false);
+        step = Step.Updates;
+    }
+
+    private void SetAllowUpdates(bool value)
+    {
+        allowUpdates = value;
+        if (!value)
+        {
+            autoUpdate = false;       // automatic updating is only ever a way of pressing the buttons, so it cannot outlive the permission
+        }
+    }
+
+    private async Task SaveUpdatesAsync()
+    {
+        errorMessage = null;
+        if (serverId is not { } id || server is null || (allowUpdates == server.PluginUpdatesEnabled && (allowUpdates && autoUpdate) == server.PluginAutoUpdateEnabled))
+        {
+            step = Step.Done;
+            return;
+        }
+
+        working = true;
+        try
+        {
+            // The endpoint takes all three switches: the two that are not being changed here are sent at their saved values.
+            server = await RustServerClient.UpdatePluginSettingsAsync(id, new UpdateServerPluginSettingsDto
+            {
+                RecordingEnabled = server.PluginRecordingEnabled,
+                CombatLogEnabled = server.PluginCombatLogEnabled,
+                UpdatesEnabled = allowUpdates,
+                AutoUpdateEnabled = allowUpdates && autoUpdate
+            });
+            updatesSaved = true;
+            step = Step.Done;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "save the update settings");
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    private void AcceptPlugin()
+    {
+        pluginChoice = true;
+        StartPolling();
+    }
+
+    private void ResetForAnother()
+    {
+        // The anchor navigates to /servers/new; this only makes sure a wizard that stays mounted is a clean one.
+        pollCts?.Cancel();
+        serverId = null;
+        server = null;
+        name = string.Empty;
+        description = null;
+        host = string.Empty;
+        port = 28016;
+        password = null;
+        connected = false;
+        steamSaved = geoSaved = false;
+        pluginChoice = null;
+        pluginStatus = null;
+        plugins = [];
+        allowUpdates = autoUpdate = updatesSaved = false;
+        step = Step.Basics;
+    }
+
+    // ---- polling ----
+
+    private void StartPolling()
+    {
+        pollCts?.Cancel();
+        pollCts = new CancellationTokenSource();
+        _ = PollAsync(pollCts.Token);
+    }
+
+    // One loop for the wizard's life, doing whichever read the current step needs. Cheap reads only, and nothing while the answer is
+    // already known.
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(PollInterval);
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                if (step == Step.Connect && serverId is not null && !connected)
+                {
+                    await RefreshConnectionAsync();
+                }
+                else if (step == Step.Plugin && pluginChoice == true && !PluginReady)
+                {
+                    await RefreshPluginAsync();
+                }
+
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Disposed or restarted.
+        }
+    }
+
+    private async Task RefreshConnectionAsync()
+    {
+        if (serverId is not { } id)
+        {
+            return;
+        }
+
+        try
+        {
+            var latest = await RustServerClient.GetByIdAsync(id);
+            if (latest is null)
+            {
+                return;
+            }
+
+            server = latest;
+            ApplyStatus(latest);
+
+            if (connected)
+            {
+                await LoadPluginListAsync();
+            }
+            else
+            {
+                showTroubleshooting = sinceConnectStarted.Elapsed >= TroubleshootAfter;
+            }
+        }
+        catch (Exception)
+        {
+            // A blip reading it back is not a failed connection; the next tick tries again.
+        }
+    }
+
+    private void ApplyStatus(RustServerDto dto)
+    {
+        status = dto.ConnectionStatus;
+        statusDetail = dto.ConnectionStatusDetail;
+        connected = dto.IsEnabled && dto.ConnectionStatus == RconConnectionStatus.Connected;
+        if (!sinceConnectStarted.IsRunning && !connected)
+        {
+            sinceConnectStarted.Start();
+        }
+    }
+
+    private async Task LoadPluginListAsync()
+    {
+        if (serverId is not { } id)
+        {
+            return;
+        }
+
+        try
+        {
+            plugins = await RustServerClient.GetPluginsAsync(id) ?? [];
+        }
+        catch (Exception)
+        {
+            // Framework detection is a nicety here.
+        }
+    }
+
+    private async Task RefreshPluginAsync()
+    {
+        if (serverId is not { } id)
+        {
+            return;
+        }
+
+        await LoadPluginListAsync();
+
+        try
+        {
+            // 204 (the ordinary "not installed / not answered yet") is a null Content, not an exception. Only trusted while the plugin is
+            // also in the plugin list: it can be stale after an uninstall.
+            using var response = await RustServerClient.GetPluginStatusAsync(id);
+            pluginStatus = response.IsSuccessStatusCode ? response.Content : null;
+        }
+        catch (Exception)
+        {
+            pluginStatus = null;
+        }
+    }
+
+    // ---- plugin download (byte for byte: the signature covers the exact bytes, so nothing may re-encode them) ----
+
+    private async Task DownloadPluginAsync()
+    {
+        downloadingPlugin = true;
+        pluginDownloadError = null;
+        try
+        {
+            using var response = await RustServerClient.DownloadPluginAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException($"The Api answered {(int)response.StatusCode}.");
+            }
+
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            var module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/fileDownload.js");
+            await module.InvokeVoidAsync("downloadBytes", "RustArchon.cs", Convert.ToBase64String(bytes), "text/plain");
+        }
+        catch (Exception)
+        {
+            pluginDownloadError = Localizer["Failed to download the plugin."];
+        }
+        finally
+        {
+            downloadingPlugin = false;
+        }
+    }
+
+    // ---- presentation ----
+
+    private string StepTitle(Step s) => s switch
+    {
+        Step.Basics => Localizer["Basics"],
+        Step.Connect => Localizer["Connect"],
+        Step.Integrations => Localizer["Integrations"],
+        Step.Reports => Localizer["Reports"],
+        Step.Plugin => Localizer["Plugin"],
+        Step.Updates => Localizer["Updates"],
+        _ => Localizer["Done"]
+    };
+
+    private static string StatusBadge(RconConnectionStatus s) => s switch
+    {
+        RconConnectionStatus.Connected => "text-bg-success",
+        RconConnectionStatus.Error => "text-bg-danger",
+        RconConnectionStatus.Reconnecting => "text-bg-warning",
+        _ => "text-bg-secondary"
+    };
+
+    private string StatusText(RconConnectionStatus s) => s switch
+    {
+        RconConnectionStatus.Connected => Localizer["Connected"],
+        RconConnectionStatus.Connecting => Localizer["Connecting..."],
+        RconConnectionStatus.Reconnecting => Localizer["Reconnecting..."],
+        RconConnectionStatus.Error => Localizer["Could not connect"],
+        _ => Localizer["Not connected"]
+    };
+
+    private string FrameworkText()
+    {
+        var framework = plugins.Select(p => p.Framework).FirstOrDefault(f => f != ServerModFramework.None);
+        return framework switch
+        {
+            ServerModFramework.Carbon => Localizer["Your server runs Carbon."],
+            ServerModFramework.Oxide => Localizer["Your server runs Oxide."],
+            _ => Localizer["No Oxide or Carbon detected yet. The RustArchon plugin needs one of them."]
+        };
+    }
+
+    private string InstallPathText()
+    {
+        var framework = plugins.Select(p => p.Framework).FirstOrDefault(f => f != ServerModFramework.None);
+        return framework switch
+        {
+            ServerModFramework.Carbon => Localizer["Upload it to your server's carbon/plugins folder:"],
+            ServerModFramework.Oxide => Localizer["Upload it to your server's oxide/plugins folder:"],
+            _ => Localizer["Upload it to your server's carbon/plugins (Carbon) or oxide/plugins (Oxide) folder:"]
+        };
+    }
+
+    private string SignatureProblem() => pluginStatus?.SigningState switch
+    {
+        PluginSigningStates.Invalid => Localizer["The file was changed, or signed by a different Panel. Download it again from here."],
+        PluginSigningStates.Unsigned or PluginSigningStates.Unlocated => Localizer["This copy is not signed by a Panel. Download it from here."],
+        PluginSigningStates.Valid => Localizer["It is signed by a different Panel's key, so this Panel's updates will be refused. Download it again from here."],
+        _ => Localizer["The plugin has not said whether its file is signed yet."]
+    };
+
+    private RenderFragment CheckIcon(bool? ok) => builder =>
+    {
+        builder.OpenElement(0, "i");
+        builder.AddAttribute(1, "class", ok switch
+        {
+            true => "bi bi-check-circle-fill text-success",
+            false => "bi bi-x-circle-fill text-danger",
+            _ => "bi bi-hourglass-split text-muted"
+        });
+        builder.CloseElement();
+    };
+
+    public ValueTask DisposeAsync()
+    {
+        pollCts?.Cancel();
+        pollCts?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

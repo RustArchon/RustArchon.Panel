@@ -103,6 +103,15 @@ else
             </button>
         </li>
         <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Reports ? "active" : "")" data-testid="tab-reports" @onclick="() => SwitchTabAsync(Tab.Reports)">
+                <i class="bi bi-flag"></i> @Localizer["Reports"]
+                @if (newReportCount > 0)
+                {
+                    <span class="badge text-bg-danger ms-1" data-testid="reports-badge">@newReportCount</span>
+                }
+            </button>
+        </li>
+        <li class="nav-item">
             <button class="nav-link @(activeTab == Tab.Plugins ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Plugins)">
                 <i class="bi bi-puzzle"></i> @Localizer["Plugins"]
             </button>
@@ -878,6 +887,12 @@ else
         }
 
         @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
+        @if (activeTab == Tab.Reports)
+        {
+            <ServerReportsPane ServerId="Id" RefreshToken="reportsRefreshToken" NewCountChanged="OnNewReportCountChanged" />
+        }
+
+        @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
         @if (activeTab == Tab.Positions)
         {
             <div class="positions-pane" data-testid="positions-pane">
@@ -1286,27 +1301,82 @@ else
                                         <div class="form-text">@Localizer["Lets an administrator update the plugin from here. Off by default."]</div>
                                     </div>
 
+                                    @if (server.PluginUpdatesEnabled)
+                                    {
+                                        <div class="form-check form-switch ms-4 mt-2" data-testid="plugin-auto-update-setting">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="plugin-auto-update"
+                                                   checked="@server.PluginAutoUpdateEnabled"
+                                                   disabled="@savingPluginSettings"
+                                                   @onchange="e => SavePluginSettingsAsync(server.PluginRecordingEnabled, server.PluginCombatLogEnabled, server.PluginUpdatesEnabled, (bool)e.Value!)" />
+                                            <label class="form-check-label" for="plugin-auto-update">@Localizer["Update automatically"]</label>
+                                            <div class="form-text">@Localizer["Installs the newest plugin and Updater this Panel serves by itself, one at a time, and puts the old one back if the new one does not start. Off by default."]</div>
+                                        </div>
+                                    }
+
                                     @if (!pluginStatus.UpdaterInstalled)
                                     {
-                                        <p class="small text-muted mt-2 mb-1" data-testid="plugin-updater-missing">
-                                            @Localizer["Updating needs a small second plugin, the RustArchon Updater. Install it once; it is only ever replaced by hand."]
-                                        </p>
-                                        <button type="button" class="btn btn-sm btn-outline-primary mb-2" data-testid="plugin-download-updater"
-                                                @onclick="DownloadPluginUpdaterAsync" disabled="@downloadingPlugin">
-                                            <i class="bi bi-download"></i> @Localizer["Download Updater"]
-                                        </button>
+                                        @if (UpdaterSelfUpdateOffered)
+                                        {
+                                            <p class="small text-muted mt-2 mb-1" data-testid="plugin-updater-missing">
+                                                @Localizer["Updating needs a small second plugin, the RustArchon Updater. It is not installed on this server, but the RustArchon plugin can install it for you."]
+                                            </p>
+                                            <button type="button" class="btn btn-sm btn-outline-primary mb-2" data-testid="plugin-install-updater"
+                                                    @onclick="StartUpdaterUpdateAsync" disabled="@updatingUpdater">
+                                                @if (updatingUpdater)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                                }
+                                                @Localizer["Install Updater"]
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <p class="small text-muted mt-2 mb-1" data-testid="plugin-updater-missing">
+                                                @Localizer["Updating needs a small second plugin, the RustArchon Updater. Install it once by hand, or update the plugin first: a newer plugin can install and update the Updater itself."]
+                                            </p>
+                                            @if (UpdaterSelfUpdateBlockedByUpdatesOff)
+                                            {
+                                                <p class="small text-muted mb-1" data-testid="plugin-updater-enable-hint">@Localizer["Turn on Allow updates from this Panel and the plugin can do this for you."]</p>
+                                            }
+                                            <button type="button" class="btn btn-sm btn-outline-primary mb-2" data-testid="plugin-download-updater"
+                                                    @onclick="DownloadPluginUpdaterAsync" disabled="@downloadingPlugin">
+                                                <i class="bi bi-download"></i> @Localizer["Download Updater"]
+                                            </button>
+                                        }
                                     }
 
                                     @if (pluginStatus.UpdaterInstalled && pluginStatus.UpdaterUpdateAvailable)
                                     {
-                                        <p class="small text-muted mt-2 mb-1" data-testid="plugin-updater-outdated">
-                                            @Localizer["A newer Updater is available"]: @pluginStatus.UpdaterVersion → @pluginStatus.LatestUpdaterVersion.
-                                            @Localizer["The Updater is only ever replaced by hand. Servers whose signing key has changed need it before they can be updated from here."]
-                                        </p>
-                                        <button type="button" class="btn btn-sm btn-outline-primary mb-2" data-testid="plugin-download-updater"
-                                                @onclick="DownloadPluginUpdaterAsync" disabled="@downloadingPlugin">
-                                            <i class="bi bi-download"></i> @Localizer["Download Updater"]
-                                        </button>
+                                        @if (UpdaterSelfUpdateOffered)
+                                        {
+                                            <p class="small text-muted mt-2 mb-1" data-testid="plugin-updater-outdated">
+                                                @Localizer["A newer Updater is available"]: @pluginStatus.UpdaterVersion → @pluginStatus.LatestUpdaterVersion.
+                                                @Localizer["The RustArchon plugin will replace it, and put the old one back if the new one does not start."]
+                                            </p>
+                                            <button type="button" class="btn btn-sm btn-outline-primary mb-2" data-testid="plugin-update-updater"
+                                                    @onclick="StartUpdaterUpdateAsync" disabled="@updatingUpdater">
+                                                @if (updatingUpdater)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                                }
+                                                @Localizer["Update Updater"]
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <p class="small text-muted mt-2 mb-1" data-testid="plugin-updater-outdated">
+                                                @Localizer["A newer Updater is available"]: @pluginStatus.UpdaterVersion → @pluginStatus.LatestUpdaterVersion.
+                                                @Localizer["Install it by hand, or update the plugin first: a newer plugin can update the Updater itself. Servers whose signing key has changed need the newer Updater before they can be updated from here."]
+                                            </p>
+                                            @if (UpdaterSelfUpdateBlockedByUpdatesOff)
+                                            {
+                                                <p class="small text-muted mb-1" data-testid="plugin-updater-enable-hint">@Localizer["Turn on Allow updates from this Panel and the plugin can do this for you."]</p>
+                                            }
+                                            <button type="button" class="btn btn-sm btn-outline-primary mb-2" data-testid="plugin-download-updater"
+                                                    @onclick="DownloadPluginUpdaterAsync" disabled="@downloadingPlugin">
+                                                <i class="bi bi-download"></i> @Localizer["Download Updater"]
+                                            </button>
+                                        }
                                     }
 
                                     @if (pluginStatus.UpdateAvailable)
@@ -1335,6 +1405,19 @@ else
                                     @if (pluginUpdateMessage is not null)
                                     {
                                         <p class="small @(pluginUpdateStarted ? "text-success" : "text-danger") mt-1 mb-0" data-testid="plugin-update-result">@pluginUpdateMessage</p>
+                                    }
+
+                                    @if (pluginAttempts.Count > 0)
+                                    {
+                                        <div class="small mt-2" data-testid="plugin-update-attempts">
+                                            <div class="text-muted">@Localizer["Recent updates"]</div>
+                                            <ul class="list-unstyled mb-0">
+                                                @foreach (var attempt in pluginAttempts.Take(5))
+                                                {
+                                                    <li data-testid="plugin-update-attempt" data-state="@attempt.State">@AttemptText(attempt)</li>
+                                                }
+                                            </ul>
+                                        </div>
                                     }
                                 </div>
                             }
@@ -1411,6 +1494,13 @@ else
                 }
                 else
                 {
+                    if (pluginUpdates.Count > 0)
+                    {
+                        <p class="small mb-2" data-testid="plugin-updates-summary">
+                            <span class="badge text-bg-warning">@pluginUpdates.Count</span>
+                            @Localizer["plugins have updates available, according to the UpdateChecker plugin on this server."]
+                        </p>
+                    }
                     <div class="table-responsive">
                         <table class="table table-sm player-table">
                             <thead>
@@ -1423,10 +1513,31 @@ else
                             <tbody>
                                 @foreach (var p in plugins)
                                 {
-                                    <tr>
+                                    var update = UpdateFor(p);
+                                    <tr data-testid="plugin-row">
                                         <td>@p.Name</td>
                                         <td>@p.Author</td>
-                                        <td>@p.Version</td>
+                                        <td>
+                                            @p.Version
+                                            @if (update is not null)
+                                            {
+                                                <div class="small mt-1" data-testid="plugin-update">
+                                                    <span class="badge text-bg-warning" data-testid="plugin-update-badge"
+                                                          title="@UpdateDetail(update)">@Localizer["Update available: {0}", update.LatestVersion]</span>
+                                                    @if (IsWebAddress(update.Url))
+                                                    {
+                                                        <a href="@update.Url" target="_blank" rel="noopener noreferrer nofollow" class="ms-1" data-testid="plugin-update-link">
+                                                            @(string.IsNullOrEmpty(update.Marketplace) ? Localizer["View update page"] : Localizer["View on {0}", update.Marketplace])
+                                                            <i class="bi bi-box-arrow-up-right"></i>
+                                                        </a>
+                                                    }
+                                                    else if (!string.IsNullOrEmpty(update.Marketplace))
+                                                    {
+                                                        <span class="text-muted ms-1" data-testid="plugin-update-marketplace">@update.Marketplace</span>
+                                                    }
+                                                </div>
+                                            }
+                                        </td>
                                     </tr>
                                 }
                             </tbody>
@@ -1489,9 +1600,14 @@ else
     private bool basesForbidden;
     private string? basesError;
 
-    /// <summary>The owner's name if they are authorized on their own cupboard (the plugin lists names only there), else just their id.</summary>
+    /// <summary>The owner's name as the Api resolved it (the plugin's, else the last session's), falling back to a name listed on their own cupboard, else just their id.</summary>
     private static string BaseOwnerName(BaseTcDto tc)
     {
+        if (!string.IsNullOrEmpty(tc.OwnerName))
+        {
+            return tc.OwnerName;
+        }
+
         var owner = tc.Authorized.FirstOrDefault(a => a.PlayerId == tc.OwnerId);
         return owner is null || string.IsNullOrEmpty(owner.Name) ? tc.OwnerId : owner.Name;
     }
@@ -1765,6 +1881,8 @@ else
     // ---- Plugins tab ----
     private readonly List<ServerPluginDto> plugins = new();
     private ServerModFramework? pluginFramework;
+    private readonly List<PluginUpdateNoticeDto> pluginUpdates = new();
+    private readonly List<PluginUpdateAttemptDto> pluginAttempts = new();
     private bool loadingPlugins = true;
     private string? pluginsError;
 
@@ -1776,6 +1894,7 @@ else
     private bool downloadingPlugin;
     private string? pluginDownloadError;
     private bool updatingPlugin;
+    private bool updatingUpdater;
     private bool pluginUpdateStarted;
     private string? pluginUpdateMessage;
 
@@ -1801,6 +1920,21 @@ else
 
     private bool PluginReports(string capability) =>
         pluginStatus is not null && pluginStatus.Capabilities.Contains(capability, StringComparer.Ordinal);
+
+    /// <summary>
+    /// Whether the Panel can install or update the Updater on this server by itself: the plugin can do it (the Updater cannot replace
+    /// itself, so the plugin does), the plugin is signed by this Panel's current key (the Updater is signed with it), and updates are
+    /// turned on for the server. Otherwise the Updater is installed by hand, or the plugin is updated first.
+    /// </summary>
+    private bool UpdaterSelfUpdateBlockedByUpdatesOff =>
+        server is not null && !server.PluginUpdatesEnabled && PluginReports(RustArchonPlugin.UpdaterUpdateCapability)
+        && pluginStatus is not null && pluginStatus.SigningKeyMatchesThisPanel == true
+        && string.Equals(pluginStatus.SigningKeyState, "active", StringComparison.OrdinalIgnoreCase);
+
+    private bool UpdaterSelfUpdateOffered =>
+        server is not null && server.PluginUpdatesEnabled && PluginReports(RustArchonPlugin.UpdaterUpdateCapability)
+        && pluginStatus is not null && pluginStatus.SigningKeyMatchesThisPanel == true
+        && string.Equals(pluginStatus.SigningKeyState, "active", StringComparison.OrdinalIgnoreCase);
 
     // ---- Stats tab ----
     private ServerInfoLiveDto? liveServerInfo;
@@ -1888,6 +2022,7 @@ else
             "bases" => Tab.Bases,
             "positions" => Tab.Positions,
             "map" => Tab.Map,
+            "reports" => Tab.Reports,
             "control" => Tab.Control,
             _ => Tab.Console
         };
@@ -1939,6 +2074,10 @@ else
             // it here would hold up the whole page's "loading" state on a fetch only the ban list needs.
             _ = LoadBanListAsync();
 
+            // Not awaited either: it only feeds the Reports tab's badge, and a caller without RustServer.ViewReports just gets a
+            // 403 that leaves the badge off.
+            _ = LoadReportCountAsync();
+
             if (activeTab == Tab.Stats)
             {
                 pendingStatsChartRender = true;
@@ -1961,6 +2100,7 @@ else
             HubClient.PlayerDisconnected += OnPlayerDisconnected;
             HubClient.PlayerGeolocated += OnPlayerGeolocated;
             HubClient.PlayerKilled += OnPlayerKilled;
+            HubClient.ServerReportsChanged += OnServerReportsChanged;
             await HubClient.ConnectAsync(Id);
         }
 
@@ -2059,7 +2199,7 @@ else
         // Console (the default) so the plain "/servers/{id}" URL stays the common case. This also
         // re-fires OnParametersSet with the same tab we just set directly above - a harmless,
         // idempotent confirmation, not a fight over which value wins.
-        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", Tab.Stats => "stats", Tab.Logs => "logs", Tab.Plugins => "plugins", Tab.Combat => "combat", Tab.Bases => "bases", Tab.Positions => "positions", Tab.Map => "map", Tab.Control => "control", _ => null };
+        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", Tab.Stats => "stats", Tab.Logs => "logs", Tab.Plugins => "plugins", Tab.Combat => "combat", Tab.Bases => "bases", Tab.Positions => "positions", Tab.Map => "map", Tab.Reports => "reports", Tab.Control => "control", _ => null };
         var newUri = tabQueryValue is null ? $"servers/{Id}" : $"servers/{Id}?tab={tabQueryValue}";
         NavigationManager.NavigateTo(newUri, replace: true);
 
@@ -2424,6 +2564,30 @@ else
             loadingPlugins = false;
         }
 
+        // The recent update attempts, separately again: they only ever add to the card.
+        try
+        {
+            var recent = await RustServerClient.GetPluginUpdateAttemptsAsync(Id);
+            pluginAttempts.Clear();
+            pluginAttempts.AddRange(recent);
+        }
+        catch (Exception)
+        {
+            pluginAttempts.Clear();
+        }
+
+        // Separate from the list so a failure here (or a server that has never reported one) simply shows no update notices.
+        try
+        {
+            var updates = await RustServerClient.GetPluginUpdatesAsync(Id);
+            pluginUpdates.Clear();
+            pluginUpdates.AddRange(updates);
+        }
+        catch (Exception)
+        {
+            pluginUpdates.Clear();
+        }
+
         // Separate from the list above so a failure here cannot hide the list. A failure just means "no
         // handshake known", which leaves every plugin feature off - the safe direction.
         try
@@ -2438,6 +2602,41 @@ else
 
         StateHasChanged();
     }
+
+    /// <summary>One recent update, in plain words: who started it, what, from and to which version, how it went and when.</summary>
+    private string AttemptText(PluginUpdateAttemptDto a)
+    {
+        var who = a.Trigger == "auto" ? Localizer["Automatic"] : Localizer["Manual"];
+        var what = a.Kind == "updater" ? Localizer["Updater"] : Localizer["Plugin"];
+        var outcome = a.State switch
+        {
+            "succeeded" => Localizer["succeeded"],
+            "started" => Localizer["in progress"],
+            "failed" => Localizer["did not take effect and was put back"],
+            "refused" => Localizer["refused"],
+            _ => Localizer[a.State]
+        };
+        var from = string.IsNullOrEmpty(a.FromVersion) ? "-" : a.FromVersion;
+        var code = string.IsNullOrEmpty(a.Code) ? "" : $" ({a.Code})";
+        return $"{who} · {what} {from} → {a.ToVersion} · {outcome}{code} · {a.StartedAtUtc:yyyy-MM-dd HH:mm} UTC";
+    }
+
+    /// <summary>The update notice for an installed plugin, if UpdateChecker reported one that still holds.</summary>
+    private PluginUpdateNoticeDto? UpdateFor(ServerPluginDto plugin) =>
+        pluginUpdates.FirstOrDefault(u => string.Equals(u.Name, plugin.Name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// True for an absolute http or https address. The Api only passes those on; this is the page's own check, since an address from
+    /// another plugin becomes a link a person clicks.
+    /// </summary>
+    private static bool IsWebAddress(string? url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+
+    /// <summary>Everything the notice carries, as a tooltip: what was installed, the newest, and when and how often it was heard.</summary>
+    private string UpdateDetail(PluginUpdateNoticeDto update) =>
+        Localizer["Installed {0}, newest {1}. Reported by UpdateChecker: first {2} UTC, last {3} UTC, {4} time(s).",
+            update.InstalledVersion, update.LatestVersion,
+            update.FirstSeenUtc.ToString("yyyy-MM-dd HH:mm"), update.LastSeenUtc.ToString("yyyy-MM-dd HH:mm"), update.TimesSeen];
 
     /// <summary>
     /// Downloads the RustArchon plugin script this Panel has signed and hands it to the browser. The bytes are passed
@@ -2484,7 +2683,7 @@ else
     /// the next Refresh once the plugin reports the new state. Sends both values every time, since the endpoint
     /// requires both and an omitted one is rejected rather than read as off.
     /// </summary>
-    private async Task SavePluginSettingsAsync(bool recording, bool combat, bool? updates = null)
+    private async Task SavePluginSettingsAsync(bool recording, bool combat, bool? updates = null, bool? auto = null)
     {
         savingPluginSettings = true;
         pluginSettingsError = null;
@@ -2498,7 +2697,9 @@ else
                 {
                     RecordingEnabled = recording,
                     CombatLogEnabled = combat,
-                    UpdatesEnabled = updates ?? server?.PluginUpdatesEnabled ?? false
+                    UpdatesEnabled = updates ?? server?.PluginUpdatesEnabled ?? false,
+                    // Left out (unchanged) unless this call is about that switch.
+                    AutoUpdateEnabled = auto
                 });
         }
         catch (Exception)
@@ -2545,8 +2746,42 @@ else
         StateHasChanged();
     }
 
+    /// <summary>
+    /// Asks the server's RustArchon plugin to install or update the Updater. "Started" only means the plugin accepted the request - the
+    /// outcome (updated, or put back) shows in the Updater's version on the next Refresh.
+    /// </summary>
+    private async Task StartUpdaterUpdateAsync()
+    {
+        updatingUpdater = true;
+        pluginUpdateMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await RustServerClient.StartUpdaterUpdateAsync(Id);
+            pluginUpdateStarted = result.Started;
+            pluginUpdateMessage = result.Started
+                ? Localizer["Updater update started. It takes under a minute - press Refresh to see the new version."]
+                : PluginUpdateRefusal(result.Code);
+        }
+        catch (Exception)
+        {
+            pluginUpdateStarted = false;
+            pluginUpdateMessage = Localizer["The update could not be started."];
+        }
+        finally
+        {
+            updatingUpdater = false;
+        }
+
+        StateHasChanged();
+    }
+
     private string PluginUpdateRefusal(string code) => code switch
     {
+        "plugin_too_old" => Localizer["The installed plugin is too old to do this. Update the plugin first."],
+        "update_plugin_first" => Localizer["This server's plugin trusts an older signing key. Update the plugin first."],
+        "no_updater_version" => Localizer["This Panel does not serve an Updater."],
         "updates_disabled" => Localizer["Updates are turned off for this server."],
         "server_disabled" => Localizer["This server is disabled."],
         "no_handshake" => Localizer["The plugin has not reported in yet."],
@@ -2822,6 +3057,43 @@ else
                 currentPlayers[index] = dto;
             }
 
+            StateHasChanged();
+        });
+    }
+
+    // ---- in-game (F7) reports ----
+
+    private int newReportCount;
+    private int reportsRefreshToken;
+
+    private async Task LoadReportCountAsync()
+    {
+        try
+        {
+            var count = await RustServerClient.GetReportCountAsync(Id);
+            newReportCount = count.New;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception)
+        {
+            // No badge: the caller may not read reports (a 403), or the count is simply unavailable. The Reports tab itself says which.
+        }
+    }
+
+    private Task OnNewReportCountChanged(int count)
+    {
+        newReportCount = count;
+        return Task.CompletedTask;
+    }
+
+    // Fires on a SignalR callback thread, so it goes through InvokeAsync. The hub only says "something changed"; the pane and the badge
+    // re-read through the endpoints that check the permission.
+    private void OnServerReportsChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            reportsRefreshToken++;
+            await LoadReportCountAsync();
             StateHasChanged();
         });
     }
@@ -3376,6 +3648,7 @@ else
         HubClient.PlayerDisconnected -= OnPlayerDisconnected;
         HubClient.PlayerGeolocated -= OnPlayerGeolocated;
         HubClient.PlayerKilled -= OnPlayerKilled;
+        HubClient.ServerReportsChanged -= OnServerReportsChanged;
         await HubClient.DisposeAsync();
 
         try
@@ -3388,5 +3661,5 @@ else
         }
     }
 
-    private enum Tab { Console, Chat, Players, Stats, Logs, Control, Plugins, Combat, Bases, Positions, Map }
+    private enum Tab { Console, Chat, Players, Stats, Logs, Control, Plugins, Combat, Bases, Positions, Map, Reports }
 }

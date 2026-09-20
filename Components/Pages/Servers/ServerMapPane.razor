@@ -232,9 +232,9 @@
         StateHasChanged();
     }
 
-    /// <summary>The owner's name if they are authorized on their own cupboard (the plugin lists names only there), else empty.</summary>
+    /// <summary>The owner's name as the Api resolved it, else the one listed on their own cupboard, else empty.</summary>
     private static string Owner(BaseTcDto tc) =>
-        tc.Authorized.FirstOrDefault(a => a.PlayerId == tc.OwnerId)?.Name ?? string.Empty;
+        !string.IsNullOrEmpty(tc.OwnerName) ? tc.OwnerName : tc.Authorized.FirstOrDefault(a => a.PlayerId == tc.OwnerId)?.Name ?? string.Empty;
 
     private async Task DrawAsync()
     {

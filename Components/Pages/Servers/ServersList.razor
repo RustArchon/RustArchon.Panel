@@ -15,9 +15,10 @@
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1>@Localizer["Servers"]</h1>
-    <button class="btn btn-primary" @onclick="ShowAddForm" disabled="@checkingPlanLimit">
+    @* Adding is a step-by-step wizard (ADR-0002); this form is only for editing what is already there. *@
+    <a class="btn btn-primary" href="servers/new" data-testid="add-server">
         <i class="bi bi-plus-circle"></i> @Localizer["Add Server"]
-    </button>
+    </a>
 </div>
 
 @if (!string.IsNullOrEmpty(errorMessage))
@@ -40,7 +41,7 @@
 {
     <div class="card mb-4">
         <div class="card-header">
-            @(editingServer.Id == Guid.Empty ? Localizer["Add Server"] : Localizer["Edit Server"])
+            @Localizer["Edit Server"]
         </div>
         <div class="card-body">
             <EditForm Model="editingServer" OnValidSubmit="SaveServer">
@@ -85,10 +86,16 @@
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label class="form-label" for="server-steam-api-key">@Localizer["Steam Web API Key"]</label>
-                        <InputText id="server-steam-api-key" type="password" class="form-control" @bind-Value="editingServer.SteamApiKey"
-                                   placeholder="@(editingServer.HasSteamApiKey ? Localizer["Already configured — leave blank to keep unchanged"] : Localizer["Not configured"])"
-                                   autocomplete="new-password" />
+                        @* A plain input bound on oninput, not InputText's default onchange: the Verify button below enables as the key is typed,
+                           so it is already live when it is clicked (onchange only fires on blur, which is after the click has hit a
+                           still-disabled button). *@
+                        <input id="server-steam-api-key" type="password" class="form-control" @bind="editingServer.SteamApiKey" @bind:event="oninput"
+                               placeholder="@(editingServer.HasSteamApiKey ? Localizer["Already configured — leave blank to keep unchanged"] : Localizer["Not configured"])"
+                               autocomplete="new-password" />
                         <div class="form-text">@Localizer["Powers VAC/game-ban status and hours-on-record for inactive players. Get one at"] <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">steamcommunity.com/dev/apikey</a>.</div>
+                        <div class="mt-2">
+                            <VerifyKeyButton Kind="IntegrationKeyKind.SteamWebApi" Key="@editingServer.SteamApiKey" TestId="verify-steam" />
+                        </div>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label" for="server-geo-provider">@Localizer["Geolocation Provider"]</label>
@@ -101,9 +108,15 @@
                     </div>
                     <div class="col-md-3">
                         <label class="form-label" for="server-geo-api-key">@Localizer["Geolocation API Key"]</label>
-                        <InputText id="server-geo-api-key" type="password" class="form-control" @bind-Value="editingServer.GeolocationApiKey"
-                                   placeholder="@(editingServer.HasGeolocationApiKey ? Localizer["Already configured — leave blank to keep unchanged"] : Localizer["Not configured"])"
-                                   autocomplete="new-password" />
+                        <input id="server-geo-api-key" type="password" class="form-control" @bind="editingServer.GeolocationApiKey" @bind:event="oninput"
+                               placeholder="@(editingServer.HasGeolocationApiKey ? Localizer["Already configured — leave blank to keep unchanged"] : Localizer["Not configured"])"
+                               autocomplete="new-password" />
+                        @if (editingServer.GeolocationProvider != GeolocationProviderKind.None)
+                        {
+                            <div class="mt-2">
+                                <VerifyKeyButton Kind="IntegrationKeyKind.Geolocation" Provider="editingServer.GeolocationProvider" Key="@editingServer.GeolocationApiKey" TestId="verify-geo" />
+                            </div>
+                        }
                     </div>
                 </div>
 
@@ -163,6 +176,13 @@ else if (servers != null)
                                 <a class="btn btn-sm btn-primary" href="@($"servers/{server.Id}")">
                                     <i class="bi bi-terminal"></i> @Localizer["View"]
                                 </a>
+                                @if (server.IsEnabled && server.ConnectionStatus != RconConnectionStatus.Connected)
+                                {
+                                    @* Picks the setup wizard back up: it shows why the server is not connected and lets the details be fixed. *@
+                                    <a class="btn btn-sm btn-outline-warning" href="@($"servers/{server.Id}/setup")" data-testid="resume-setup">
+                                        <i class="bi bi-wrench"></i> @Localizer["Finish setup"]
+                                    </a>
+                                }
                                 <button class="btn btn-sm btn-outline-secondary" @onclick="() => ShowEditForm(server)">
                                     <i class="bi bi-pencil"></i> @Localizer["Edit"]
                                 </button>
@@ -214,7 +234,6 @@ else if (servers != null)
     private IEnumerable<RustServerDto>? servers;
     private bool loading = true;
     private bool saving;
-    private bool checkingPlanLimit;
     private string? errorMessage;
     private string? successMessage;
     private ServerFormModel? editingServer;
@@ -245,46 +264,7 @@ else if (servers != null)
         }
     }
 
-    /// <summary>
-    /// A heads-up, not the enforcement - checks the tenant's plan limit before opening the Add Server
-    /// form at all, so a user who's already at their limit sees that immediately instead of filling
-    /// out the whole form only to have <c>SaveServer</c> reject it. <c>CreateAsync</c> still runs the
-    /// authoritative check on submit regardless (this read can go stale between the two - another tab
-    /// adding a server in the meantime, say), so a failure here fails open: opening the form anyway
-    /// and letting that later check catch it is strictly no worse than skipping this heads-up
-    /// entirely.
-    /// </summary>
-    private async Task ShowAddForm()
-    {
-        errorMessage = null;
-        checkingPlanLimit = true;
-
-        try
-        {
-            // Checked against bought capacity rather than the plan's ceiling - that's what
-            // RustServersController.Create now enforces, and the two differ on a per-unit plan.
-            var status = await RustServerClient.GetPlanLimitAsync();
-            if (status.Quantity is { } slots && status.CurrentServerCount >= slots)
-            {
-                errorMessage = status.CanBuyCapacity
-                    ? Localizer["You're using all {0} of your server slot(s) on the {1} plan. Buy more capacity from your subscription page to add another.", slots, status.PlanName]
-                    : Localizer["Your plan ({0}) allows up to {1} server(s). Upgrade your plan to add more.", status.PlanName, slots];
-                return;
-            }
-        }
-        catch (Exception)
-        {
-            // Best-effort - see this method's own remarks on why a failed check here doesn't block
-            // opening the form.
-        }
-        finally
-        {
-            checkingPlanLimit = false;
-        }
-
-        editingServer = new ServerFormModel { Port = 28016 };
-    }
-
+    // Adding a server is the wizard's job now (AddServerWizard, ADR-0002), including the plan-limit heads-up that used to live here.
     private void ShowEditForm(RustServerDto server)
     {
         editingServer = new ServerFormModel
@@ -318,37 +298,19 @@ else if (servers != null)
 
         try
         {
-            if (editingServer.Id == Guid.Empty)
+            await RustServerClient.UpdateAsync(editingServer.Id, new UpdateRustServerDto
             {
-                await RustServerClient.CreateAsync(new CreateRustServerDto
-                {
-                    Name = editingServer.Name,
-                    Host = editingServer.Host,
-                    Port = editingServer.Port,
-                    RconPassword = editingServer.RconPassword ?? string.Empty,
-                    Description = editingServer.Description,
-                    SteamApiKey = string.IsNullOrEmpty(editingServer.SteamApiKey) ? null : editingServer.SteamApiKey,
-                    GeolocationProvider = editingServer.GeolocationProvider,
-                    GeolocationApiKey = string.IsNullOrEmpty(editingServer.GeolocationApiKey) ? null : editingServer.GeolocationApiKey
-                });
-                successMessage = Localizer["Server '{0}' was added.", editingServer.Name];
-            }
-            else
-            {
-                await RustServerClient.UpdateAsync(editingServer.Id, new UpdateRustServerDto
-                {
-                    Id = editingServer.Id,
-                    Name = editingServer.Name,
-                    Host = editingServer.Host,
-                    Port = editingServer.Port,
-                    RconPassword = string.IsNullOrEmpty(editingServer.RconPassword) ? null : editingServer.RconPassword,
-                    Description = editingServer.Description,
-                    SteamApiKey = string.IsNullOrEmpty(editingServer.SteamApiKey) ? null : editingServer.SteamApiKey,
-                    GeolocationProvider = editingServer.GeolocationProvider,
-                    GeolocationApiKey = string.IsNullOrEmpty(editingServer.GeolocationApiKey) ? null : editingServer.GeolocationApiKey
-                });
-                successMessage = Localizer["Server '{0}' was updated.", editingServer.Name];
-            }
+                Id = editingServer.Id,
+                Name = editingServer.Name,
+                Host = editingServer.Host,
+                Port = editingServer.Port,
+                RconPassword = string.IsNullOrEmpty(editingServer.RconPassword) ? null : editingServer.RconPassword,
+                Description = editingServer.Description,
+                SteamApiKey = string.IsNullOrEmpty(editingServer.SteamApiKey) ? null : editingServer.SteamApiKey,
+                GeolocationProvider = editingServer.GeolocationProvider,
+                GeolocationApiKey = string.IsNullOrEmpty(editingServer.GeolocationApiKey) ? null : editingServer.GeolocationApiKey
+            });
+            successMessage = Localizer["Server '{0}' was updated.", editingServer.Name];
 
             editingServer = null;
             await LoadServers();

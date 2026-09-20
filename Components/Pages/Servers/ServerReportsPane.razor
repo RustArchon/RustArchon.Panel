@@ -1,0 +1,489 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@using System.Text.Json
+@using Microsoft.JSInterop
+@using RustArchon.Panel.Clients
+@using RustArchon.Shared.DTOs
+@inject IRustServerApiClient RustServerClient
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@*
+    A server's in-game (F7) reports: the moderation inbox. Reading needs RustServer.ViewReports and changing a report's status needs
+    RustServer.ManageReports; a 403 from the Api only ever hides or disables the part that needs it. Everything a report says came from a
+    game server, so it is shown, never followed: text is encoded by Blazor, the picture is shown only from a blob: address that exists in
+    this page, and the plugin's extra detail is printed as plain text.
+*@
+
+<div class="reports-pane" data-testid="reports-pane">
+    <ReportForwardingCard ServerId="ServerId" />
+
+    @if (forbidden)
+    {
+        <div class="alert alert-secondary" data-testid="reports-forbidden">
+            <i class="bi bi-lock"></i> @Localizer["You are not allowed to read this server's reports."]
+        </div>
+    }
+    else
+    {
+        <div class="row g-2 mb-3 align-items-end">
+            <div class="col-auto">
+                <label class="form-label small mb-0" for="reports-type-filter">@Localizer["Type"]</label>
+                <select id="reports-type-filter" class="form-select form-select-sm" data-testid="reports-type-filter" @onchange="OnTypeFilterChanged">
+                    <option value="">@Localizer["All types"]</option>
+                    @foreach (var type in Enum.GetValues<ServerReportType>())
+                    {
+                        <option value="@((int)type)" selected="@(typeFilter == type)">@TypeLabel(type)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label small mb-0" for="reports-status-filter">@Localizer["Status"]</label>
+                <select id="reports-status-filter" class="form-select form-select-sm" data-testid="reports-status-filter" @onchange="OnStatusFilterChanged">
+                    <option value="">@Localizer["All statuses"]</option>
+                    @foreach (var status in Enum.GetValues<ServerReportStatus>())
+                    {
+                        <option value="@((int)status)" selected="@(statusFilter == status)">@StatusLabel(status)</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(error))
+        {
+            <div class="alert alert-danger py-2 small" data-testid="reports-error">@error</div>
+        }
+
+        @if (loading)
+        {
+            <p><em>@Localizer["Loading..."]</em></p>
+        }
+        else if (reports.Count == 0)
+        {
+            <p class="text-muted" data-testid="reports-empty">@Localizer["No reports yet."]</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle" data-testid="reports-table">
+                    <thead>
+                        <tr>
+                            <th>@Localizer["Received"]</th>
+                            <th>@Localizer["Type"]</th>
+                            <th>@Localizer["Reporter"]</th>
+                            <th>@Localizer["About"]</th>
+                            <th>@Localizer["Subject"]</th>
+                            <th>@Localizer["Status"]</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var report in reports)
+                        {
+                            <tr class="@(selected?.Id == report.Id ? "table-active" : "")" role="button" data-testid="report-row" @onclick="() => SelectAsync(report)">
+                                <td class="text-nowrap">@report.ReceivedAtUtc.ToLocalTime().ToString("g")</td>
+                                <td><span class="badge @TypeBadge(report.Type)">@TypeLabel(report.Type)</span></td>
+                                <td>@PlayerName(report.ReporterName, report.ReporterSteamId)</td>
+                                <td>@PlayerName(report.TargetName, report.TargetSteamId)</td>
+                                <td>
+                                    @report.Subject
+                                    @if (report.HasScreenshot)
+                                    {
+                                        <i class="bi bi-image ms-1" title="@Localizer["Has a screenshot"]"></i>
+                                    }
+                                </td>
+                                <td><span class="badge @StatusBadge(report.Status)" data-testid="report-status">@StatusLabel(report.Status)</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (totalCount > PageSize)
+            {
+                <div class="d-flex gap-2 align-items-center mb-3">
+                    <button class="btn btn-sm btn-outline-secondary" data-testid="reports-prev" disabled="@(pageNumber <= 1)" @onclick="() => GoToAsync(pageNumber - 1)">@Localizer["Previous"]</button>
+                    <span class="small text-muted">@pageNumber / @((totalCount + PageSize - 1) / PageSize)</span>
+                    <button class="btn btn-sm btn-outline-secondary" data-testid="reports-next" disabled="@(pageNumber * PageSize >= totalCount)" @onclick="() => GoToAsync(pageNumber + 1)">@Localizer["Next"]</button>
+                </div>
+            }
+        }
+
+        @if (selected is not null)
+        {
+            <div class="card" data-testid="report-detail">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>
+                        <span class="badge @TypeBadge(selected.Type)">@TypeLabel(selected.Type)</span>
+                        <strong class="ms-2">@selected.Subject</strong>
+                    </span>
+                    <span class="badge @StatusBadge(selected.Status)">@StatusLabel(selected.Status)</span>
+                </div>
+                <div class="card-body">
+                    @if (selected.ParseFailed)
+                    {
+                        <div class="alert alert-warning py-2 small" data-testid="report-parse-failed">
+                            @Localizer["This report could not be fully read. What was received is kept, but some details may be missing."]
+                        </div>
+                    }
+
+                    <dl class="row small mb-3">
+                        <dt class="col-sm-3">@Localizer["Reporter"]</dt>
+                        <dd class="col-sm-9">@PlayerLink(selected.ReporterName, selected.ReporterSteamId)</dd>
+                        <dt class="col-sm-3">@Localizer["About"]</dt>
+                        <dd class="col-sm-9">@PlayerLink(selected.TargetName, selected.TargetSteamId)</dd>
+                        <dt class="col-sm-3">@Localizer["Received"]</dt>
+                        <dd class="col-sm-9">@selected.ReceivedAtUtc.ToLocalTime().ToString("f")</dd>
+                        @if (!string.IsNullOrEmpty(selected.Position))
+                        {
+                            <dt class="col-sm-3">@Localizer["Position"]</dt>
+                            <dd class="col-sm-9">@selected.Position</dd>
+                        }
+                        @if (selected.MinutesPlayed is { } minutes)
+                        {
+                            <dt class="col-sm-3">@Localizer["Minutes played"]</dt>
+                            <dd class="col-sm-9">@minutes</dd>
+                        }
+                        <dt class="col-sm-3">@Localizer["Sent by"]</dt>
+                        <dd class="col-sm-9">@SourceLabel(selected.Source)</dd>
+                    </dl>
+
+                    @if (!string.IsNullOrEmpty(selected.Message))
+                    {
+                        <p class="mb-1 small text-muted">@Localizer["Message"]</p>
+                        <p class="border rounded p-2" style="white-space: pre-wrap;" data-testid="report-message">@selected.Message</p>
+                    }
+
+                    @if (selected.HasScreenshot)
+                    {
+                        <p class="mb-1 small text-muted">@Localizer["Screenshot"]</p>
+                        @if (screenshotError)
+                        {
+                            <div class="alert alert-warning py-2 small" data-testid="report-screenshot-error">@Localizer["The screenshot could not be loaded."]</div>
+                        }
+                        <img id="@ScreenshotId" class="img-fluid border rounded mb-3" style="max-height: 480px;" alt="@Localizer["Screenshot attached to the report"]" data-testid="report-screenshot" />
+                    }
+
+                    @if (PluginDetailText(selected) is { } detail)
+                    {
+                        <p class="mb-1 small text-muted">@Localizer["Extra detail from the RustArchon plugin"]</p>
+                        <pre class="border rounded p-2 small" data-testid="report-plugin-detail">@detail</pre>
+                    }
+
+                    <div class="d-flex flex-wrap gap-2" data-testid="report-actions">
+                        @foreach (var target in Enum.GetValues<ServerReportStatus>().Where(s => s != selected.Status))
+                        {
+                            <button class="btn btn-sm @(target == ServerReportStatus.New ? "btn-outline-secondary" : "btn-outline-primary")"
+                                    data-testid="@($"report-set-{target.ToString().ToLowerInvariant()}")"
+                                    disabled="@changingStatus" @onclick="() => SetStatusAsync(target)">
+                                @ActionLabel(target)
+                            </button>
+                        }
+                    </div>
+                    @if (statusForbidden)
+                    {
+                        <div class="text-danger small mt-2" data-testid="report-status-forbidden">@Localizer["You are not allowed to change reports."]</div>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private const int PageSize = 25;
+
+    [Parameter, EditorRequired] public Guid ServerId { get; set; }
+
+    /// <summary>Changes whenever the server tells the page a report arrived, so this reloads.</summary>
+    [Parameter] public int RefreshToken { get; set; }
+
+    /// <summary>Told how many reports are still new after every load and change, for the tab's badge.</summary>
+    [Parameter] public EventCallback<int> NewCountChanged { get; set; }
+
+    private List<ServerReportDto> reports = [];
+    private ServerReportDto? selected;
+    private int totalCount;
+    private int pageNumber = 1;
+    private bool loading = true;
+    private bool forbidden;
+    private bool statusForbidden;
+    private bool changingStatus;
+    private bool screenshotError;
+    private bool needsScreenshot;
+    private string? error;
+    private ServerReportType? typeFilter;
+    private ServerReportStatus? statusFilter;
+    private int lastRefreshToken = int.MinValue;
+
+    private string ScreenshotId => $"report-screenshot-{selected?.Id:N}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (RefreshToken != lastRefreshToken)
+        {
+            var first = lastRefreshToken == int.MinValue;
+            lastRefreshToken = RefreshToken;
+            await LoadAsync(showLoading: first);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (needsScreenshot && selected is { HasScreenshot: true })
+        {
+            needsScreenshot = false;
+            await LoadScreenshotAsync(selected);
+        }
+    }
+
+    private async Task LoadAsync(bool showLoading)
+    {
+        loading = showLoading;
+        error = null;
+        try
+        {
+            var page = await RustServerClient.GetReportsAsync(ServerId, pageNumber, PageSize, typeFilter, statusFilter);
+            reports = page.Items;
+            totalCount = page.TotalCount;
+            forbidden = false;
+
+            // Keep the open report in step with what the list now says, or drop it if it is no longer on this page.
+            if (selected is not null)
+            {
+                selected = reports.FirstOrDefault(r => r.Id == selected.Id);
+            }
+
+            await ReportNewCountAsync();
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            forbidden = true;
+            reports = [];
+        }
+        catch (Exception)
+        {
+            error = Localizer["Failed to load the reports."];
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task ReportNewCountAsync()
+    {
+        try
+        {
+            var count = await RustServerClient.GetReportCountAsync(ServerId);
+            await NewCountChanged.InvokeAsync(count.New);
+        }
+        catch (Exception)
+        {
+            // The badge is a convenience; the list above is the truth.
+        }
+    }
+
+    private async Task GoToAsync(int page)
+    {
+        pageNumber = Math.Max(1, page);
+        selected = null;
+        await LoadAsync(showLoading: true);
+    }
+
+    private async Task OnTypeFilterChanged(ChangeEventArgs e)
+    {
+        typeFilter = int.TryParse(e.Value?.ToString(), out var value) && Enum.IsDefined((ServerReportType)value) ? (ServerReportType)value : null;
+        pageNumber = 1;
+        selected = null;
+        await LoadAsync(showLoading: true);
+    }
+
+    private async Task OnStatusFilterChanged(ChangeEventArgs e)
+    {
+        statusFilter = int.TryParse(e.Value?.ToString(), out var value) && Enum.IsDefined((ServerReportStatus)value) ? (ServerReportStatus)value : null;
+        pageNumber = 1;
+        selected = null;
+        await LoadAsync(showLoading: true);
+    }
+
+    private Task SelectAsync(ServerReportDto report)
+    {
+        if (selected?.Id == report.Id)
+        {
+            return Task.CompletedTask;
+        }
+
+        selected = report;
+        statusForbidden = false;
+        screenshotError = false;
+        needsScreenshot = report.HasScreenshot;
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadScreenshotAsync(ServerReportDto report)
+    {
+        try
+        {
+            using var response = await RustServerClient.GetReportScreenshotAsync(ServerId, report.Id);
+            response.EnsureSuccessStatusCode();
+            var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            using var reference = new DotNetStreamReference(stream, leaveOpen: false);
+            await JS.InvokeVoidAsync("reportScreenshot.show", $"report-screenshot-{report.Id:N}", contentType, reference);
+        }
+        catch (Exception)
+        {
+            screenshotError = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SetStatusAsync(ServerReportStatus status)
+    {
+        if (selected is null)
+        {
+            return;
+        }
+
+        changingStatus = true;
+        statusForbidden = false;
+        error = null;
+        try
+        {
+            var updated = await RustServerClient.SetReportStatusAsync(ServerId, selected.Id, new UpdateServerReportStatusDto { Status = status });
+            var index = reports.FindIndex(r => r.Id == updated.Id);
+            if (index >= 0)
+            {
+                reports[index] = updated;
+            }
+
+            selected = updated;
+            await ReportNewCountAsync();
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            statusForbidden = true;
+        }
+        catch (Exception)
+        {
+            error = Localizer["Failed to change the report."];
+        }
+        finally
+        {
+            changingStatus = false;
+        }
+    }
+
+    // The plugin's detail is text from someone else's server: it is printed, indented if it parses, and cut to a sane length.
+    private static string? PluginDetailText(ServerReportDto report)
+    {
+        if (string.IsNullOrWhiteSpace(report.PluginDetailJson))
+        {
+            return null;
+        }
+
+        string text;
+        try
+        {
+            using var document = JsonDocument.Parse(report.PluginDetailJson);
+            text = JsonSerializer.Serialize(document.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (JsonException)
+        {
+            text = report.PluginDetailJson;
+        }
+
+        return text.Length <= 4000 ? text : text[..4000] + "…";
+    }
+
+    private string PlayerName(string? name, string? steamId) =>
+        !string.IsNullOrEmpty(name) ? name : !string.IsNullOrEmpty(steamId) ? steamId : "—";
+
+    private RenderFragment PlayerLink(string? name, string? steamId) => builder =>
+    {
+        var text = PlayerName(name, steamId);
+        if (string.IsNullOrEmpty(steamId))
+        {
+            builder.AddContent(0, text);
+            return;
+        }
+
+        builder.OpenElement(1, "a");
+        builder.AddAttribute(2, "href", $"/servers/{ServerId}/players/{steamId}");
+        builder.AddContent(3, text);
+        builder.CloseElement();
+        if (!string.IsNullOrEmpty(name))
+        {
+            builder.OpenElement(4, "span");
+            builder.AddAttribute(5, "class", "text-muted ms-2");
+            builder.AddContent(6, steamId);
+            builder.CloseElement();
+        }
+    };
+
+    private string TypeLabel(ServerReportType type) => type switch
+    {
+        ServerReportType.General => Localizer["General"],
+        ServerReportType.Bug => Localizer["Bug"],
+        ServerReportType.Cheat => Localizer["Cheat"],
+        ServerReportType.Abuse => Localizer["Abuse"],
+        ServerReportType.Idea => Localizer["Idea"],
+        _ => type.ToString()
+    };
+
+    private static string TypeBadge(ServerReportType type) => type switch
+    {
+        ServerReportType.Cheat or ServerReportType.Abuse => "text-bg-danger",
+        ServerReportType.Bug => "text-bg-warning",
+        ServerReportType.Idea => "text-bg-info",
+        _ => "text-bg-secondary"
+    };
+
+    private string StatusLabel(ServerReportStatus status) => status switch
+    {
+        ServerReportStatus.New => Localizer["New"],
+        ServerReportStatus.Reviewing => Localizer["Reviewing"],
+        ServerReportStatus.Actioned => Localizer["Actioned"],
+        ServerReportStatus.Dismissed => Localizer["Dismissed"],
+        _ => status.ToString()
+    };
+
+    private static string StatusBadge(ServerReportStatus status) => status switch
+    {
+        ServerReportStatus.New => "text-bg-primary",
+        ServerReportStatus.Reviewing => "text-bg-warning",
+        ServerReportStatus.Actioned => "text-bg-success",
+        _ => "text-bg-secondary"
+    };
+
+    // What the button says it will do, not the status it leads to: "Reopen", not "New".
+    private string ActionLabel(ServerReportStatus target) => target switch
+    {
+        ServerReportStatus.New => Localizer["Reopen"],
+        ServerReportStatus.Reviewing => Localizer["Mark as reviewing"],
+        ServerReportStatus.Actioned => Localizer["Mark as actioned"],
+        _ => Localizer["Dismiss"]
+    };
+
+    private string SourceLabel(ServerReportSource source) => source switch
+    {
+        ServerReportSource.Native | ServerReportSource.Plugin => Localizer["The game server and the RustArchon plugin"],
+        ServerReportSource.Plugin => Localizer["The RustArchon plugin"],
+        _ => Localizer["The game server"]
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (selected is { HasScreenshot: true })
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("reportScreenshot.clear", ScreenshotId);
+            }
+            catch (Exception)
+            {
+                // The circuit may already be gone; the blob address dies with the page regardless.
+            }
+        }
+    }
+}

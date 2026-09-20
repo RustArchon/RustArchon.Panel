@@ -107,6 +107,21 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     Task<List<ServerPluginDto>> GetPluginsAsync(Guid id);
 
     /// <summary>
+    /// The installed plugins that UpdateChecker (a third-party plugin on the game server) says have a newer version, with everything it
+    /// reported. Only notices that still hold are returned. Empty when the server does not run UpdateChecker, has the RustArchon
+    /// plugin without the updates capability, or every plugin is current.
+    /// </summary>
+    [Get("/{id}/plugin-updates")]
+    Task<List<PluginUpdateNoticeDto>> GetPluginUpdatesAsync(Guid id);
+
+    /// <summary>
+    /// The recent times the Panel asked this server to update its plugin or Updater (by a click or automatically) and how each turned out,
+    /// newest first.
+    /// </summary>
+    [Get("/{id}/plugin-update-attempts")]
+    Task<List<PluginUpdateAttemptDto>> GetPluginUpdateAttemptsAsync(Guid id);
+
+    /// <summary>
     /// What the optional RustArchon companion plugin last reported on this server. <c>204 No Content</c> (a null
     /// <c>Content</c>) is the ordinary answer when the plugin is not installed or has not answered yet, which is
     /// why this returns the raw response rather than throwing on it. Only trust it while the plugin is also in
@@ -177,6 +192,13 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     Task<PluginUpdateResultDto> StartPluginUpdateAsync(Guid id);
 
     /// <summary>
+    /// Asks the server's RustArchon plugin to install, or update, the Updater plugin (the Updater cannot replace itself). Same result
+    /// shape as <see cref="StartPluginUpdateAsync"/>: every refusal is an ordinary result with a code.
+    /// </summary>
+    [Post("/{id}/plugin/update-updater")]
+    Task<PluginUpdateResultDto> StartUpdaterUpdateAsync(Guid id);
+
+    /// <summary>
     /// Saves the plugin's Recording and Combat log switches for this server. A separate call from the full-record
     /// <c>UpdateAsync</c> on purpose - see <see cref="UpdateServerPluginSettingsDto"/>.
     /// </summary>
@@ -190,6 +212,46 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     /// </summary>
     [Get("/plan-limit")]
     Task<ServerPlanLimitDto> GetPlanLimitAsync();
+
+    /// <summary>
+    /// A server's in-game (F7) reports, newest first. Needs <c>RustServer.ViewReports</c>: without it the Api answers <c>403</c>,
+    /// which the caller shows as "not allowed", not as an error.
+    /// </summary>
+    [Get("/{id}/reports")]
+    Task<ServerReportListDto> GetReportsAsync(
+        Guid id,
+        [Query] int pageNumber = 1,
+        [Query] int pageSize = 25,
+        [Query] ServerReportType? type = null,
+        [Query] ServerReportStatus? status = null,
+        [Query] string? targetSteamId = null);
+
+    /// <summary>How many of the server's reports are still new, for the tab's badge. Same permission as the list.</summary>
+    [Get("/{id}/reports/count")]
+    Task<ServerReportCountDto> GetReportCountAsync(Guid id);
+
+    /// <summary>A report's screenshot as the raw response, so the caller can hand it to the browser without buffering it here.</summary>
+    [Get("/{id}/reports/{reportId}/screenshot")]
+    Task<HttpResponseMessage> GetReportScreenshotAsync(Guid id, Guid reportId);
+
+    /// <summary>Changes what has been done about a report. Needs <c>RustServer.ManageReports</c> as well as the view permission.</summary>
+    [Put("/{id}/reports/{reportId}/status")]
+    Task<ServerReportDto> SetReportStatusAsync(Guid id, Guid reportId, [Body] UpdateServerReportStatusDto status);
+
+    /// <summary>
+    /// The address to paste into the game server's <c>server.reportsServerEndpoint</c>. The first ask mints the secret in it. Needs
+    /// <c>RustServer.ManageReportForwarding</c> (<c>403</c> otherwise), because the address contains that secret.
+    /// </summary>
+    [Get("/{id}/report-forwarding")]
+    Task<ReportForwardingDto> GetReportForwardingAsync(Guid id);
+
+    /// <summary>Replaces the secret; the previous address stops working immediately.</summary>
+    [Post("/{id}/report-forwarding/rotate")]
+    Task<ReportForwardingDto> RotateReportForwardingAsync(Guid id);
+
+    /// <summary>Asks the game server what it is set to and compares it to the address.</summary>
+    [Post("/{id}/report-forwarding/verify")]
+    Task<VerifyReportForwardingResultDto> VerifyReportForwardingAsync(Guid id);
 }
 
 /// <summary>
