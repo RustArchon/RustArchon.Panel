@@ -235,6 +235,11 @@
                             </NavLink>
                         </div>
                         <div class="nav-item nav-subitem px-3">
+                            <NavLink class="nav-link" href="Admin/Plugin">
+                                <i class="bi bi-plug-fill" aria-hidden="true"></i> @Localizer["Plugin"]
+                            </NavLink>
+                        </div>
+                        <div class="nav-item nav-subitem px-3">
                             <NavLink class="nav-link" href="Admin/Themes">
                                 <i class="bi bi-palette-fill" aria-hidden="true"></i> @Localizer["Themes"]
                             </NavLink>
@@ -309,7 +314,7 @@
         ["Billing/Reports", "Admin/Invoices", "Admin/Plans", "Admin/Discounts"];
     private static readonly string[] PaymentsHrefs = ["Payments/Reports"];
     private static readonly string[] ConfigHrefs =
-        ["Admin/InvitationCodes", "Admin/PlatformSettings", "Admin/Themes", "Admin/EmailTemplates", "Admin/EmailPlaceholders"];
+        ["Admin/InvitationCodes", "Admin/PlatformSettings", "Admin/Plugin", "Admin/Themes", "Admin/EmailTemplates", "Admin/EmailPlaceholders"];
 
     protected override async Task OnInitializedAsync()
     {

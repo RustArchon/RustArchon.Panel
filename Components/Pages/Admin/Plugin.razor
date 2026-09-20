@@ -1,0 +1,529 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/Plugin"
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IPluginAdminApiClient Client
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@Localizer["Plugin"]</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h1>@Localizer["RustArchon plugin"]</h1>
+</div>
+<p class="text-muted">
+    @Localizer["The signing key that vouches for the plugin, and the plugin files this Panel delivers to game servers. Every action here is recorded in the audit log below."]
+</p>
+
+@if (accessDenied)
+{
+    <div class="alert alert-warning" data-testid="plugin-admin-denied">
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage the plugin."]
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert" data-testid="plugin-admin-error">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert" data-testid="plugin-admin-success">
+            @successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    @if (loading)
+    {
+        <p><em>@Localizer["Loading..."]</em></p>
+    }
+    else
+    {
+        @* ============================ Signing keys ============================ *@
+        <div class="card mb-4" data-testid="plugin-keys">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h2 class="h5 mb-0">@Localizer["Signing keys"]</h2>
+                    <button type="button" class="btn btn-sm btn-outline-danger" data-testid="rotate-key" disabled="@busy"
+                            @onclick="StartRotate">
+                        <i class="bi bi-arrow-repeat"></i> @Localizer["Rotate key"]
+                    </button>
+                </div>
+                <p class="small text-muted">
+                    @Localizer["One key is active and signs everything new. Every earlier key is kept: a server that still trusts one is moved to the active key in a single update. Nothing is ever deleted."]
+                </p>
+
+                @if (confirm == Confirm.Rotate)
+                {
+                    <div class="border rounded p-3 mb-3" data-testid="confirm-rotate">
+                        <p class="mb-2">@Localizer["Rotating makes a new key the active one. The current key is kept so servers still on it can be updated. Plugins already installed keep working."]</p>
+                        <div class="mb-2">
+                            <label class="form-label small" for="rotate-note">@Localizer["Note (optional)"]</label>
+                            <input id="rotate-note" class="form-control form-control-sm" maxlength="500" @bind="note" @bind:event="oninput" />
+                        </div>
+                        <div class="form-check mb-2">
+                            <input id="rotate-revoke" class="form-check-input" type="checkbox" @bind="revokeCurrent" />
+                            <label class="form-check-label" for="rotate-revoke">@Localizer["Also revoke the current key (suspected compromise)"]</label>
+                        </div>
+                        @if (revokeCurrent)
+                        {
+                            <div class="alert alert-warning py-2 small" data-testid="revoke-warning">
+                                @Localizer["A revoked key never signs again. Servers still on it cannot be updated from here: their plugin must be downloaded and installed by hand."]
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small" for="rotate-reason">@Localizer["Reason (required)"]</label>
+                                <input id="rotate-reason" class="form-control form-control-sm" maxlength="500" @bind="reason" @bind:event="oninput" />
+                            </div>
+                        }
+                        <button type="button" class="btn btn-danger btn-sm me-2" data-testid="confirm-rotate-go" disabled="@(busy || (revokeCurrent && string.IsNullOrWhiteSpace(reason)))"
+                                @onclick="RotateAsync">@Localizer["Rotate now"]</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CancelConfirm">@Localizer["Cancel"]</button>
+                    </div>
+                }
+
+                @if (confirm == Confirm.Revoke && revokeTarget is not null)
+                {
+                    <div class="border border-danger rounded p-3 mb-3" data-testid="confirm-revoke">
+                        <p class="mb-2">
+                            @Localizer["Revoke key"] <code>@revokeTarget</code>?
+                            @Localizer["It will never sign again. Servers still on it must have their plugin downloaded and installed by hand."]
+                        </p>
+                        <div class="mb-2">
+                            <label class="form-label small" for="revoke-reason">@Localizer["Reason (required)"]</label>
+                            <input id="revoke-reason" class="form-control form-control-sm" maxlength="500" @bind="reason" @bind:event="oninput" />
+                        </div>
+                        <button type="button" class="btn btn-danger btn-sm me-2" data-testid="confirm-revoke-go" disabled="@(busy || string.IsNullOrWhiteSpace(reason))"
+                                @onclick="RevokeAsync">@Localizer["Revoke"]</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CancelConfirm">@Localizer["Cancel"]</button>
+                    </div>
+                }
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>@Localizer["Key"]</th>
+                                <th>@Localizer["State"]</th>
+                                <th>@Localizer["Servers last reporting it"]</th>
+                                <th>@Localizer["Details"]</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var key in keys)
+                            {
+                                <tr data-testid="key-row" data-fingerprint="@key.Fingerprint">
+                                    <td><code>@key.Fingerprint</code></td>
+                                    <td>
+                                        @if (key.State == "active")
+                                        {
+                                            <span class="badge bg-success">@Localizer["Active"]</span>
+                                        }
+                                        else if (key.State == "retired")
+                                        {
+                                            <span class="badge bg-secondary">@Localizer["Retired"]</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-danger">@Localizer["Revoked"]</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @key.ServersReporting
+                                        @if (key.LastReportedUtc is not null)
+                                        {
+                                            <span class="text-muted small">· @Localizer["last"] @key.LastReportedUtc.Value.ToString("yyyy-MM-dd HH:mm") UTC</span>
+                                        }
+                                    </td>
+                                    <td class="small text-muted">
+                                        @if (key.RevokedAtUtc is not null)
+                                        {
+                                            @Localizer["Revoked"] @key.RevokedAtUtc.Value.ToString("yyyy-MM-dd") <text>-</text> @key.RevokedReason
+                                        }
+                                        else if (key.RetiredAtUtc is not null)
+                                        {
+                                            @Localizer["Retired"] @key.RetiredAtUtc.Value.ToString("yyyy-MM-dd")
+                                        }
+                                    </td>
+                                    <td class="text-end">
+                                        @if (key.State == "retired")
+                                        {
+                                            <button type="button" class="btn btn-sm btn-outline-danger" data-testid="revoke-key" disabled="@busy"
+                                                    @onclick="() => StartRevoke(key.Fingerprint)">@Localizer["Revoke"]</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <p class="small text-muted mt-2 mb-0">
+                    @Localizer["The count is only what servers last reported. An offline or lagging server reports nothing, so a low number never means a key is unused."]
+                </p>
+            </div>
+        </div>
+
+        @* ============================ Releases ============================ *@
+        <div class="card mb-4" data-testid="plugin-releases">
+            <div class="card-body">
+                <h2 class="h5">@Localizer["Plugin releases"]</h2>
+                <p class="small text-muted">
+                    @Localizer["Until a release is published, the Panel delivers the plugin built into it. An uploaded file is signed by this Panel and pushed to game servers that run it with full privileges, so it is only a draft until you publish it."]
+                </p>
+
+                @if (releases is not null)
+                {
+                    <ul class="list-unstyled small mb-3" data-testid="served">
+                        <li>
+                            <strong>@Localizer["Plugin"]</strong>:
+                            @Localizer["serving"] <code>@(releases.Main.ServedVersion ?? "?")</code>
+                            <span class="text-muted">(@(releases.Main.FromRelease ? Localizer["uploaded release"] : Localizer["built-in"]); @Localizer["built-in version"] @(releases.Main.EmbeddedVersion ?? "?"))</span>
+                        </li>
+                        <li>
+                            <strong>@Localizer["Updater"]</strong>:
+                            @Localizer["serving"] <code>@(releases.Updater.ServedVersion ?? "?")</code>
+                            <span class="text-muted">(@(releases.Updater.FromRelease ? Localizer["uploaded release"] : Localizer["built-in"]); @Localizer["built-in version"] @(releases.Updater.EmbeddedVersion ?? "?"))</span>
+                        </li>
+                    </ul>
+                }
+
+                <div class="border rounded p-3 mb-3" data-testid="upload">
+                    <h3 class="h6">@Localizer["Upload a release"]</h3>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label small" for="upload-kind">@Localizer["Which file"]</label>
+                            <select id="upload-kind" class="form-select form-select-sm" @bind="uploadKind">
+                                <option value="main">RustArchon.cs</option>
+                                <option value="updater">RustArchonUpdater.cs</option>
+                            </select>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small" for="upload-file">@Localizer["Source file"]</label>
+                            <InputFile id="upload-file" class="form-control form-control-sm" accept=".cs" OnChange="OnFileChosen" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small" for="upload-notes">@Localizer["Notes (optional)"]</label>
+                            <input id="upload-notes" class="form-control form-control-sm" maxlength="500" @bind="uploadNotes" @bind:event="oninput" />
+                        </div>
+                    </div>
+                    <p class="small text-muted mt-2 mb-2">
+                        @Localizer["Upload the raw source, not a file downloaded from a Panel. It must not already be stamped or signed."]
+                    </p>
+                    <button type="button" class="btn btn-sm btn-primary" data-testid="upload-go" disabled="@(busy || chosenFile is null)"
+                            @onclick="UploadAsync">
+                        <i class="bi bi-upload"></i> @Localizer["Upload as draft"]
+                    </button>
+                </div>
+
+                @if (confirm == Confirm.Publish && releaseTarget is not null)
+                {
+                    <div class="border rounded p-3 mb-3" data-testid="confirm-publish">
+                        <p class="mb-2">
+                            @Localizer["Publish"] <strong>@KindLabel(releaseTarget.Kind) @releaseTarget.Version</strong>?
+                            @Localizer["Once published, servers can be updated to it."]
+                        </p>
+                        <button type="button" class="btn btn-primary btn-sm me-2" data-testid="confirm-publish-go" disabled="@busy" @onclick="PublishAsync">@Localizer["Publish"]</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CancelConfirm">@Localizer["Cancel"]</button>
+                    </div>
+                }
+
+                @if (confirm == Confirm.Withdraw && releaseTarget is not null)
+                {
+                    <div class="border border-danger rounded p-3 mb-3" data-testid="confirm-withdraw">
+                        <p class="mb-2">@Localizer["Withdraw"] <strong>@KindLabel(releaseTarget.Kind) @releaseTarget.Version</strong>? @Localizer["It is taken out of service for good. It is kept, never deleted."]</p>
+                        <div class="mb-2">
+                            <label class="form-label small" for="withdraw-reason">@Localizer["Reason (required)"]</label>
+                            <input id="withdraw-reason" class="form-control form-control-sm" maxlength="500" @bind="reason" @bind:event="oninput" />
+                        </div>
+                        <button type="button" class="btn btn-danger btn-sm me-2" data-testid="confirm-withdraw-go" disabled="@(busy || string.IsNullOrWhiteSpace(reason))" @onclick="WithdrawAsync">@Localizer["Withdraw"]</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CancelConfirm">@Localizer["Cancel"]</button>
+                    </div>
+                }
+
+                @if (releases is null || releases.Releases.Count == 0)
+                {
+                    <p class="small text-muted mb-0" data-testid="no-releases">@Localizer["No releases uploaded yet."]</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>@Localizer["File"]</th>
+                                    <th>@Localizer["Version"]</th>
+                                    <th>@Localizer["State"]</th>
+                                    <th>@Localizer["Uploaded"]</th>
+                                    <th>@Localizer["Checksum"]</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var release in releases.Releases)
+                                {
+                                    <tr data-testid="release-row" data-id="@release.Id">
+                                        <td>@KindLabel(release.Kind)</td>
+                                        <td><code>@release.Version</code></td>
+                                        <td>
+                                            @if (release.State == "published")
+                                            {
+                                                <span class="badge bg-success">@Localizer["Published"]</span>
+                                                @if (release.IsServed)
+                                                {
+                                                    <span class="badge bg-primary" data-testid="release-served">@Localizer["Serving"]</span>
+                                                }
+                                            }
+                                            else if (release.State == "draft")
+                                            {
+                                                <span class="badge bg-secondary">@Localizer["Draft"]</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-danger" title="@release.WithdrawnReason">@Localizer["Withdrawn"]</span>
+                                            }
+                                        </td>
+                                        <td class="small text-muted">@release.UploadedAtUtc.ToString("yyyy-MM-dd HH:mm") UTC · @release.UploadedBy</td>
+                                        <td class="small"><code>@release.Sha256[..12]</code></td>
+                                        <td class="text-end">
+                                            @if (release.State == "draft")
+                                            {
+                                                <button type="button" class="btn btn-sm btn-outline-primary me-1" data-testid="publish-release" disabled="@busy"
+                                                        @onclick="() => StartPublish(release)">@Localizer["Publish"]</button>
+                                            }
+                                            @if (release.State != "withdrawn")
+                                            {
+                                                <button type="button" class="btn btn-sm btn-outline-danger" data-testid="withdraw-release" disabled="@busy"
+                                                        @onclick="() => StartWithdraw(release)">@Localizer["Withdraw"]</button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* ============================ Audit log ============================ *@
+        <div class="card mb-4" data-testid="plugin-events">
+            <div class="card-body">
+                <h2 class="h5">@Localizer["Audit log"]</h2>
+                @if (events.Count == 0)
+                {
+                    <p class="small text-muted mb-0">@Localizer["Nothing has been done here yet."]</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                                @foreach (var e in events)
+                                {
+                                    <tr data-testid="event-row">
+                                        <td class="small text-muted text-nowrap">@e.AtUtc.ToString("yyyy-MM-dd HH:mm") UTC</td>
+                                        <td>@EventLabel(e.Kind)</td>
+                                        <td><code>@e.Subject</code></td>
+                                        <td class="small">@e.Actor</td>
+                                        <td class="small text-muted">@e.Detail</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private enum Confirm { None, Rotate, Revoke, Publish, Withdraw }
+
+    private const long MaxFileBytes = 512 * 1024;
+
+    private List<PluginKeyDto> keys = new();
+    private PluginReleasesDto? releases;
+    private List<PluginAdminEventDto> events = new();
+
+    private bool loading = true;
+    private bool accessDenied;
+    private bool busy;
+    private string? errorMessage;
+    private string? successMessage;
+
+    private Confirm confirm = Confirm.None;
+    private string? note;
+    private string? reason;
+    private bool revokeCurrent;
+    private string? revokeTarget;
+    private PluginReleaseDto? releaseTarget;
+
+    private string uploadKind = "main";
+    private string? uploadNotes;
+    private IBrowserFile? chosenFile;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            keys = await Client.GetKeysAsync();
+            releases = await Client.GetReleasesAsync();
+            events = await Client.GetEventsAsync(50);
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load the plugin page");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private void CancelConfirm()
+    {
+        confirm = Confirm.None;
+        note = null;
+        reason = null;
+        revokeCurrent = false;
+        revokeTarget = null;
+        releaseTarget = null;
+    }
+
+    // Runs one action: shows its sentence on failure, reloads everything on success, never leaves the page stuck busy.
+    private async Task RunAsync(Func<Task<string>> action, string failureAction)
+    {
+        busy = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            successMessage = await action();
+            CancelConfirm();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, failureAction);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    // ---- keys ----------------------------------------------------------------------------------------------
+
+    private void StartRotate()
+    {
+        CancelConfirm();
+        confirm = Confirm.Rotate;
+    }
+
+    private Task RotateAsync() => RunAsync(async () =>
+    {
+        var created = await Client.RotateKeyAsync(new RotatePluginKeyRequestDto
+        {
+            Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim(),
+            RevokeCurrent = revokeCurrent,
+            RevokeReason = revokeCurrent ? reason?.Trim() : null
+        });
+        return string.Format(Localizer["The signing key was rotated. The new active key is {0}."], created.Fingerprint);
+    }, "rotate the key");
+
+    private void StartRevoke(string fingerprint)
+    {
+        CancelConfirm();
+        revokeTarget = fingerprint;
+        confirm = Confirm.Revoke;
+    }
+
+    private Task RevokeAsync() => RunAsync(async () =>
+    {
+        var target = revokeTarget!;
+        await Client.RevokeKeyAsync(target, new RevokePluginKeyRequestDto { Reason = reason!.Trim() });
+        return string.Format(Localizer["Key {0} was revoked."], target);
+    }, "revoke the key");
+
+    // ---- releases ------------------------------------------------------------------------------------------
+
+    private void OnFileChosen(InputFileChangeEventArgs e) => chosenFile = e.File;
+
+    private Task UploadAsync() => RunAsync(async () =>
+    {
+        var file = chosenFile!;
+        if (file.Size > MaxFileBytes)
+        {
+            throw new InvalidOperationException("too large");
+        }
+
+        await using var stream = file.OpenReadStream(MaxFileBytes);
+        var created = await Client.UploadReleaseAsync(
+            uploadKind, string.IsNullOrWhiteSpace(uploadNotes) ? null : uploadNotes.Trim(),
+            new Refit.StreamPart(stream, file.Name, "text/plain"));
+        chosenFile = null;
+        uploadNotes = null;
+        return string.Format(Localizer["Uploaded {0} {1} as a draft. Nothing is delivered until you publish it."], KindLabel(created.Kind), created.Version);
+    }, "upload the release");
+
+    private void StartPublish(PluginReleaseDto release)
+    {
+        CancelConfirm();
+        releaseTarget = release;
+        confirm = Confirm.Publish;
+    }
+
+    private Task PublishAsync() => RunAsync(async () =>
+    {
+        var published = await Client.PublishReleaseAsync(releaseTarget!.Id);
+        return published.IsServed
+            ? string.Format(Localizer["Published {0} {1}. It is now what this Panel delivers."], KindLabel(published.Kind), published.Version)
+            : string.Format(Localizer["Published {0} {1}. It is not newer than what is already delivered, so nothing changes yet."], KindLabel(published.Kind), published.Version);
+    }, "publish the release");
+
+    private void StartWithdraw(PluginReleaseDto release)
+    {
+        CancelConfirm();
+        releaseTarget = release;
+        confirm = Confirm.Withdraw;
+    }
+
+    private Task WithdrawAsync() => RunAsync(async () =>
+    {
+        var target = releaseTarget!;
+        await Client.WithdrawReleaseAsync(target.Id, new WithdrawPluginReleaseRequestDto { Reason = reason!.Trim() });
+        return string.Format(Localizer["Withdrew {0} {1}."], KindLabel(target.Kind), target.Version);
+    }, "withdraw the release");
+
+    private string KindLabel(string kind) => kind == "main" ? "RustArchon.cs" : "RustArchonUpdater.cs";
+
+    private string EventLabel(string kind) => kind switch
+    {
+        "KeyRotated" => Localizer["Key rotated"],
+        "KeyRevoked" => Localizer["Key revoked"],
+        "ReleaseUploaded" => Localizer["Release uploaded"],
+        "ReleasePublished" => Localizer["Release published"],
+        "ReleaseWithdrawn" => Localizer["Release withdrawn"],
+        _ => kind
+    };
+}

@@ -237,6 +237,12 @@ builder.Services.AddApiClient<IPlatformSettingsApiClient>($"{apiBaseUrl}/api/pla
     .AddHttpMessageHandler<JwtExchangeHandler>()
     .AddHttpMessageHandler<JwtAuthenticationHandler>();
 
+// Same handler chain, same Platform.ManageSettings gate: rotating the plugin signing key and uploading, publishing
+// and withdrawing plugin releases (see PluginAdminController).
+builder.Services.AddApiClient<IPluginAdminApiClient>($"{apiBaseUrl}/api/admin/plugin")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
 // Same handler chain again - gated by Platform.ManagePlans (see PlansController), independent of the
 // other two Site Admin permissions above.
 builder.Services.AddApiClient<IPlanApiClient>($"{apiBaseUrl}/api/plans")
@@ -445,6 +451,24 @@ builder.Services.AddSingleton<IEmailSender<ApplicationUser>, QueuedEmailSender>(
 // Live console/chat/status tail for a server's detail page - see RconHubClient's own remarks.
 builder.Services.AddScoped<IRconHubClient, RconHubClient>();
 
+// Backs /ingest/plugin/{serverId}/{token} below - forwards a game server's Updater to Api's internal download
+// endpoint. Raw bytes (the script is signed), so a named HttpClient rather than a Refit interface.
+builder.Services.AddHttpClient(PluginDownloadProxy.ClientName, client =>
+{
+    client.BaseAddress = new Uri(apiBaseUrl);
+    client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+});
+
+// Backs /ingest/plugin-map below - streams a game server's map picture to Api's internal upload endpoint. A named
+// HttpClient (raw bytes, streamed) rather than a Refit interface, and no overall timeout: a 24 MB upload over a slow link
+// legitimately takes longer than the default 100 seconds.
+builder.Services.AddHttpClient(PluginMapUploadProxy.ClientName, client =>
+{
+    client.BaseAddress = new Uri(apiBaseUrl);
+    client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+    client.Timeout = TimeSpan.FromMinutes(10);
+});
+
 builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
@@ -552,6 +576,23 @@ app.MapGet("/theme-assets/{themeId:guid}/{*path}", async (
     httpContext.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
     return Results.File(bytes, contentType);
 });
+
+// The RustArchon Updater's download door - anonymous by design (a game server has no login); the single-use,
+// per-server, short-lived token in the URL is the credential, and Api alone decides whether it is good. See
+// PluginDownloadProxy.
+app.MapGet("/ingest/plugin/{serverId:guid}/{token}", (
+    Guid serverId, string token, IHttpClientFactory httpClientFactory, HttpContext httpContext,
+    CancellationToken cancellationToken) =>
+    PluginDownloadProxy.HandleAsync(
+        serverId, token, httpClientFactory.CreateClient(PluginDownloadProxy.ClientName),
+        httpContext.Response, cancellationToken));
+
+// The map picture's upload door - anonymous by design (a game server has no login); the single-use, short-lived token in the
+// X-RustArchon-Upload-Token header is the credential, and Api alone decides whether it is good. See PluginMapUploadProxy.
+app.MapPost("/ingest/plugin-map", (
+    HttpContext httpContext, IHttpClientFactory httpClientFactory, CancellationToken cancellationToken) =>
+    PluginMapUploadProxy.HandleAsync(
+        httpContext.Request, httpClientFactory.CreateClient(PluginMapUploadProxy.ClientName), cancellationToken));
 
 // Stripe's webhook target - anonymous and unconditional, same "one public door" reasoning as the
 // tracking pixel and theme assets above: RustArchon.Api never publishes a port, so Stripe's servers
