@@ -1462,6 +1462,7 @@ else
                                         <div class="form-text" data-testid="plugin-combat-pending">@Localizer["Applying..."]</div>
                                     }
                                 </div>
+                                <div class="mt-3"><RecordingDisclosure /></div>
                                 @if (!pluginStatus.SettingsPersisted)
                                 {
                                     <p class="small text-warning mt-2 mb-0" data-testid="plugin-not-persisted">
@@ -1476,6 +1477,42 @@ else
                         }
                     </div>
                 </div>
+
+                @if (pluginFailures.Count > 0)
+                {
+                    var failedFiles = pluginFailures.GroupBy(f => f.FileName).ToList();
+                    <div class="card border-danger mb-3" data-testid="plugin-failures">
+                        <div class="card-body">
+                            <h3 class="h6">
+                                <i class="bi bi-exclamation-octagon text-danger"></i>
+                                @Localizer["Failed to load"]
+                                <span class="badge text-bg-danger" data-testid="plugin-failures-count">@failedFiles.Count</span>
+                            </h3>
+                            <p class="small text-muted mb-2">
+                                @Localizer["These plugin files are on the server but did not compile, so they are not running. This usually follows a Rust update that changed something the plugin uses; a newer version of the plugin normally fixes it."]
+                            </p>
+                            @foreach (var file in failedFiles)
+                            {
+                                <div class="mb-2" data-testid="plugin-failure" data-file="@file.Key">
+                                    <strong>@file.Key</strong>
+                                    @if (IsOwnPluginFile(file.Key))
+                                    {
+                                        <span class="badge text-bg-warning ms-1" data-testid="plugin-failure-own">@Localizer["This is the RustArchon plugin"]</span>
+                                        <div class="small" data-testid="plugin-failure-own-hint">
+                                            @Localizer["The RustArchon plugin itself failed to compile on this server. Download the plugin again with the button above and replace the file on the server."]
+                                        </div>
+                                    }
+                                    <ul class="small mb-0">
+                                        @foreach (var reason in file)
+                                        {
+                                            <li data-testid="plugin-failure-reason"><code>@reason.Line:@reason.Column</code> @reason.Message</li>
+                                        }
+                                    </ul>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
 
                 @if (pluginsError is not null)
                 {
@@ -1882,6 +1919,7 @@ else
     private readonly List<ServerPluginDto> plugins = new();
     private ServerModFramework? pluginFramework;
     private readonly List<PluginUpdateNoticeDto> pluginUpdates = new();
+    private readonly List<ServerPluginFailureDto> pluginFailures = new();
     private readonly List<PluginUpdateAttemptDto> pluginAttempts = new();
     private bool loadingPlugins = true;
     private string? pluginsError;
@@ -2576,6 +2614,18 @@ else
             pluginAttempts.Clear();
         }
 
+        // The plugins that did not compile, separately again: a failure here just shows none, and never hides the list or the card.
+        try
+        {
+            var failed = await RustServerClient.GetPluginFailuresAsync(Id);
+            pluginFailures.Clear();
+            pluginFailures.AddRange(failed);
+        }
+        catch (Exception)
+        {
+            pluginFailures.Clear();
+        }
+
         // Separate from the list so a failure here (or a server that has never reported one) simply shows no update notices.
         try
         {
@@ -2622,6 +2672,11 @@ else
     }
 
     /// <summary>The update notice for an installed plugin, if UpdateChecker reported one that still holds.</summary>
+    // Whether a failed file is one of ours, which deserves a plainer word than a third party's.
+    private static bool IsOwnPluginFile(string fileName) =>
+        string.Equals(fileName, "RustArchon.cs", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(fileName, "RustArchonUpdater.cs", StringComparison.OrdinalIgnoreCase);
+
     private PluginUpdateNoticeDto? UpdateFor(ServerPluginDto plugin) =>
         pluginUpdates.FirstOrDefault(u => string.Equals(u.Name, plugin.Name, StringComparison.OrdinalIgnoreCase));
 

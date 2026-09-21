@@ -66,6 +66,18 @@ else
                     @Localizer["One key is active and signs everything new. Every earlier key is kept: a server that still trusts one is moved to the active key in a single update. Nothing is ever deleted."]
                 </p>
 
+                @if (reminder is { Due: true })
+                {
+                    <div class="alert alert-warning small d-flex justify-content-between align-items-center" data-testid="key-rotation-reminder">
+                        <span>
+                            <i class="bi bi-bell"></i>
+                            @string.Format(Localizer["The active signing key {0} has been in use for {1} days (since {2}). Consider rotating it. Rotating is safe: servers on the old key are moved to the new one in a single update. Nothing is ever rotated for you."], reminder.Fingerprint, reminder.AgeDays, reminder.ActiveSinceUtc?.ToString("yyyy-MM-dd"))
+                            @string.Format(Localizer["This reminder follows the platform setting 'Signing key rotation reminder (days)' ({0}); set it to 0 to turn it off."], reminder.ReminderDays)
+                        </span>
+                        <button type="button" class="btn btn-sm btn-outline-warning ms-3 text-nowrap" data-testid="reminder-rotate" disabled="@busy" @onclick="StartRotate">@Localizer["Rotate key"]</button>
+                    </div>
+                }
+
                 @if (confirm == Confirm.Rotate)
                 {
                     <div class="border rounded p-3 mb-3" data-testid="confirm-rotate">
@@ -149,7 +161,11 @@ else
                                         }
                                     </td>
                                     <td class="small text-muted">
-                                        @if (key.RevokedAtUtc is not null)
+                                        @if (key.ActiveSinceUtc is not null)
+                                        {
+                                            <span data-testid="key-active-since">@Localizer["Active since"] @key.ActiveSinceUtc.Value.ToString("yyyy-MM-dd")</span>
+                                        }
+                                        else if (key.RevokedAtUtc is not null)
                                         {
                                             @Localizer["Revoked"] @key.RevokedAtUtc.Value.ToString("yyyy-MM-dd") <text>-</text> @key.RevokedReason
                                         }
@@ -292,14 +308,44 @@ else
                             <strong>@Localizer["Plugin"]</strong>:
                             @Localizer["serving"] <code>@(releases.Main.ServedVersion ?? "?")</code>
                             <span class="text-muted">(@(releases.Main.FromRelease ? Localizer["uploaded release"] : Localizer["built-in"]); @Localizer["built-in version"] @(releases.Main.EmbeddedVersion ?? "?"))</span>
+                            @RolloutNote(releases.Main)
                         </li>
                         <li>
                             <strong>@Localizer["Updater"]</strong>:
                             @Localizer["serving"] <code>@(releases.Updater.ServedVersion ?? "?")</code>
                             <span class="text-muted">(@(releases.Updater.FromRelease ? Localizer["uploaded release"] : Localizer["built-in"]); @Localizer["built-in version"] @(releases.Updater.EmbeddedVersion ?? "?"))</span>
+                            @RolloutNote(releases.Updater)
                         </li>
                     </ul>
                 }
+
+                <div class="border rounded p-3 mb-3" data-testid="sign-file">
+                    <h3 class="h6">@Localizer["Sign a file without publishing it"]</h3>
+                    <p class="small text-muted">
+                        @Localizer["For a custom build of your own: this Panel checks the file exactly as it checks an upload, signs it with the active key and hands it back to install by hand on a server that trusts this Panel. Nothing is stored and nothing is delivered to any server. Who signed what, and why, is recorded in the audit log."]
+                    </p>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label small" for="sign-kind">@Localizer["Which file"]</label>
+                            <select id="sign-kind" class="form-select form-select-sm" @bind="signKind">
+                                <option value="main">RustArchon.cs</option>
+                                <option value="updater">RustArchonUpdater.cs</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small" for="sign-file">@Localizer["Source file"]</label>
+                            <InputFile id="sign-file" class="form-control form-control-sm" accept=".cs" OnChange="OnSignFileChosen" />
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small" for="sign-note">@Localizer["Why (required, recorded in the audit log)"]</label>
+                            <input id="sign-note" class="form-control form-control-sm" maxlength="500" data-testid="sign-note" @bind="signNote" @bind:event="oninput" />
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-primary mt-2" data-testid="sign-go"
+                            disabled="@(busy || signFile is null || (signNote?.Trim().Length ?? 0) < MinSigningNoteLength)" @onclick="SignFileAsync">
+                        <i class="bi bi-patch-check"></i> @Localizer["Sign and download"]
+                    </button>
+                </div>
 
                 <div class="border rounded p-3 mb-3" data-testid="upload">
                     <h3 class="h6">@Localizer["Upload a release"]</h3>
@@ -399,6 +445,12 @@ else
                                         <td class="small text-muted">@release.UploadedAtUtc.ToString("yyyy-MM-dd HH:mm") UTC · @release.UploadedBy</td>
                                         <td class="small"><code>@release.Sha256[..12]</code></td>
                                         <td class="text-end">
+                                            @if (release.State != "withdrawn")
+                                            {
+                                                <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-testid="download-release" disabled="@busy"
+                                                        title="@Localizer["Download this release signed with the active key, to test it on a server before publishing"]"
+                                                        @onclick="() => DownloadReleaseAsync(release)"><i class="bi bi-download"></i></button>
+                                            }
                                             @if (release.State == "draft")
                                             {
                                                 <button type="button" class="btn btn-sm btn-outline-primary me-1" data-testid="publish-release" disabled="@busy"
@@ -488,6 +540,12 @@ else
     private string? uploadNotes;
     private IBrowserFile? chosenFile;
 
+    private const int MinSigningNoteLength = 3;
+    private string signKind = "main";
+    private string? signNote;
+    private IBrowserFile? signFile;
+    private PluginKeyReminderDto? reminder;
+
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
     private async Task LoadAsync()
@@ -499,6 +557,16 @@ else
             releases = await Client.GetReleasesAsync();
             events = await Client.GetEventsAsync(50);
             accessDenied = false;
+
+            // A reminder is a nicety: if it cannot be read the page is exactly as useful without it.
+            try
+            {
+                reminder = await Client.GetKeyReminderAsync();
+            }
+            catch (Exception)
+            {
+                reminder = null;
+            }
         }
         catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
         {
@@ -784,6 +852,109 @@ else
 
     private string KindLabel(string kind) => kind == "main" ? "RustArchon.cs" : "RustArchonUpdater.cs";
 
+    // ---- signing a file, and downloading a stored release signed ---------------------------------------------
+
+    private void OnSignFileChosen(InputFileChangeEventArgs e) => signFile = e.File;
+
+    private async Task SignFileAsync()
+    {
+        var file = signFile!;
+        if (file.Size > MaxFileBytes)
+        {
+            errorMessage = string.Format(Localizer["That file is over {0} KiB."], MaxFileBytes / 1024);
+            return;
+        }
+
+        busy = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            await using var stream = file.OpenReadStream(MaxFileBytes);
+            using var response = await Client.SignFileAsync(signKind, signNote!.Trim(), new Refit.StreamPart(stream, file.Name, "text/plain"));
+            var fileName = await HandOverFileAsync(response, KindLabel(signKind), "sign the file");
+            if (fileName is not null)
+            {
+                signFile = null;
+                signNote = null;
+                successMessage = string.Format(Localizer["Signed {0} with the active key. Install it by hand on a server that trusts this Panel. It was recorded in the audit log."], fileName);
+                events = await Client.GetEventsAsync(50);
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "sign the file");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task DownloadReleaseAsync(PluginReleaseDto release)
+    {
+        busy = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            using var response = await Client.DownloadReleaseAsync(release.Id);
+            var fileName = await HandOverFileAsync(response, KindLabel(release.Kind), "download the release");
+            if (fileName is not null)
+            {
+                successMessage = string.Format(Localizer["Downloaded {0} {1}, signed with the active key, for a test install. It was recorded in the audit log."], KindLabel(release.Kind), release.Version);
+                events = await Client.GetEventsAsync(50);
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "download the release");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    // Hands a signed file the Api returned to the browser byte for byte (the signature covers its exact bytes). Returns its name, or null after
+    // putting the Api's sentence (or a generic one) on the page.
+    private async Task<string?> HandOverFileAsync(HttpResponseMessage response, string fallbackName, string failureAction)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            errorMessage = response.StatusCode == HttpStatusCode.BadRequest
+                ? await response.Content.ReadAsStringAsync()
+                : ApiErrorMessage.For(new InvalidOperationException($"The Api answered {(int)response.StatusCode}."), failureAction);
+            return null;
+        }
+
+        var fileName = response.Content.Headers.ContentDisposition?.FileNameStar
+            ?? response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
+            ?? fallbackName;
+        var bytes = await response.Content.ReadAsByteArrayAsync();
+        var module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/fileDownload.js");
+        await module.InvokeVoidAsync("downloadBytes", fileName, Convert.ToBase64String(bytes), "text/plain");
+        return fileName;
+    }
+
+    // How far a newly served version's staged roll-out has got, beside what is being served. Nothing when there is no ramp or it has not begun.
+    private RenderFragment RolloutNote(PluginServedDto served) => builder =>
+    {
+        if (served.RolloutPercent is null || served.RolloutHours <= 0 || served.RolloutStartedUtc is null)
+        {
+            return;
+        }
+
+        var text = served.RolloutPercent >= 100
+            ? string.Format(Localizer["rolled out to every server that updates automatically"])
+            : string.Format(Localizer["rolling out: {0}% of servers that update automatically are eligible now, everyone by {1} UTC"], served.RolloutPercent, served.RolloutStartedUtc.Value.AddHours(served.RolloutHours).ToString("yyyy-MM-dd HH:mm"));
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "text-muted ms-3");
+        builder.AddAttribute(2, "data-testid", "rollout-" + served.Kind);
+        builder.AddContent(3, text);
+        builder.CloseElement();
+    };
+
     private string EventLabel(string kind) => kind switch
     {
         "KeyRotated" => Localizer["Key rotated"],
@@ -793,6 +964,9 @@ else
         "ReleaseUploaded" => Localizer["Release uploaded"],
         "ReleasePublished" => Localizer["Release published"],
         "ReleaseWithdrawn" => Localizer["Release withdrawn"],
+        "KeyGenerated" => Localizer["Key generated"],
+        "FileSigned" => Localizer["File signed"],
+        "ReleaseSigned" => Localizer["Release downloaded signed"],
         _ => kind
     };
 }

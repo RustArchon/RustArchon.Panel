@@ -176,9 +176,10 @@ else if (servers != null)
                                 <a class="btn btn-sm btn-primary" href="@($"servers/{server.Id}")">
                                     <i class="bi bi-terminal"></i> @Localizer["View"]
                                 </a>
-                                @if (server.IsEnabled && server.ConnectionStatus != RconConnectionStatus.Connected)
+                                @if (server.SetupCompletedAtUtc is null)
                                 {
-                                    @* Picks the setup wizard back up: it shows why the server is not connected and lets the details be fixed. *@
+                                    @* Picks the setup wizard back up for a server whose wizard was never finished. Keyed on that, not on the connection: a finished
+                                       server that is offline for a while is not half-added, and a connected one can still have steps left. *@
                                     <a class="btn btn-sm btn-outline-warning" href="@($"servers/{server.Id}/setup")" data-testid="resume-setup">
                                         <i class="bi bi-wrench"></i> @Localizer["Finish setup"]
                                     </a>

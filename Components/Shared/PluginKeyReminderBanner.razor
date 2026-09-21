@@ -1,0 +1,43 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@using RustArchon.Panel.Clients
+@using RustArchon.Shared.DTOs
+@inject IPluginAdminApiClient PluginAdminClient
+
+@*
+    Mounted once in MainLayout, beside NexusBlockedBanner and for the same reasons: a site administrator might land on any page first, and the
+    endpoint is already restricted to the platform-admin permission, so everyone else simply gets a 403, which the catch below turns into "render
+    nothing" - no special-casing of who anybody is.
+
+    Deliberately silent on any other failure too: a missed nudge is never worse than a broken layout on every page. It only ever says so; the
+    Plugin page is where the key is rotated, and nothing rotates by itself. Dismissing it hides it for this visit only - it is back next time,
+    until the key is rotated or the reminder setting is changed, because a reminder that stays dismissed is not one.
+*@
+@if (reminder is { Due: true } && !dismissed)
+{
+    <div class="alert alert-warning alert-dismissible mb-3" role="alert" data-testid="key-reminder-banner">
+        <i class="bi bi-key" aria-hidden="true"></i>
+        <strong>@Localizer["The plugin signing key is due for a look."]</strong>
+        @string.Format(Localizer["It has been the active key for {0} days."], reminder.AgeDays)
+        <a href="Admin/Plugin" class="alert-link ms-1">@Localizer["Consider rotating it"]</a>
+        <button type="button" class="btn-close" aria-label="@Localizer["Dismiss"]" data-testid="key-reminder-dismiss" @onclick="() => dismissed = true"></button>
+    </div>
+}
+
+@code {
+    private PluginKeyReminderDto? reminder;
+    private bool dismissed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            reminder = await PluginAdminClient.GetKeyReminderAsync();
+        }
+        catch
+        {
+            // See this component's own remarks above.
+            reminder = null;
+        }
+    }
+}

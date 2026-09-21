@@ -1,0 +1,43 @@
+@* Copyright ©2026 Scott Blomfield *@
+@* What recording is, in the customer's terms: a feature to be proud of first, with the plain facts a server owner needs (what, who, how long,
+   how to stop it) and a line they can put in their own rules. Used where recording is offered (the Add Server wizard) and where it is switched
+   (the server's Plugins tab), so the two never say different things. *@
+
+<details class="recording-disclosure mb-3" data-testid="recording-disclosure" open="@Open">
+    <summary class="fw-semibold">@Localizer["What recording gives you"]</summary>
+    <div class="mt-2 small">
+        <p data-testid="recording-disclosure-benefit">
+            @Localizer["With recording on, the plugin keeps a history of what happens on your server: where players were, who fought whom, and how your map and bases look. That history powers the live map, the combat log and base locations, so you can settle a dispute or catch a cheater with evidence instead of guesses."]
+        </p>
+        <ul class="mb-2">
+            <li data-testid="recording-disclosure-what">
+                <strong>@Localizer["What is recorded:"]</strong>
+                @Localizer["player positions a few seconds apart while they are online, fights (who hit whom, with what, and where) and who is authorized at each tool cupboard."]
+            </li>
+            <li data-testid="recording-disclosure-who">
+                <strong>@Localizer["Who can see it:"]</strong>
+                @Localizer["only people in your organization. Player positions need their own permission, which the Owner holds and can give to trusted roles, and every look at them is logged with who made it."]
+            </li>
+            <li data-testid="recording-disclosure-how-long">
+                <strong>@Localizer["How long it is kept:"]</strong>
+                @Localizer["for the number of days your plan includes, then it is deleted automatically."]
+            </li>
+            <li data-testid="recording-disclosure-control">
+                <strong>@Localizer["You are in control:"]</strong>
+                @Localizer["Recording and the combat log start on and can be turned off at any time on the server's Plugins tab; the plugin stops recording shortly after."]
+            </li>
+        </ul>
+        <p class="mb-1" data-testid="recording-disclosure-rules">
+            <strong>@Localizer["Tell your players:"]</strong>
+            @Localizer["most servers mention recording in their rules. You could use:"]
+        </p>
+        <blockquote class="border-start ps-3 mb-0 text-muted" data-testid="recording-disclosure-rules-text">
+            @Localizer["This server records player positions and combat to keep the game fair and to look into reports."]
+        </blockquote>
+    </div>
+</details>
+
+@code {
+    /// <summary>Whether the section starts expanded. The wizard shows it open; the Plugins tab keeps it folded beside the switches.</summary>
+    [Parameter] public bool Open { get; set; }
+}

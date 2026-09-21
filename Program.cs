@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Localization;
 using RustArchon.Panel;
 using RustArchon.Panel.Clients;
@@ -488,19 +489,25 @@ builder.Services.AddHttpClient(ReportIngestProxy.ClientName, client =>
 // The one anonymous door a game server can POST reports to, so it is limited per caller address (forwarded headers below make that the
 // real one, not the proxy's): a game server files a handful of reports a minute at the very most, and everything past the limit is
 // refused before it reaches the Api. The Api adds a per-server ceiling after authenticating, which is the one an attacker cannot use up
-// on a real server's behalf.
+// on a real server's behalf. The limit is a Platform Setting (ReportsPerAddressPerMinute), fetched from the Api and remembered by
+// ReportIngestLimit; its value is part of the partition key so a changed limit starts fresh windows instead of being ignored by old ones.
+builder.Services.TryAddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<ReportIngestLimit>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy(ReportIngestProxy.RateLimitPolicy, httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+    {
+        var perMinute = httpContext.RequestServices.GetRequiredService<ReportIngestLimit>().PerAddressPerMinute;
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: (httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown") + "|" + perMinute,
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 120,
+                PermitLimit = perMinute,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0
-            }));
+            });
+    });
 });
 
 builder.Services.AddHttpContextAccessor();
