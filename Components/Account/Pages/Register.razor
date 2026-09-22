@@ -23,6 +23,7 @@
 @inject IInvitationApiClient InvitationClient
 @inject IInternalRegistrationApiClient InternalRegistrationClient
 @inject IConfiguration Configuration
+@inject IUserProfileWriter ProfileWriter
 
 <PageTitle>@Localizer["Register"]</PageTitle>
 
@@ -176,12 +177,6 @@
         {
             var user = CreateUser();
 
-            // Captured at the moment of sign-up rather than left null until the switcher is first
-            // used - see ApplicationUser.PreferredCulture's remarks. CurrentUICulture is whatever
-            // UseRequestLocalization resolved for this request (cookie, browser Accept-Language, or the
-            // default), the same value the page itself was just rendered in.
-            user.PreferredCulture = CultureInfo.CurrentUICulture.Name;
-
             if (isBootstrapAdmin)
             {
                 user.EmailConfirmed = true;
@@ -199,6 +194,12 @@
             }
 
             Logger.LogInformation("User created a new account with password.");
+
+            // Their language, captured at the moment of sign-up rather than left unset until the switcher is first used, so an email sent about their
+            // account is worded in the language they actually read. CurrentUICulture is whatever UseRequestLocalization resolved for this request (cookie,
+            // browser Accept-Language, or the default), the same value the page itself was just rendered in. Recorded before the confirmation email is
+            // queued below, which is worded from it. Best effort - see IUserProfileWriter.
+            await ProfileWriter.SetPreferredCultureAsync(user.Id, CultureInfo.CurrentUICulture.Name);
 
             // Every new user needs their own tenant and an Owner role before they can call any
             // permission-gated API endpoint (see JumpStart ADR-012's bootstrapping note), so this

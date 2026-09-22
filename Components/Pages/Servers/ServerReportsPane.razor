@@ -3,14 +3,17 @@
 @using System.Text.Json
 @using Microsoft.JSInterop
 @using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
 @using RustArchon.Shared.DTOs
 @inject IRustServerApiClient RustServerClient
+@inject IUserDisplayNames DisplayNames
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
 @*
-    A server's in-game (F7) reports: the moderation inbox. Reading needs RustServer.ViewReports and changing a report's status needs
-    RustServer.ManageReports; a 403 from the Api only ever hides or disables the part that needs it. Everything a report says came from a
+    A server's in-game (F7) reports: the moderation inbox. Reading needs RustServer.ViewReports and changing a report's status, assigning it
+    or adding a note needs RustServer.ManageReports; a 403 from the Api only ever hides or disables the part that needs it. The Api speaks in
+    user ids, so the assignee and the notes' authors are turned into names here (IUserDisplayNames). Everything a report says came from a
     game server, so it is shown, never followed: text is encoded by Blazor, the picture is shown only from a blob: address that exists in
     this page, and the plugin's extra detail is printed as plain text.
 *@
@@ -74,6 +77,7 @@
                             <th>@Localizer["About"]</th>
                             <th>@Localizer["Subject"]</th>
                             <th>@Localizer["Status"]</th>
+                            <th>@Localizer["Assigned to"]</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -92,6 +96,7 @@
                                     }
                                 </td>
                                 <td><span class="badge @StatusBadge(report.Status)" data-testid="report-status">@StatusLabel(report.Status)</span></td>
+                                <td class="small" data-testid="report-assignee-cell">@(report.AssignedToUserId is { } assignee ? NameOf(assignee) : "—")</td>
                             </tr>
                         }
                     </tbody>
@@ -183,6 +188,65 @@
                     {
                         <div class="text-danger small mt-2" data-testid="report-status-forbidden">@Localizer["You are not allowed to change reports."]</div>
                     }
+
+                    <div class="mt-3" data-testid="report-assignment">
+                        <label class="form-label small mb-0" for="report-assignee">@Localizer["Assigned to"]</label>
+                        @if (assigneesForbidden || !assigneesLoaded)
+                        {
+                            <div data-testid="report-assignee-text">@(selected.AssignedToUserId is { } current ? NameOf(current) : Localizer["Unassigned"])</div>
+                        }
+                        else
+                        {
+                            <select id="report-assignee" class="form-select form-select-sm w-auto" data-testid="report-assignee"
+                                    disabled="@assigning" @onchange="OnAssigneeChanged">
+                                <option value="">@Localizer["Unassigned"]</option>
+                                @foreach (var candidate in AssigneeOptions(selected))
+                                {
+                                    <option value="@candidate" selected="@(selected.AssignedToUserId == candidate)">@NameOf(candidate)</option>
+                                }
+                            </select>
+                        }
+                        @if (assignError is not null)
+                        {
+                            <div class="text-danger small mt-1" data-testid="report-assign-error">@assignError</div>
+                        }
+                    </div>
+
+                    <h6 class="mt-4">@Localizer["Notes"]</h6>
+                    @if (notesLoading)
+                    {
+                        <p><em>@Localizer["Loading..."]</em></p>
+                    }
+                    else if (notes.Count == 0)
+                    {
+                        <p class="text-muted small" data-testid="report-notes-empty">@Localizer["No notes yet."]</p>
+                    }
+                    else
+                    {
+                        <ul class="list-group mb-2" data-testid="report-notes">
+                            @foreach (var note in notes)
+                            {
+                                <li class="list-group-item" data-testid="report-note" @key="note.Id">
+                                    <div style="white-space: pre-wrap;">@note.Content</div>
+                                    <div class="small text-muted mt-1">@NameOf(note.AuthorUserId) · @note.CreatedOn.ToLocalTime().ToString("g")</div>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    @if (notesError is not null)
+                    {
+                        <div class="text-danger small mb-2" data-testid="report-notes-error">@notesError</div>
+                    }
+                    <div class="mb-1">
+                        <label class="visually-hidden" for="report-note-input">@Localizer["Add a note"]</label>
+                        <textarea id="report-note-input" class="form-control form-control-sm" rows="2" maxlength="4000"
+                                  placeholder="@Localizer["Add a note"]" data-testid="report-note-input"
+                                  @bind="newNote" @bind:event="oninput"></textarea>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" data-testid="report-note-add"
+                            disabled="@(addingNote || string.IsNullOrWhiteSpace(newNote))" @onclick="AddNoteAsync">
+                        @Localizer["Add note"]
+                    </button>
                 </div>
             </div>
         }
@@ -214,6 +278,23 @@
     private ServerReportType? typeFilter;
     private ServerReportStatus? statusFilter;
     private int lastRefreshToken = int.MinValue;
+
+    // Names for the user ids the Api sends (assignees, note authors), filled as they turn up.
+    private readonly Dictionary<Guid, string> names = [];
+
+    // Who a report can be assigned to. Fetched once, when the first report is opened: it needs ManageReports, so a 403 just leaves the
+    // assignee read-only.
+    private List<Guid> assignees = [];
+    private bool assigneesLoaded;
+    private bool assigneesForbidden;
+    private bool assigning;
+    private string? assignError;
+
+    private List<ServerReportNoteDto> notes = [];
+    private bool notesLoading;
+    private bool addingNote;
+    private string? notesError;
+    private string newNote = string.Empty;
 
     private string ScreenshotId => $"report-screenshot-{selected?.Id:N}";
 
@@ -253,6 +334,7 @@
                 selected = reports.FirstOrDefault(r => r.Id == selected.Id);
             }
 
+            await ResolveNamesAsync(reports.Where(r => r.AssignedToUserId is not null).Select(r => r.AssignedToUserId!.Value));
             await ReportNewCountAsync();
         }
         catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
@@ -306,18 +388,172 @@
         await LoadAsync(showLoading: true);
     }
 
-    private Task SelectAsync(ServerReportDto report)
+    private async Task SelectAsync(ServerReportDto report)
     {
         if (selected?.Id == report.Id)
         {
-            return Task.CompletedTask;
+            return;
         }
 
         selected = report;
         statusForbidden = false;
         screenshotError = false;
         needsScreenshot = report.HasScreenshot;
-        return Task.CompletedTask;
+        assignError = null;
+        notesError = null;
+        newNote = string.Empty;
+        notes = [];
+
+        await LoadAssigneesAsync();
+        await LoadNotesAsync(report);
+    }
+
+    private async Task LoadAssigneesAsync()
+    {
+        if (assigneesLoaded || assigneesForbidden)
+        {
+            return;
+        }
+
+        try
+        {
+            assignees = await RustServerClient.GetReportAssigneesAsync(ServerId);
+            await ResolveNamesAsync(assignees);
+            assigneesLoaded = true;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            assigneesForbidden = true;
+        }
+        catch (Exception)
+        {
+            // Not fatal: the assignee stays read-only until the next report is opened and this is tried again.
+        }
+    }
+
+    private async Task LoadNotesAsync(ServerReportDto report)
+    {
+        notesLoading = true;
+        try
+        {
+            var loaded = await RustServerClient.GetReportNotesAsync(ServerId, report.Id);
+            await ResolveNamesAsync(loaded.Select(n => n.AuthorUserId));
+
+            // The person may have opened another report while this was in flight.
+            if (selected?.Id == report.Id)
+            {
+                notes = loaded;
+            }
+        }
+        catch (Exception)
+        {
+            if (selected?.Id == report.Id)
+            {
+                notesError = Localizer["Failed to load the notes."];
+            }
+        }
+        finally
+        {
+            notesLoading = false;
+        }
+    }
+
+    private async Task ResolveNamesAsync(IEnumerable<Guid> userIds)
+    {
+        var unknown = userIds.Where(id => !names.ContainsKey(id)).Distinct().ToList();
+        if (unknown.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            foreach (var (id, name) in await DisplayNames.ResolveAsync(unknown))
+            {
+                names[id] = name;
+            }
+        }
+        catch (Exception)
+        {
+            // A name is a convenience; NameOf falls back to the start of the id.
+        }
+    }
+
+    private string NameOf(Guid userId) => names.TryGetValue(userId, out var name) ? name : userId.ToString()[..8];
+
+    // The people who can be picked, plus whoever holds the report now even if they have since lost the permission, so the picker
+    // shows the truth instead of silently reading "Unassigned".
+    private IEnumerable<Guid> AssigneeOptions(ServerReportDto report) =>
+        report.AssignedToUserId is { } current && !assignees.Contains(current) ? assignees.Append(current) : assignees;
+
+    private async Task OnAssigneeChanged(ChangeEventArgs e)
+    {
+        if (selected is null)
+        {
+            return;
+        }
+
+        Guid? target = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
+
+        assigning = true;
+        assignError = null;
+        try
+        {
+            var updated = await RustServerClient.AssignReportAsync(ServerId, selected.Id, new AssignServerReportDto { AssignedToUserId = target });
+            var index = reports.FindIndex(r => r.Id == updated.Id);
+            if (index >= 0)
+            {
+                reports[index] = updated;
+            }
+
+            selected = updated;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            assignError = Localizer["You are not allowed to change reports."];
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.BadRequest)
+        {
+            assignError = Localizer["That person cannot be assigned reports."];
+        }
+        catch (Exception)
+        {
+            assignError = Localizer["Failed to assign the report."];
+        }
+        finally
+        {
+            assigning = false;
+        }
+    }
+
+    private async Task AddNoteAsync()
+    {
+        if (selected is null || string.IsNullOrWhiteSpace(newNote))
+        {
+            return;
+        }
+
+        addingNote = true;
+        notesError = null;
+        try
+        {
+            var added = await RustServerClient.AddReportNoteAsync(ServerId, selected.Id, new SaveServerReportNoteDto { Content = newNote });
+            await ResolveNamesAsync([added.AuthorUserId]);
+            notes = [.. notes, added];
+            newNote = string.Empty;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            notesError = Localizer["You are not allowed to change reports."];
+        }
+        catch (Exception)
+        {
+            notesError = Localizer["Failed to add the note."];
+        }
+        finally
+        {
+            addingNote = false;
+        }
     }
 
     private async Task LoadScreenshotAsync(ServerReportDto report)

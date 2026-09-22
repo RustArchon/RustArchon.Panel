@@ -1,0 +1,307 @@
+@using RustArchon.Shared.PluginZips
+
+@*
+    Where the files of a plugin's zip archive go on a game server. The archive is shown as its folders; each folder (and, where needed, each file) is given a
+    destination or skipped, and a live preview shows where every file would land and everything that would stop the update (a file with no instruction, two
+    files on one path, a program file, a plugin file outside the plugins folder). The rules are worked out by ZipMapping in RustArchon.Shared - the same code
+    the Api and the server's plugin decide with - so what is shown here is what will happen. Nothing is sent from here: Apply hands the rules to the page.
+*@
+
+<div class="border rounded p-2 mt-2" data-testid="zip-editor">
+    <p class="small mb-2">@Localizer["Say where each folder in this archive goes. Every file has to be put somewhere or skipped; nothing is guessed."]</p>
+
+    @if (UncoveredPaths.Count > 0)
+    {
+        <div class="alert alert-warning py-1 small" data-testid="zip-uncovered">
+            @Localizer["The instructions saved before do not cover these files, so nothing is applied by itself:"] @string.Join(", ", UncoveredPaths)
+        </div>
+    }
+
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-2" data-testid="zip-tree">
+            <thead>
+                <tr>
+                    <th>@Localizer["In the archive"]</th>
+                    <th>@Localizer["Goes to"]</th>
+                    <th>@Localizer["Folder inside it"]</th>
+                    <th>@Localizer["Keep the file already there"]</th>
+                    <th>@Localizer["Result"]</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var node in VisibleRows())
+                {
+                    <tr data-testid="zip-row" data-path="@node.Path" data-folder="@(node.IsFolder ? "yes" : "no")">
+                        <td style="padding-left: @((node.Depth * 1.25) + 0.25)rem">
+                            @if (node.IsFolder)
+                            {
+                                <button type="button" class="btn btn-link btn-sm p-0 me-1" data-testid="zip-toggle" aria-label="@(node.Expanded ? Localizer["Collapse"] : Localizer["Expand"])"
+                                        @onclick="() => node.Expanded = !node.Expanded">
+                                    <i class="bi @(node.Expanded ? "bi-chevron-down" : "bi-chevron-right")"></i>
+                                </button>
+                                <i class="bi bi-folder"></i> <span>@node.Name/</span>
+                                <span class="text-muted small">(@node.FileCount)</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-file-earmark ms-4"></i> <span>@node.Name</span>
+                            }
+                        </td>
+                        <td>
+                            <select class="form-select form-select-sm w-auto" data-testid="zip-role" aria-label="@Localizer["Where {0} goes", node.Path]"
+                                    value="@(node.Role ?? string.Empty)" @onchange="e => SetRole(node, e.Value?.ToString())">
+                                <option value="">@(node.Depth == 0 && node.IsFolder ? Localizer["(not set)"] : Localizer["(as the folder it is in)"])</option>
+                                <option value="@ZipRoles.Plugins">@Localizer["Plugins folder"]</option>
+                                <option value="@ZipRoles.Config">@Localizer["Config folder"]</option>
+                                <option value="@ZipRoles.Data">@Localizer["Data folder"]</option>
+                                <option value="@ZipRoles.Lang">@Localizer["Lang folder"]</option>
+                                <option value="@ZipRoles.Skip">@Localizer["Skip"]</option>
+                            </select>
+                        </td>
+                        <td>
+                            @if (node.Role is not null && node.Role != ZipRoles.Skip)
+                            {
+                                <input type="text" class="form-control form-control-sm" style="max-width: 10rem" data-testid="zip-sub" maxlength="120"
+                                       aria-label="@Localizer["Folder inside the destination for {0}", node.Path]" placeholder="@Localizer["(none)"]"
+                                       value="@node.Sub" @onchange="e => SetSub(node, e.Value?.ToString())" />
+                            }
+                        </td>
+                        <td>
+                            @if (node.Role is not null && node.Role != ZipRoles.Skip)
+                            {
+                                <input type="checkbox" class="form-check-input" data-testid="zip-keep" checked="@node.Keep"
+                                       aria-label="@Localizer["Keep the file already there for {0}", node.Path]" @onchange="e => SetKeep(node, (bool)e.Value!)" />
+                            }
+                        </td>
+                        <td class="small" data-testid="zip-result">@ResultText(node)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (resolved.Problems.Count > 0)
+    {
+        <ul class="small text-danger mb-2" data-testid="zip-problems">
+            @foreach (var problem in resolved.Problems.Take(8))
+            {
+                <li>@(problem.Path.Length > 0 ? problem.Path + ": " : string.Empty)@ProblemText(problem)</li>
+            }
+            @if (resolved.Problems.Count > 8)
+            {
+                <li>@Localizer["and {0} more", resolved.Problems.Count - 8]</li>
+            }
+        </ul>
+    }
+    else if (resolved.InstallBytes <= 0)
+    {
+        <p class="small text-danger mb-2" data-testid="zip-problems">@Localizer["These instructions install no files."]</p>
+    }
+
+    <div class="form-check mb-2">
+        <input type="checkbox" class="form-check-input" id="zip-save" data-testid="zip-save" @bind="save" />
+        <label class="form-check-label small" for="zip-save">
+            @Localizer["Use these instructions for future updates of this plugin on this server, provided that future updates contain only the same files in the same structure."]
+        </label>
+    </div>
+
+    <button type="button" class="btn btn-sm btn-primary" data-testid="zip-apply" disabled="@(Busy || !resolved.IsValid || resolved.InstallBytes <= 0)"
+            @onclick="ApplyAsync">@Localizer["Apply the update"]</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary ms-1" data-testid="zip-cancel" @onclick="() => OnCancel.InvokeAsync()">@Localizer["Cancel"]</button>
+</div>
+
+@code {
+    /// <summary>The files in the archive (path and declared size).</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<ZipEntryInfo> Files { get; set; } = [];
+
+    /// <summary>Instructions saved before, to start from. Rules about folders or files no longer in the archive are dropped.</summary>
+    [Parameter] public IReadOnlyList<ZipMappingRule> InitialRules { get; set; } = [];
+
+    /// <summary>Files a saved set of instructions left without a decision, shown as why they are being asked for again.</summary>
+    [Parameter] public IReadOnlyList<string> UncoveredPaths { get; set; } = [];
+
+    /// <summary>Whether a request is under way (Apply is off).</summary>
+    [Parameter] public bool Busy { get; set; }
+
+    /// <summary>The person pressed Apply: the rules, and whether to keep them for future updates.</summary>
+    [Parameter] public EventCallback<(List<ZipMappingRule> Rules, bool Save)> OnApply { get; set; }
+
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private sealed class Node
+    {
+        public string Path = string.Empty;          // the folder with a trailing slash, or the file
+        public string Name = string.Empty;
+        public bool IsFolder;
+        public int Depth;
+        public List<Node> Children = [];
+        public string? Role;                        // null: as the folder it is in
+        public string Sub = string.Empty;
+        public bool Keep;
+        public bool Expanded = true;
+        public int FileCount;
+    }
+
+    private readonly Node root = new() { IsFolder = true };
+    private readonly List<Node> all = [];
+    private ZipMappingResult resolved = new();
+    private bool save;
+    private bool built;
+
+    protected override void OnParametersSet()
+    {
+        if (built)
+        {
+            return;
+        }
+
+        built = true;
+        Build();
+        foreach (var rule in InitialRules)
+        {
+            var source = ZipMapping.NormalizePath(rule.Source ?? string.Empty);
+            var node = all.FirstOrDefault(n => n.IsFolder == rule.IsFolder && n.Path == (rule.IsFolder ? source.TrimEnd('/') + "/" : source));
+            if (node is not null && ZipRoles.IsRole(rule.Role))
+            {
+                node.Role = rule.Role;
+                node.Sub = rule.SubFolder ?? string.Empty;
+                node.Keep = rule.KeepExisting;
+            }
+        }
+
+        Refresh();
+    }
+
+    private void SetSub(Node node, string? sub)
+    {
+        node.Sub = sub ?? string.Empty;
+        Refresh();
+    }
+
+    private void SetKeep(Node node, bool keep)
+    {
+        node.Keep = keep;
+        Refresh();
+    }
+
+    private void Refresh() => resolved = ZipMapping.Resolve(Files.ToList(), CurrentRules());
+
+    private void Build()
+    {
+        var folders = new Dictionary<string, Node>();
+        foreach (var file in Files.OrderBy(f => f.Path, StringComparer.Ordinal))
+        {
+            var path = ZipMapping.NormalizePath(file.Path);
+            var parts = path.Split('/');
+            var parent = root;
+            var prefix = string.Empty;
+            for (var i = 0; i < parts.Length - 1; i++)
+            {
+                prefix += parts[i] + "/";
+                if (!folders.TryGetValue(prefix, out var folder))
+                {
+                    folder = new Node { Path = prefix, Name = parts[i], IsFolder = true, Depth = i };
+                    folders[prefix] = folder;
+                    parent.Children.Add(folder);
+                    all.Add(folder);
+                }
+
+                folder.FileCount++;
+                parent = folder;
+            }
+
+            var leaf = new Node { Path = path, Name = parts[^1], IsFolder = false, Depth = parts.Length - 1 };
+            parent.Children.Add(leaf);
+            all.Add(leaf);
+        }
+
+        // A big folder starts folded away; the person opens what they want to look at.
+        foreach (var folder in all.Where(n => n.IsFolder && n.FileCount > 12))
+        {
+            folder.Expanded = false;
+        }
+
+        Order(root);
+    }
+
+    private static void Order(Node node)
+    {
+        node.Children = [.. node.Children.OrderByDescending(c => c.IsFolder).ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)];
+        foreach (var child in node.Children.Where(c => c.IsFolder))
+        {
+            Order(child);
+        }
+    }
+
+    private IEnumerable<Node> VisibleRows()
+    {
+        var stack = new Stack<Node>(Enumerable.Reverse(root.Children));
+        while (stack.Count > 0)
+        {
+            var node = stack.Pop();
+            yield return node;
+            if (node.IsFolder && node.Expanded)
+            {
+                foreach (var child in Enumerable.Reverse(node.Children))
+                {
+                    stack.Push(child);
+                }
+            }
+        }
+    }
+
+    private void SetRole(Node node, string? role)
+    {
+        node.Role = string.IsNullOrEmpty(role) ? null : role;
+        if (node.Role is null or ZipRoles.Skip)
+        {
+            node.Sub = string.Empty;
+            node.Keep = false;
+        }
+
+        Refresh();
+    }
+
+    private List<ZipMappingRule> CurrentRules() =>
+        [.. all.Where(n => n.Role is not null).Select(n => new ZipMappingRule
+        {
+            IsFolder = n.IsFolder, Source = n.Path, Role = n.Role!, SubFolder = n.Role == ZipRoles.Skip ? string.Empty : n.Sub.Trim(), KeepExisting = n.Keep && n.Role != ZipRoles.Skip
+        })];
+
+    private Task ApplyAsync()
+    {
+        Refresh();
+        return resolved.IsValid && resolved.InstallBytes > 0 ? OnApply.InvokeAsync((CurrentRules(), save)) : Task.CompletedTask;
+    }
+
+    /// <summary>What the rules make of a row: for a file, where it lands; for a folder, how many of its files are installed, skipped or without an instruction.</summary>
+    private string ResultText(Node node)
+    {
+        if (!node.IsFolder)
+        {
+            var entry = resolved.Entries.FirstOrDefault(e => e.Path == node.Path);
+            return entry?.Action switch
+            {
+                ZipEntryAction.Install => "→ " + entry.Destination,
+                ZipEntryAction.Skip => Localizer["skipped"],
+                _ => Localizer["no instruction"]
+            };
+        }
+
+        var under = resolved.Entries.Where(e => e.Path.StartsWith(node.Path, StringComparison.Ordinal)).ToList();
+        var installed = under.Count(e => e.Action == ZipEntryAction.Install);
+        var skipped = under.Count(e => e.Action == ZipEntryAction.Skip);
+        var open = under.Count(e => e.Action == ZipEntryAction.Unassigned);
+        return Localizer["{0} installed, {1} skipped, {2} without an instruction", installed, skipped, open];
+    }
+
+    private string ProblemText(ZipMappingProblem problem) => problem.Code switch
+    {
+        ZipMappingProblemCodes.Unassigned => Localizer["no instruction says where this goes, or that it is skipped"],
+        ZipMappingProblemCodes.Collision => Localizer["it would land on the same path as another file"],
+        ZipMappingProblemCodes.Executable => Localizer["this is a program file, which is never installed from an archive"],
+        ZipMappingProblemCodes.CodeOutsidePlugins => Localizer["a plugin source file can only go to the plugins folder"],
+        ZipMappingProblemCodes.UnsafePath => Localizer["this path cannot be used"],
+        _ => Localizer["the instruction cannot be used"]
+    };
+}

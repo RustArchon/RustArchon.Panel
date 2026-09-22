@@ -432,6 +432,13 @@ builder.Services.AddApiClient<IInternalEmailApiClient>(apiBaseUrl)
 builder.Services.AddApiClient<IInternalRegistrationApiClient>(apiBaseUrl)
     .ConfigureHttpClient(client => client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey));
 
+// Same channel again - keeps the Api's copy of a person's own settings (their language) in step with what the Panel learns at sign-up and when they
+// switch it. It lives only there; see UserProfileWriter and RustArchon.Api.Data.UserProfile.
+builder.Services.AddApiClient<IInternalUserProfileApiClient>(apiBaseUrl)
+    .ConfigureHttpClient(client => client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey));
+builder.Services.AddScoped<IUserProfileWriter, UserProfileWriter>();
+builder.Services.AddHostedService<UserProfileBackfillService>();
+
 // Same channel again - backs the /track/email/{id}.gif endpoint below, the only caller.
 builder.Services.AddApiClient<IInternalCommunicationApiClient>(apiBaseUrl)
     .ConfigureHttpClient(client => client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey));
@@ -493,6 +500,9 @@ builder.Services.AddHttpClient(ReportIngestProxy.ClientName, client =>
 // ReportIngestLimit; its value is part of the partition key so a changed limit starts fresh windows instead of being ignored by old ones.
 builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ReportIngestLimit>();
+
+// Resolves the user ids the Api speaks in (a report's assignee, a note's author) to names from this Panel's own account store.
+builder.Services.AddScoped<IUserDisplayNames, UserDisplayNames>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -692,7 +702,7 @@ app.UseRequestLocalization();
 // The redirect-based culture switcher - see Components/Shared/CultureSelector.razor, the only caller.
 // A LocalRedirect, never anything else, to rule out open-redirect abuse of redirectUri.
 app.MapGet("/Culture/Set", async (
-    string? culture, string redirectUri, HttpContext context, UserManager<ApplicationUser> userManager) =>
+    string? culture, string redirectUri, HttpContext context, UserManager<ApplicationUser> userManager, IUserProfileWriter profiles) =>
 {
     if (!string.IsNullOrWhiteSpace(culture))
     {
@@ -700,19 +710,14 @@ app.MapGet("/Culture/Set", async (
             CookieRequestCultureProvider.DefaultCookieName,
             CookieRequestCultureProvider.MakeCookieValue(new RequestCulture(culture, culture)));
 
-        // Keeps ApplicationUser.PreferredCulture current for a signed-in user who switches language
-        // after registration, not just at the moment they signed up - this is the one place every
-        // switch (CultureSelector.razor's only caller) passes through, signed in or not. Best-effort:
-        // an anonymous visitor has nothing to update, and a failure here shouldn't block the redirect
-        // that actually changes what they see.
-        if (context.User.Identity?.IsAuthenticated == true)
+        // Keeps the person's language (their UserProfile in the Api, which is where everything that acts on it
+        // reads it) current for a signed-in user who switches language after registration, not just at the
+        // moment they signed up - this is the one place every switch (CultureSelector.razor's only caller)
+        // passes through, signed in or not. Best-effort: an anonymous visitor has nothing to update, and a
+        // failure here shouldn't block the redirect that actually changes what they see - see IUserProfileWriter.
+        if (context.User.Identity?.IsAuthenticated == true && Guid.TryParse(userManager.GetUserId(context.User), out var userId))
         {
-            var user = await userManager.GetUserAsync(context.User);
-            if (user is not null && user.PreferredCulture != culture)
-            {
-                user.PreferredCulture = culture;
-                await userManager.UpdateAsync(user);
-            }
+            await profiles.SetPreferredCultureAsync(userId, culture);
         }
     }
 

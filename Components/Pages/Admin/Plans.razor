@@ -47,6 +47,14 @@ else
         </div>
     }
 
+    @if (!string.IsNullOrEmpty(infoMessage))
+    {
+        <div class="alert alert-info alert-dismissible fade show" role="alert" data-testid="plans-info">
+            @infoMessage
+            <button type="button" class="btn-close" @onclick="() => infoMessage = null"></button>
+        </div>
+    }
+
     @if (creating)
     {
         <div class="card mb-4">
@@ -99,6 +107,10 @@ else
                                 <label class="form-check-label" for="create-roles">@Localizer["Role separation"]</label>
                             </div>
                             <div class="form-check">
+                                <InputCheckbox id="create-third-party-updates" class="form-check-input" @bind-Value="createForm.OffersThirdPartyPluginUpdates" />
+                                <label class="form-check-label" for="create-third-party-updates">@Localizer["Automatic third-party plugin updates"]</label>
+                            </div>
+                            <div class="form-check">
                                 <InputCheckbox id="create-one-per-owner" class="form-check-input" @bind-Value="createForm.OnePerOwner" />
                                 <label class="form-check-label" for="create-one-per-owner">
                                     @Localizer["One organization per owner"]
@@ -136,7 +148,31 @@ else
         </div>
     }
 
-    @if (editingPlan != null)
+    @* A plan that a newer version replaced cannot be edited: it is history, and the newer version is the one to change. Instead of the form, say so and
+       point at the latest version (which is editable) - found by following the chain in the list already loaded. *@
+    @if (editingPlan != null && IsReplaced(editingPlan))
+    {
+        <div class="card mb-4" data-testid="plan-replaced-banner">
+            <div class="card-header">
+                <span class="plan-color-dot" style="background-color: @editingPlan.ColorCode"></span>
+                @Localizer["Edit {0} Plan", editingPlan.Name]
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info mb-3" role="alert">
+                    <i class="bi bi-info-circle"></i>
+                    @Localizer["This version of the \"{0}\" plan was replaced by a newer version, so it can no longer be edited.", editingPlan.Name]
+                    @if (LatestVersionOf(editingPlan) is { } latest)
+                    {
+                        <button type="button" class="btn btn-link p-0 align-baseline ms-1" data-testid="plan-edit-latest" @onclick="() => ShowEditForm(latest)">
+                            @Localizer["Edit the latest version"]
+                        </button>
+                    }
+                </div>
+                <button type="button" class="btn btn-secondary" @onclick="CancelEdit">@Localizer["Close"]</button>
+            </div>
+        </div>
+    }
+    else if (editingPlan != null)
     {
         <div class="card mb-4">
             <div class="card-header">
@@ -194,6 +230,10 @@ else
                                 <label class="form-check-label" for="edit-roles">@Localizer["Role separation"]</label>
                             </div>
                             <div class="form-check">
+                                <InputCheckbox id="edit-third-party-updates" class="form-check-input" @bind-Value="editForm.OffersThirdPartyPluginUpdates" />
+                                <label class="form-check-label" for="edit-third-party-updates">@Localizer["Automatic third-party plugin updates"]</label>
+                            </div>
+                            <div class="form-check">
                                 <InputCheckbox id="edit-one-per-owner" class="form-check-input" @bind-Value="editForm.OnePerOwner" />
                                 <label class="form-check-label" for="edit-one-per-owner">
                                     @Localizer["One organization per owner"]
@@ -202,8 +242,10 @@ else
                         </div>
                         <div class="col-md-6">
                             <div class="form-check">
-                                <InputCheckbox id="edit-active" class="form-check-input" @bind-Value="editForm.Active" />
+                                @* Read only: switched with the Deactivate / Activate button in the list, which changes nothing else about the plan. *@
+                                <InputCheckbox id="edit-active" class="form-check-input" @bind-Value="editForm.Active" disabled />
                                 <label class="form-check-label" for="edit-active">@Localizer["Active"]</label>
+                                <div class="form-text" data-testid="edit-active-hint">@Localizer["Use Deactivate or Activate in the plan list to change this."]</div>
                             </div>
                         </div>
                     </div>
@@ -243,6 +285,7 @@ else
                             <th>@Localizer["Pricing"]</th>
                             <th>@Localizer["Retention"]</th>
                             <th>@Localizer["Roles"]</th>
+                            <th title="@Localizer["Whether updates to third-party plugins can be applied automatically on this plan"]">@Localizer["Plugin updates"]</th>
                             <th title="@Localizer["At most one organization per person may be on this plan - set on the free tier so it isn't an unlimited supply of free servers"]">@((MarkupString)Localizer["One&nbsp;per&nbsp;owner"].Value)</th>
                             <th>@Localizer["Max Servers"]</th>
                             <th>@Localizer["Max Users"]</th>
@@ -267,12 +310,20 @@ else
                                     {
                                         <span class="badge text-bg-secondary">@Localizer["Inactive"]</span>
                                     }
+                                    @if (IsReplaced(plan))
+                                    {
+                                        <span class="badge text-bg-info ms-1" data-testid="plan-replaced" title="@Localizer["Replaced by a newer version of this plan. Offer the newer version instead."]">@Localizer["Replaced"]</span>
+                                    }
                                 </td>
                                 <td>
                                     <span class="plan-name-cell">
                                         <span class="plan-color-dot" style="background-color: @plan.ColorCode"></span>
                                         @plan.Name
                                     </span>
+                                    @if (ReplacesEarlier(plan))
+                                    {
+                                        <div class="small text-muted" data-testid="plan-replaces-earlier">@Localizer["Replaces an earlier version"]</div>
+                                    }
                                 </td>
                                 @* One cell listing every term the plan is sold on, rather than three
                                    fixed columns - a plan sold annually-only has nothing to put under a
@@ -299,6 +350,7 @@ else
                                 </td>
                                 <td>@Localizer["{0} days", plan.RetentionHistory]</td>
                                 <td>@(plan.HasRoles ? Localizer["Yes"] : Localizer["No"])</td>
+                                <td data-testid="plan-third-party-updates">@(plan.OffersThirdPartyPluginUpdates ? Localizer["Yes"] : Localizer["No"])</td>
                                 <td>@(plan.OnePerOwner ? Localizer["Yes"] : Localizer["No"])</td>
                                 <td>@(plan.MaximumServers?.ToString() ?? Localizer["No limit"])</td>
                                 <td>@plan.MaximumUsers</td>
@@ -306,9 +358,40 @@ else
                                 <td>@plan.CreatedOn.LocalDateTime.ToString("g")</td>
                                 <td>
                                     <div class="btn-group" role="group">
+                                        @* Edit is always there; on a plan a newer version replaced it opens a note pointing at the latest version instead of a form. *@
                                         <button class="btn btn-sm btn-outline-secondary" @onclick="() => ShowEditForm(plan)">
                                             <i class="bi bi-pencil"></i> @Localizer["Edit"]
                                         </button>
+                                        @* A plan that a newer version replaced is history: its newer version is the one to offer, so there is nothing to switch here.
+                                           For any other plan: whether it is offered to new sign-ups is not one of the terms subscribers signed up under, so it is
+                                           switched here, on the plan itself, rather than through an edit (which for a plan with subscribers would leave an
+                                           identical copy behind). Existing subscribers stay on the plan either way. A plan that was only deactivated can be reactivated. *@
+                                        @if (!IsReplaced(plan))
+                                        {
+                                            <button class="btn btn-sm btn-outline-secondary" data-testid="plan-toggle-active" disabled="@saving"
+                                                    title="@(plan.Active ? Localizer["Stop offering this plan to new sign-ups. Current subscribers stay on it."] : Localizer["Offer this plan to new sign-ups again."])"
+                                                    @onclick="() => ToggleActive(plan)">
+                                                <i class="bi @(plan.Active ? "bi-slash-circle" : "bi-arrow-counterclockwise")"></i> @(plan.Active ? Localizer["Deactivate"] : Localizer["Reactivate"])
+                                            </button>
+                                        }
+                                        @* A message to the organizations on the plan (and, if chosen, its newer versions) - see PlanAnnouncement.razor. *@
+                                        @if (plan.SubscriberCount > 0)
+                                        {
+                                            <a class="btn btn-sm btn-outline-secondary" href="/Admin/Plans/@plan.Id/Announce" data-testid="plan-announce"
+                                               title="@Localizer["Write an email to the organizations on this plan."]">
+                                                <i class="bi bi-envelope"></i> @Localizer["Email subscribers"]
+                                            </a>
+                                        }
+                                        @* People may still be on a version that was replaced. They are moved to the latest version only when someone chooses to,
+                                           and only those it is no worse for (see the answer to "Move subscribers"). *@
+                                        @if (IsReplaced(plan) && plan.SubscriberCount > 0)
+                                        {
+                                            <button class="btn btn-sm btn-outline-secondary" data-testid="plan-move-subscribers" disabled="@saving"
+                                                    title="@Localizer["Move the organizations still on this version to the latest version, where that is no worse for them."]"
+                                                    @onclick="() => OpenMove(plan)">
+                                                <i class="bi bi-arrow-right-circle"></i> @Localizer["Move subscribers"]
+                                            </button>
+                                        }
                                         @if (plan.SubscriberCount == 0)
                                         {
                                             <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(plan)">
@@ -349,6 +432,75 @@ else
                 @Localizer[
                     "{0} organization(s) have been on the current \"{1}\" plan. Saving will create a new \"{1}\" plan with these terms and deactivate the current one. Existing subscribers keep their current terms. Proceed?",
                     editingPlan.SubscriberCount, editingPlan.Name]
+
+                @* Whether to move the people on the current version along to the new one. Offered only for those the new version is no worse for; the rest
+                   stay on what they signed up under, and are listed with why. Off unless chosen. *@
+                @if (movePreview is { CurrentSubscribers: > 0 } preview)
+                {
+                    <hr />
+                    <div data-testid="move-offer">
+                        @if (preview.CanMove > 0)
+                        {
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="move-subscribers" data-testid="move-subscribers"
+                                       checked="@moveSubscribers" @onchange="e => moveSubscribers = (bool)e.Value!" />
+                                <label class="form-check-label" for="move-subscribers">
+                                    @Localizer["Also move {0} current subscriber(s) to the new version", preview.CanMove]
+                                </label>
+                            </div>
+                            <div class="form-text mb-2">
+                                @Localizer["They keep their current billing period and renewal date. Nothing is charged or refunded, and their next renewal is billed at the new version's price."]
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="small mb-2" data-testid="move-none">@Localizer["None of the current subscribers can be moved to this version, so they all stay on the current one."]</p>
+                        }
+
+                        @if (preview.WouldStay.Count > 0)
+                        {
+                            <div class="small text-muted" data-testid="move-stay">
+                                @Localizer["{0} would stay on the current version, because:", preview.CurrentSubscribers - preview.CanMove]
+                                <ul class="mb-0">
+                                    @foreach (var reason in preview.WouldStay)
+                                    {
+                                        <li>@reason.Count × @Localizer[reason.Message]</li>
+                                    }
+                                </ul>
+                            </div>
+                        }
+                    </div>
+                }
+            </Message>
+        </RustArchon.Panel.Components.Shared.ConfirmationModal>
+    }
+
+    @if (showMoveConfirmation && planToMove != null && standalonePreview != null)
+    {
+        <RustArchon.Panel.Components.Shared.ConfirmationModal
+            Title="@Localizer["Move subscribers to the latest version?"]"
+            ConfirmButtonText="@Localizer["Move"]"
+            ConfirmButtonClass="btn-primary"
+            OnClose="HandleMoveModalClose">
+            <Message>
+                <div data-testid="move-confirm">
+                    @Localizer["Move {0} of the {1} organization(s) still on this version of \"{2}\" to the latest version?", standalonePreview.CanMove, standalonePreview.CurrentSubscribers, planToMove.Name]
+                </div>
+                <div class="form-text mt-2">
+                    @Localizer["They keep their current billing period and renewal date. Nothing is charged or refunded, and their next renewal is billed at the new version's price."]
+                </div>
+                @if (standalonePreview.WouldStay.Count > 0)
+                {
+                    <div class="small text-muted mt-2" data-testid="move-stay">
+                        @Localizer["{0} would stay on the current version, because:", standalonePreview.CurrentSubscribers - standalonePreview.CanMove]
+                        <ul class="mb-0">
+                            @foreach (var reason in standalonePreview.WouldStay)
+                            {
+                                <li>@reason.Count × @Localizer[reason.Message]</li>
+                            }
+                        </ul>
+                    </div>
+                }
             </Message>
         </RustArchon.Panel.Components.Shared.ConfirmationModal>
     }
@@ -378,6 +530,32 @@ else
     private string? successMessage;
 
     private bool showInactive;
+
+    // A plan a newer version replaced (see PlanDto.SupersededByPlanId), and one that replaced an earlier version - the latter found from the same list,
+    // since the link is stored on the older plan and points at the newer.
+    private static bool IsReplaced(PlanDto plan) => plan.SupersededByPlanId is not null;
+    private bool ReplacesEarlier(PlanDto plan) => plans?.Any(p => p.SupersededByPlanId == plan.Id) ?? false;
+
+    /// <summary>
+    /// The newest, editable version of a plan that was replaced: follows the links through the list already loaded to the end of the chain. Null when
+    /// there is none to point at - the plan was not replaced, the chain leads out of the list, or it loops (which should never exist).
+    /// </summary>
+    private PlanDto? LatestVersionOf(PlanDto plan)
+    {
+        var seen = new HashSet<Guid> { plan.Id };
+        var current = plan;
+        while (current.SupersededByPlanId is { } next)
+        {
+            if (!seen.Add(next) || plans?.FirstOrDefault(p => p.Id == next) is not { } found)
+            {
+                return null;
+            }
+
+            current = found;
+        }
+
+        return ReferenceEquals(current, plan) ? null : current;
+    }
 
     private bool creating;
     private CreateFormModel createForm = new();
@@ -480,6 +658,7 @@ else
                 PricingModel = createForm.PricingModel,
                 RetentionHistory = createForm.RetentionHistory,
                 HasRoles = createForm.HasRoles,
+                OffersThirdPartyPluginUpdates = createForm.OffersThirdPartyPluginUpdates,
                 OnePerOwner = createForm.OnePerOwner,
                 MaximumServers = createForm.MaximumServers,
                 MaximumUsers = createForm.MaximumUsers,
@@ -518,6 +697,7 @@ else
             PricingModel = plan.PricingModel,
             RetentionHistory = plan.RetentionHistory,
             HasRoles = plan.HasRoles,
+            OffersThirdPartyPluginUpdates = plan.OffersThirdPartyPluginUpdates,
             OnePerOwner = plan.OnePerOwner,
             MaximumServers = plan.MaximumServers,
             MaximumUsers = plan.MaximumUsers,
@@ -543,11 +723,87 @@ else
 
         if (editingPlan.SubscriberCount > 0)
         {
+            // Nothing was changed, so there is nothing to save - and nothing worth creating a new plan for.
+            if (!TermsChanged())
+            {
+                editingPlan = null;
+                return;
+            }
+
+            // Asked before the plan is created, so the choice below is an informed one: who could be moved along to the new version, and who would stay.
+            moveSubscribers = false;
+            try
+            {
+                movePreview = await PlanClient.PreviewSupersedeAsync(editingPlan.Id, SupersedeTerms());
+            }
+            catch (Exception)
+            {
+                movePreview = null;        // the supersede itself does not depend on it: no preview, no offer to move
+            }
+
             showSupersedeConfirmation = true;
             return;
         }
 
         await SaveEditInPlace();
+    }
+
+    // The terms in the edit form, as the plan they would become.
+    private SupersedePlanDto SupersedeTerms() => new()
+    {
+        ColorCode = editForm.ColorCode,
+        Prices = editForm.Prices,
+        PricingModel = editForm.PricingModel,
+        RetentionHistory = editForm.RetentionHistory,
+        HasRoles = editForm.HasRoles,
+        OffersThirdPartyPluginUpdates = editForm.OffersThirdPartyPluginUpdates,
+        OnePerOwner = editForm.OnePerOwner,
+        MaximumServers = editForm.MaximumServers,
+        MaximumUsers = editForm.MaximumUsers
+    };
+
+    /// <summary>
+    /// Whether the edit form differs from the plan in anything a subscriber signed up under (or the plan's look). The Active flag is not on the form
+    /// to change any more - see <see cref="ToggleActive"/>. Prices are compared as a set by term, since the editor may reorder them.
+    /// </summary>
+    private bool TermsChanged()
+    {
+        var plan = editingPlan!;
+        if (editForm.ColorCode != plan.ColorCode || editForm.PricingModel != plan.PricingModel || editForm.RetentionHistory != plan.RetentionHistory
+            || editForm.HasRoles != plan.HasRoles || editForm.OffersThirdPartyPluginUpdates != plan.OffersThirdPartyPluginUpdates
+            || editForm.OnePerOwner != plan.OnePerOwner || editForm.MaximumServers != plan.MaximumServers || editForm.MaximumUsers != plan.MaximumUsers)
+        {
+            return true;
+        }
+
+        static string Key(PlanPriceDto p) => $"{p.TermMonths}|{p.BaseAmount}|{p.IncludedUnits}|{p.UnitAmount}|{p.Currency}";
+        return !editForm.Prices.Select(Key).Order().SequenceEqual(plan.Prices.Select(Key).Order());
+    }
+
+    /// <summary>
+    /// Switches a plan on or off - offered to new sign-ups or not - and changes nothing else about it. Current subscribers stay on it either way.
+    /// Turning a plan on turns off any other active plan of the same name (the Api does that; only one may be active per name).
+    /// </summary>
+    private async Task ToggleActive(PlanDto plan)
+    {
+        saving = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            var changed = await PlanClient.SetActiveAsync(plan.Id, new SetPlanActiveDto { Active = !plan.Active });
+            successMessage = changed.Active ? Localizer["{0} plan reactivated.", changed.Name] : Localizer["{0} plan deactivated.", changed.Name];
+            await LoadPlans();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "update plan");
+        }
+        finally
+        {
+            saving = false;
+        }
     }
 
     private async Task SaveEditInPlace()
@@ -571,6 +827,7 @@ else
                 PricingModel = editForm.PricingModel,
                 RetentionHistory = editForm.RetentionHistory,
                 HasRoles = editForm.HasRoles,
+                OffersThirdPartyPluginUpdates = editForm.OffersThirdPartyPluginUpdates,
                 OnePerOwner = editForm.OnePerOwner,
                 MaximumServers = editForm.MaximumServers,
                 MaximumUsers = editForm.MaximumUsers,
@@ -605,24 +862,115 @@ else
 
         try
         {
-            var superseded = await PlanClient.SupersedeAsync(editingPlan.Id, new SupersedePlanDto
-            {
-                ColorCode = editForm.ColorCode,
-                Prices = editForm.Prices,
-                PricingModel = editForm.PricingModel,
-                RetentionHistory = editForm.RetentionHistory,
-                HasRoles = editForm.HasRoles,
-                OnePerOwner = editForm.OnePerOwner,
-                MaximumServers = editForm.MaximumServers,
-                MaximumUsers = editForm.MaximumUsers
-            });
+            var oldPlanId = editingPlan.Id;
+            var moveAlong = moveSubscribers && (movePreview?.CanMove ?? 0) > 0;
+            var superseded = await PlanClient.SupersedeAsync(oldPlanId, SupersedeTerms());
             successMessage = Localizer["A new {0} plan was created and the previous one deactivated.", superseded.Name];
+
+            string? moveFailed = null;
+            if (moveAlong)
+            {
+                // A second call, after the plan exists: if it fails the new plan is still there and the move can be retried from the list, so it is
+                // reported on its own rather than as a failure to create the plan.
+                try
+                {
+                    var moved = await PlanClient.MoveSubscribersAsync(oldPlanId);
+                    successMessage += " " + Localizer["{0} subscriber(s) moved to the new version; {1} stayed on the old one.", moved.Moved, moved.Stayed];
+                }
+                catch (Exception)
+                {
+                    moveFailed = Localizer["The new plan was created, but moving its subscribers failed. You can move them from the plan list."];
+                }
+            }
+
             editingPlan = null;
+            movePreview = null;
+            moveSubscribers = false;
             await LoadPlans();
+            errorMessage = moveFailed;          // after the reload, which clears the message it shows
         }
         catch (Exception ex)
         {
             errorMessage = ApiErrorMessage.For(ex, "create new plan");
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    // ---- moving the people still on a version that was replaced -------------------------------------------------------------
+
+    private PlanMovePreviewDto? movePreview;                  // for the supersede in progress
+    private bool moveSubscribers;                             // the checkbox in that confirmation: off unless chosen
+
+    private PlanDto? planToMove;                              // for the "Move subscribers" action on a replaced plan
+    private PlanMovePreviewDto? standalonePreview;
+    private bool showMoveConfirmation;
+    private string? infoMessage;
+
+    /// <summary>
+    /// Asks what a move would do and, if anyone can be moved, asks for confirmation; otherwise says why nobody can (or that nobody is left), rather than
+    /// offering a button that would do nothing.
+    /// </summary>
+    private async Task OpenMove(PlanDto plan)
+    {
+        errorMessage = null;
+        successMessage = null;
+        infoMessage = null;
+
+        try
+        {
+            standalonePreview = await PlanClient.GetMovePreviewAsync(plan.Id);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "check who can be moved");
+            return;
+        }
+
+        if (standalonePreview.CurrentSubscribers == 0)
+        {
+            infoMessage = Localizer["No organization is on this version any more."];
+            return;
+        }
+
+        if (standalonePreview.CanMove == 0)
+        {
+            infoMessage = Localizer["None of the {0} organization(s) still on this version can be moved to the latest one, so they stay. Reasons:", standalonePreview.CurrentSubscribers]
+                + " " + string.Join("; ", standalonePreview.WouldStay.Select(r => $"{r.Count} × {Localizer[r.Message]}"));
+            return;
+        }
+
+        planToMove = plan;
+        showMoveConfirmation = true;
+    }
+
+    private async Task HandleMoveModalClose(bool confirmed)
+    {
+        showMoveConfirmation = false;
+        var plan = planToMove;
+        planToMove = null;
+        standalonePreview = null;
+
+        if (!confirmed || plan == null)
+        {
+            return;
+        }
+
+        saving = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            var moved = await PlanClient.MoveSubscribersAsync(plan.Id);
+            successMessage = Localizer["{0} organization(s) moved to the latest version; {1} stayed.", moved.Moved, moved.Stayed];
+            await LoadPlans();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "move subscribers");
         }
         finally
         {
@@ -693,6 +1041,9 @@ else
 
         public bool HasRoles { get; set; }
 
+        /// <summary>See Plan.OffersThirdPartyPluginUpdates - the plan gate on applying third-party plugin updates automatically.</summary>
+        public bool OffersThirdPartyPluginUpdates { get; set; }
+
         /// <summary>See Plan.OnePerOwner - set on the free tier, editable here.</summary>
         public bool OnePerOwner { get; set; }
 
@@ -716,6 +1067,9 @@ else
         public int RetentionHistory { get; set; }
 
         public bool HasRoles { get; set; }
+
+        /// <summary>See Plan.OffersThirdPartyPluginUpdates - the plan gate on applying third-party plugin updates automatically.</summary>
+        public bool OffersThirdPartyPluginUpdates { get; set; }
 
         /// <summary>See Plan.OnePerOwner - set on the free tier, editable here.</summary>
         public bool OnePerOwner { get; set; }

@@ -40,7 +40,7 @@
         else
         {
             <div class="alert alert-info" data-testid="map-pending">
-                @Localizer["The map has not reached the Panel yet. The plugin draws it once per wipe and it is collected automatically, usually within a few minutes."]
+                @Localizer["The map is being generated and collected. It usually appears within about 15 minutes of the plugin loading."]
             </div>
         }
     }
@@ -82,6 +82,14 @@
             </span>
         </div>
 
+        @* What the Bases and Positions tabs used to say for themselves: with recording off the plugin is not keeping either up to date. *@
+        @if (!RecordingEnabled)
+        {
+            <div class="alert alert-warning py-2 small" data-testid="map-recording-off">
+                @Localizer["Recording is switched off, so players and bases on the map are not being kept up to date. Turn it on in the Plugins tab."]
+            </div>
+        }
+
         @if (playersForbidden || basesForbidden)
         {
             <div class="alert alert-warning py-2 small" data-testid="map-layers-forbidden">
@@ -95,7 +103,21 @@
             <div class="alert alert-danger py-2 small" data-testid="map-image-error">@imageError</div>
         }
 
-        <p class="small text-muted mb-2" data-testid="map-hint">@Localizer["Scroll to zoom, drag to pan, double-click to zoom in."]</p>
+        @* Only while the bases are actually on the map: with the layer off (or not permitted) an incomplete list is not what they see. *@
+        @if (basesScanning && showBases && !basesForbidden)
+        {
+            <div class="alert alert-info py-2 small" data-testid="map-bases-not-ready">
+                @Localizer["The plugin is still scanning the world for bases, so the map may not show all of them yet."]
+            </div>
+        }
+
+        <p class="small text-muted mb-2" data-testid="map-hint">
+            @Localizer["Scroll to zoom, drag to pan, double-click to zoom in."]
+            @if (showBases && !basesForbidden)
+            {
+                <span data-testid="map-hover-hint">&nbsp;@Localizer["Hover over a base to see who is authorized on its cupboard. Click or tap it to keep the list open."]</span>
+            }
+        </p>
 
         <div class="map-canvas-wrap" style="max-width: 1100px;">
             <canvas id="@CanvasId" data-testid="map-canvas" style="display: block; max-width: 100%;"></canvas>
@@ -111,6 +133,9 @@
 
     /// <summary>Whether the plugin reports the map capability; only used to say why there is no map.</summary>
     [Parameter] public bool PluginSupportsMap { get; set; }
+
+    /// <summary>Whether the plugin is recording. With it off the players and bases drawn are not being kept up to date, and the map says so.</summary>
+    [Parameter] public bool RecordingEnabled { get; set; } = true;
 
     private enum Layer { Monuments, Bases, Players }
 
@@ -130,6 +155,7 @@
     private bool showBases = true;
     private bool showPlayers = true;
     private bool basesForbidden;
+    private bool basesScanning;
     private bool playersForbidden;
 
     private List<object> baseMarkers = [];
@@ -191,17 +217,40 @@
         {
             var bases = await RustServerClient.GetBasesAsync(ServerId);
             basesForbidden = false;
+
+            // Something was read, but the plugin's first scan of the world had not finished, so cupboards may be missing. (Nothing read at
+            // all is a different thing - an empty map, not an incomplete one - and says nothing.)
+            basesScanning = bases.CapturedAtUtc is not null && !bases.Ready;
             baseMarkers = bases.Tcs
-                .Select(tc => (object)new { name = Owner(tc), x = tc.X, z = tc.Z })
+                .Select(tc => (object)new
+                {
+                    name = Owner(tc),
+                    x = tc.X,
+                    y = tc.Y, // the height: not drawn (the map is flat), but the tooltip says where the base is in all three
+                    z = tc.Z,
+
+                    // For the tooltip over the marker. Both are text from the game (a Steam name is whatever its player chose), so the
+                    // canvas script puts them on the page as text, never as markup.
+                    owner = string.IsNullOrEmpty(Owner(tc)) ? tc.OwnerId : Owner(tc),
+                    ownerId = tc.OwnerId,
+
+                    // The id travels with each name so the pinned tooltip can link it to that player's page - the id itself is far too
+                    // long to show, and is only the name when the game never told us one.
+                    authorized = tc.Authorized
+                        .Select(a => new { name = string.IsNullOrEmpty(a.Name) ? a.PlayerId : a.Name, id = a.PlayerId })
+                        .ToList()
+                })
                 .ToList();
         }
         catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
         {
             basesForbidden = true;
+            basesScanning = false;
             baseMarkers = [];
         }
         catch (Exception)
         {
+            basesScanning = false;
             baseMarkers = [];
         }
 
@@ -251,7 +300,22 @@
             showPlayers = showPlayers && !playersForbidden,
             monuments = map.Monuments.Select(m => new { name = m.Name, x = m.X, z = m.Z }),
             bases = baseMarkers,
-            players = playerMarkers
+            players = playerMarkers,
+
+            // Where a player's page is, less the id: the same address the Players tab and the reports list link to.
+            playerUrl = $"/servers/{ServerId}/players/",
+
+            // The tooltip is built by the canvas script, which cannot reach the localizer, so the words it needs travel with the model.
+            labels = new
+            {
+                owner = Localizer["Owner"].Value,
+                authorized = Localizer["Authorized"].Value,
+                nobody = Localizer["Nobody"].Value,
+                more = Localizer["and {0} more"].Value,
+                close = Localizer["Close"].Value,
+                location = Localizer["Location"].Value,
+                height = Localizer["height"].Value
+            }
         });
     }
 

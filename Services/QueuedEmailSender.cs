@@ -61,7 +61,7 @@ public class QueuedEmailSender(IInternalEmailApiClient client) : IEmailSender<Ap
             To = email,
             TemplateCode = templateCode,
             Tokens = tokens,
-            UserId = user.Id,
-            Culture = user.PreferredCulture
+            // No Culture: given a UserId, the Api words the email in that person's own language (their UserProfile).
+            UserId = user.Id
         });
 }

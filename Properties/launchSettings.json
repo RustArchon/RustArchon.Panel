@@ -1,5 +1,17 @@
 {
   "profiles": {
+    "panel-lan": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "http://localhost:5200",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "RUSTARCHON_SUPPRESS_EMAIL_DELIVERY": "true",
+        "RUSTARCHON_ALLOW_LOCAL_DEV_HOOKS": "true"
+      },
+      "dotnetRunMessages": true,
+      "applicationUrl": "http://0.0.0.0:5200"
+    },
     "panel-http": {
       "commandName": "Project",
       "launchBrowser": true,

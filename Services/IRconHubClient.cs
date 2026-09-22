@@ -41,6 +41,12 @@ public interface IRconHubClient : IAsyncDisposable
     /// </summary>
     event Action? ServerReportsChanged;
 
+    /// <summary>
+    /// Fires when UpdateChecker's list of plugins with newer versions grew or moved for this server. Carries nothing - a listener re-reads
+    /// the notices through the endpoint - and does not fire for a repeat of what is already known.
+    /// </summary>
+    event Action? PluginUpdatesChanged;
+
     Task ConnectAsync(Guid serverId);
 
     /// <summary>

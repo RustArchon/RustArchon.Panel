@@ -59,7 +59,7 @@ public static class ApiErrorMessage
         var trimmed = content.TrimStart();
         if (trimmed.StartsWith('{') || trimmed.StartsWith('['))
         {
-            return TryExtractValidationMessages(content) ?? Fallback(action);
+            return TryExtractValidationMessages(content) ?? TryExtractMessage(content) ?? Fallback(action);
         }
 
         // Plain text - already written to be shown to a user as-is.
@@ -105,6 +105,28 @@ public static class ApiErrorMessage
         catch (JsonException)
         {
             // Some other JSON shape this doesn't know how to read - fall back rather than guess.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads a body of the form <c>{ "message": "..." }</c> - what this API's own hand-written refusals return when they have something specific to say
+    /// (the announcement endpoints, a plan that was replaced). The message is written to be shown to a person, so it is shown as it is.
+    /// </summary>
+    private static string? TryExtractMessage(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("message", out var message)
+                && message.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(message.GetString())
+                    ? message.GetString()
+                    : null;
+        }
+        catch (JsonException)
+        {
             return null;
         }
     }
