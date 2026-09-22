@@ -103,6 +103,14 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     /// The Plugins tab's list - the Oxide/Carbon plugins the Worker last reported loaded on this server,
     /// ordered by name. Empty when there's no plugin framework, nothing loaded, or no poll has landed yet.
     /// </summary>
+    /// <summary>
+    /// Asks the server to be polled right now (the installed plugin list, its RustArchon handshake if listed, and its update notices if it reports
+    /// the capability), instead of waiting for the Worker's own few-minute schedule. Never a hard failure - see <see cref="ServerPollResultDto"/>'s
+    /// remarks for what each outcome means. Callers read the ordinary endpoints again right after this, whatever it returns.
+    /// </summary>
+    [Post("/{id}/plugins/poll")]
+    Task<ServerPollResultDto> PollPluginsNowAsync(Guid id);
+
     [Get("/{id}/plugins")]
     Task<List<ServerPluginDto>> GetPluginsAsync(Guid id);
 
@@ -217,6 +225,50 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     Task<RustServerDto> UpdatePluginSettingsAsync(Guid id, [Body] UpdateServerPluginSettingsDto settings);
 
     /// <summary>
+    /// Where this server stands on having updates to its third-party plugins (the ones UpdateChecker reports) applied automatically: the
+    /// plan, opt-in and days-before-wipe gates. Nothing to do with RustArchon's own plugin.
+    /// </summary>
+    [Get("/{id}/third-party-update-settings")]
+    Task<ThirdPartyPluginUpdateSettingsDto> GetThirdPartyUpdateSettingsAsync(Guid id);
+
+    /// <summary>
+    /// What can be done about each outdated third-party plugin on this server: a checked file waiting to be applied, an update under way, or how
+    /// the last one went. Only plugins with something to say are returned.
+    /// </summary>
+    [Get("/{id}/third-party-updates")]
+    Task<List<ThirdPartyPluginUpdateOfferDto>> GetThirdPartyUpdatesAsync(Guid id);
+
+    /// <summary>
+    /// Applies one plugin's update now, by hand. Every precondition is checked first and a refusal is an ordinary result with a <c>Code</c>. The
+    /// request carries the hash of the file the person was shown, so a file that changed since is never applied.
+    /// </summary>
+    [Post("/{id}/third-party-updates/apply")]
+    Task<PluginUpdateResultDto> ApplyThirdPartyUpdateAsync(Guid id, [Body] ApplyThirdPartyPluginUpdateDto request);
+
+    /// <summary>
+    /// Downloads the file behind one plugin's update again, right now, instead of trusting whatever was last recorded - the same check a "changed"
+    /// verdict already triggers on its own, or the periodic validation job eventually would. Returns whether there was anything to recheck; either
+    /// way, read the offers again afterward.
+    /// </summary>
+    [Post("/{id}/third-party-updates/recheck")]
+    Task<bool> RecheckThirdPartyFileAsync(Guid id, [Body] RecheckThirdPartyPluginFileDto request);
+
+    /// <summary>
+    /// Says that a plugin's update notice does not describe what is actually installed on this server (most often a free listing standing in for a
+    /// different, paid build) - never applied, automatically or by hand, until lifted.
+    /// </summary>
+    [Post("/{id}/third-party-updates/exclude")]
+    Task ExcludeThirdPartyPluginAsync(Guid id, [Body] ExcludeThirdPartyPluginUpdateDto request);
+
+    /// <summary>Lifts an exclusion, if there is one, so the plugin's update notice is offered again.</summary>
+    [Post("/{id}/third-party-updates/include")]
+    Task IncludeThirdPartyPluginAsync(Guid id, [Body] RecheckThirdPartyPluginFileDto request);
+
+    /// <summary>Saves the opt-in and the days before the monthly wipe. Refused (400) when the plan does not offer the feature and the opt-in is on.</summary>
+    [Put("/{id}/third-party-update-settings")]
+    Task<ThirdPartyPluginUpdateSettingsDto> UpdateThirdPartyUpdateSettingsAsync(Guid id, [Body] UpdateThirdPartyPluginUpdateSettingsDto settings);
+
+    /// <summary>
     /// The calling tenant's current Plan limits and server count - lets the Servers page warn "you're
     /// at your limit" the moment a user clicks Add Server, before filling out the form. See the
     /// endpoint's own remarks for why this can't replace <c>CreateAsync</c>'s own rejection.
@@ -248,6 +300,25 @@ public interface IRustServerApiClient : IApiClient<RustServerDto, CreateRustServ
     /// <summary>Changes what has been done about a report. Needs <c>RustServer.ManageReports</c> as well as the view permission.</summary>
     [Put("/{id}/reports/{reportId}/status")]
     Task<ServerReportDto> SetReportStatusAsync(Guid id, Guid reportId, [Body] UpdateServerReportStatusDto status);
+
+    /// <summary>
+    /// Who a report can be assigned to, as user ids: the organization's active members who can act on reports. Needs
+    /// <c>RustServer.ManageReports</c> (<c>403</c> otherwise).
+    /// </summary>
+    [Get("/{id}/reports/assignees")]
+    Task<List<Guid>> GetReportAssigneesAsync(Guid id);
+
+    /// <summary>Assigns a report to one of <see cref="GetReportAssigneesAsync"/>'s answers, or with <c>null</c> takes the assignment back. Needs <c>RustServer.ManageReports</c>.</summary>
+    [Put("/{id}/reports/{reportId}/assignee")]
+    Task<ServerReportDto> AssignReportAsync(Guid id, Guid reportId, [Body] AssignServerReportDto assignment);
+
+    /// <summary>A report's internal notes, oldest first. Same permission as the list.</summary>
+    [Get("/{id}/reports/{reportId}/notes")]
+    Task<List<ServerReportNoteDto>> GetReportNotesAsync(Guid id, Guid reportId);
+
+    /// <summary>Adds an internal note to a report. Needs <c>RustServer.ManageReports</c>.</summary>
+    [Post("/{id}/reports/{reportId}/notes")]
+    Task<ServerReportNoteDto> AddReportNoteAsync(Guid id, Guid reportId, [Body] SaveServerReportNoteDto note);
 
     /// <summary>
     /// The address to paste into the game server's <c>server.reportsServerEndpoint</c>. The first ask mints the secret in it. Needs

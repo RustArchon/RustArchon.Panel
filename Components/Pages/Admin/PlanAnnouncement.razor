@@ -1,0 +1,639 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/Plans/{Id:guid}/Announce"
+@using System.Globalization
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Localization
+@using Microsoft.Extensions.Options
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@implements IAsyncDisposable
+@inject IPlanApiClient PlanClient
+@inject IJSRuntime JS
+@inject IOptions<RequestLocalizationOptions> LocalizationOptions
+@inject AuthenticationStateProvider AuthState
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@Localizer["Email the organizations on a plan"]</PageTitle>
+
+@*
+    A message from the site admin to the organizations on a plan - for what the platform cannot say for them, such as a change coming to their plan.
+    Who it goes to is chosen here (the plan, or the plan and everything that superseded it; past-due only if asked) and shown as an exact count before
+    anything is sent. The words are the admin's: a subject and a message per language (or one language for everyone), written in an editor whose output is
+    structured content, never HTML - the server builds the email from it. What is sent is only ever what was confirmed.
+*@
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">@Localizer["Email the organizations on a plan"]</h1>
+    <a class="btn btn-outline-secondary" href="/Admin/Plans"><i class="bi bi-arrow-left"></i> @Localizer["Plans"]</a>
+</div>
+
+@if (loading)
+{
+    <p><em>@Localizer["Loading..."]</em></p>
+}
+else if (plan is null)
+{
+    <div class="alert alert-warning" data-testid="ann-no-plan">@(loadError ?? Localizer["That plan was not found."].Value)</div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert" data-testid="ann-error">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert" data-testid="ann-success">
+            @successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    <div class="card mb-3">
+        <div class="card-header">@Localizer["Who receives it"]</div>
+        <div class="card-body">
+            <p class="mb-2">@Localizer["Organizations on the \"{0}\" plan.", plan.Name]</p>
+
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="ann-include-newer" data-testid="ann-include-newer"
+                       checked="@includeNewer" disabled="@(!HasNewerVersions)"
+                       @onchange="e => OnCriteriaChanged(newer: (bool)e.Value!)" />
+                <label class="form-check-label" for="ann-include-newer">@Localizer["Also the organizations on every newer version of this plan"]</label>
+                @if (!HasNewerVersions)
+                {
+                    <div class="form-text" data-testid="ann-no-newer">@Localizer["This plan has no newer versions."]</div>
+                }
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="ann-include-past-due" data-testid="ann-include-past-due"
+                       checked="@includePastDue" @onchange="e => OnCriteriaChanged(pastDue: (bool)e.Value!)" />
+                <label class="form-check-label" for="ann-include-past-due">@Localizer["Include organizations with an overdue invoice"]</label>
+            </div>
+
+            <div class="mt-3" data-testid="ann-audience">
+                @if (preview is null)
+                {
+                    <em>@Localizer["Counting..."]</em>
+                }
+                else
+                {
+                    <strong data-testid="ann-recipients">@Localizer["{0} organization(s) would be emailed.", preview.Recipients]</strong>
+                    @if (preview.ByPlanVersion.Count > 1)
+                    {
+                        <ul class="small mb-1" data-testid="ann-by-version">
+                            @foreach (var version in preview.ByPlanVersion)
+                            {
+                                <li>@version.Count × @version.Name</li>
+                            }
+                        </ul>
+                    }
+
+                    @if (preview.ByLanguage.Count > 0)
+                    {
+                        <div class="small text-muted" data-testid="ann-by-language">
+                            @Localizer["By language:"] @string.Join(", ", preview.ByLanguage.Select(l => $"{l.Count} × {LanguageName(l.Key, preview.DefaultCulture)}"))
+                        </div>
+                    }
+
+                    @if (preview.LeftOut.Count > 0)
+                    {
+                        <div class="small text-muted mt-1" data-testid="ann-left-out">
+                            @Localizer["Left out:"]
+                            <ul class="mb-0">
+                                @foreach (var reason in preview.LeftOut)
+                                {
+                                    <li>@reason.Count × @Localizer[reason.Message]</li>
+                                }
+                            </ul>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">@Localizer["The message"]</div>
+        <div class="card-body">
+            <div class="mb-3" data-testid="ann-mode">
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="ann-mode" id="ann-mode-per" data-testid="ann-mode-per"
+                           checked="@(mode == AnnouncementLanguageMode.PerLanguage)" @onchange="() => SetMode(AnnouncementLanguageMode.PerLanguage)" />
+                    <label class="form-check-label" for="ann-mode-per">@Localizer["Write a version for each language - each organization gets its own language's"]</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="ann-mode" id="ann-mode-single" data-testid="ann-mode-single"
+                           checked="@(mode == AnnouncementLanguageMode.SingleLanguage)" @onchange="() => SetMode(AnnouncementLanguageMode.SingleLanguage)" />
+                    <label class="form-check-label" for="ann-mode-single">@Localizer["Write one message, in one language, and send it to everyone"]</label>
+                </div>
+                @if (mode == AnnouncementLanguageMode.SingleLanguage)
+                {
+                    <div class="mt-2 ms-4">
+                        <label class="form-label small mb-1" for="ann-single-culture">@Localizer["Language of the message"]</label>
+                        <select id="ann-single-culture" class="form-select form-select-sm w-auto" data-testid="ann-single-culture"
+                                value="@singleCulture" @onchange="e => SetSingleCulture(e.Value?.ToString())">
+                            @foreach (var culture in cultures)
+                            {
+                                <option value="@culture" selected="@(culture == singleCulture)">@LanguageName(culture, null)</option>
+                            }
+                        </select>
+                    </div>
+                }
+                else
+                {
+                    <div class="form-text ms-4" data-testid="ann-default-hint">
+                        @Localizer["The {0} version is required: it is what an organization gets when its language has no version.", LanguageName(DefaultCulture, null)]
+                    </div>
+                }
+            </div>
+
+            <ul class="nav nav-tabs mb-3" data-testid="ann-tabs">
+                @foreach (var culture in cultures)
+                {
+                    var current = culture;
+                    var shown = ShownCultures.Contains(current);
+                    <li class="nav-item @(shown ? "" : "d-none")">
+                        <button type="button" class="nav-link @(activeCulture == current ? "active" : "")" data-testid="ann-tab-@current" @onclick="() => activeCulture = current">
+                            @LanguageName(current, null)
+                            @if (mode == AnnouncementLanguageMode.PerLanguage && current == DefaultCulture)
+                            {
+                                <span class="badge text-bg-secondary ms-1">@Localizer["required"]</span>
+                            }
+                            @if (versions[current].Complete)
+                            {
+                                <i class="bi bi-check-circle-fill text-success ms-1" title="@Localizer["Written"]"></i>
+                            }
+                        </button>
+                    </li>
+                }
+            </ul>
+
+            @* Every language's editor is in the page all the time (the inactive ones hidden), so switching tabs never loses what was typed. *@
+            @foreach (var culture in cultures)
+            {
+                var current = culture;
+                <div class="@(activeCulture == current && ShownCultures.Contains(current) ? "" : "d-none")" data-testid="ann-pane-@current">
+                    <div class="mb-2">
+                        <label class="form-label" for="ann-subject-@current">@Localizer["Subject"]</label>
+                        <input id="ann-subject-@current" class="form-control" data-testid="ann-subject-@current" maxlength="200"
+                               value="@versions[current].Subject" @oninput="e => versions[current].Subject = e.Value?.ToString() ?? string.Empty" />
+                        <div class="mt-1">
+                            @foreach (var token in Tokens)
+                            {
+                                var t = token;
+                                <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-testid="ann-subject-token"
+                                        @onclick="() => InsertIntoSubject(current, t)">@("{{" + t + "}}")</button>
+                            }
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">@Localizer["Message"]</label>
+                        <div id="ann-editor-@current" data-testid="ann-editor-@current" style="min-height: 220px; background: #fff; color: #000;"></div>
+                        <div class="mt-1">
+                            @foreach (var token in Tokens)
+                            {
+                                var t = token;
+                                <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-testid="ann-body-token"
+                                        @onclick="() => InsertIntoBody(current, t)">@("{{" + t + "}}")</button>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <div class="form-text" data-testid="ann-token-help">
+                @Localizer["These are filled in for each organization, in the subject and the message:"]
+                <code>@("{{OrganizationName}}")</code> @Localizer["the organization's name"],
+                <code>@("{{PlanName}}")</code> @Localizer["the name of the plan it is on"],
+                <code>@("{{SiteName}}")</code> @Localizer["this site's name"].
+            </div>
+
+            @foreach (var problem in Problems)
+            {
+                <div class="text-danger small mt-2" data-testid="ann-problem">@problem</div>
+            }
+
+            <div class="mt-3">
+                <button type="button" class="btn btn-outline-primary me-2" data-testid="ann-test" disabled="@(!CanTest || busy)" @onclick="SendTestAsync">
+                    <i class="bi bi-envelope"></i> @Localizer["Send me a test"]
+                </button>
+                <button type="button" class="btn btn-primary" data-testid="ann-send" disabled="@(!CanSend || busy)" @onclick="AskToSend">
+                    <i class="bi bi-send"></i> @Localizer["Send to the organizations"]
+                </button>
+                @if (string.IsNullOrEmpty(TestAddress))
+                {
+                    <span class="text-muted small ms-2" data-testid="ann-no-test-address">@Localizer["Your account has no email address to send a test to."]</span>
+                }
+                else
+                {
+                    <span class="text-muted small ms-2">@Localizer["A test goes to {0}.", TestAddress]</span>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3" data-testid="ann-history">
+        <div class="card-header">@Localizer["Already sent from this plan"]</div>
+        <div class="card-body">
+            @if (history.Count == 0)
+            {
+                <em class="text-muted">@Localizer["Nothing has been sent from this plan yet."]</em>
+            }
+            else
+            {
+                <table class="table table-sm mb-0">
+                    <thead><tr><th>@Localizer["Sent"]</th><th>@Localizer["Subject"]</th><th>@Localizer["Emailed"]</th><th>@Localizer["Left out"]</th></tr></thead>
+                    <tbody>
+                        @foreach (var batch in history)
+                        {
+                            <tr data-testid="ann-history-row">
+                                <td>@batch.SentOn.LocalDateTime.ToString("g")</td>
+                                <td>@batch.Subject</td>
+                                <td>@batch.Recipients</td>
+                                <td>@batch.LeftOut</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+
+    @if (showConfirm && preview is not null)
+    {
+        <RustArchon.Panel.Components.Shared.ConfirmationModal
+            Title="@Localizer["Send this message?"]"
+            ConfirmButtonText="@Localizer["Send"]"
+            ConfirmButtonClass="btn-primary"
+            OnClose="HandleConfirmClose">
+            <Message>
+                <p data-testid="ann-confirm">@Localizer["This will email {0} organization(s) now. Emails are queued at once and cannot be recalled.", preview.Recipients]</p>
+                <ul class="small">
+                    @foreach (var line in ConfirmLines())
+                    {
+                        <li>@line</li>
+                    }
+                </ul>
+            </Message>
+        </RustArchon.Panel.Components.Shared.ConfirmationModal>
+    }
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    /// <summary>The names an announcement's own subject and body may use; each is filled in for every organization.</summary>
+    private static readonly string[] Tokens = ["OrganizationName", "PlanName", "SiteName"];
+
+    private sealed class VersionState
+    {
+        public string Subject { get; set; } = string.Empty;
+        public string BodyDelta { get; set; } = string.Empty;
+        public bool HasText { get; set; }
+
+        /// <summary>A subject and some message: enough to send.</summary>
+        public bool Complete => !string.IsNullOrWhiteSpace(Subject) && HasText;
+
+        /// <summary>Something written, but not both parts.</summary>
+        public bool Partial => (!string.IsNullOrWhiteSpace(Subject) || HasText) && !Complete;
+    }
+
+    private PlanDto? plan;
+    private bool loading = true;
+    private string? loadError;
+    private string? errorMessage;
+    private string? successMessage;
+    private bool busy;
+    private bool showConfirm;
+
+    private bool includeNewer;
+    private bool includePastDue;
+    private AnnouncementPreviewDto? preview;
+    private List<AnnouncementBatchDto> history = [];
+
+    private AnnouncementLanguageMode mode = AnnouncementLanguageMode.PerLanguage;
+    private string singleCulture = string.Empty;
+    private List<string> cultures = [];
+    private string activeCulture = string.Empty;
+    private readonly Dictionary<string, VersionState> versions = new(StringComparer.OrdinalIgnoreCase);
+
+    private string? testAddress;
+    private DotNetObjectReference<PlanAnnouncement>? self;
+    private bool editorsCreated;
+
+    private bool HasNewerVersions => plan?.SupersededByPlanId is not null;
+
+    private string TestAddress => testAddress ?? string.Empty;
+
+    /// <summary>The language an organization gets when its own has no version: the platform's default, once known, or the first language there is.</summary>
+    private string DefaultCulture => preview?.DefaultCulture is { Length: > 0 } d && cultures.Contains(d, StringComparer.OrdinalIgnoreCase)
+        ? cultures.First(c => string.Equals(c, d, StringComparison.OrdinalIgnoreCase))
+        : cultures.FirstOrDefault() ?? string.Empty;
+
+    /// <summary>The languages that take part in this send: all of them, or only the one chosen.</summary>
+    private IReadOnlyCollection<string> ShownCultures =>
+        mode == AnnouncementLanguageMode.SingleLanguage ? [singleCulture] : cultures;
+
+    protected override async Task OnInitializedAsync()
+    {
+        cultures = (LocalizationOptions.Value.SupportedUICultures ?? []).Select(c => c.Name).Where(n => n.Length > 0).ToList();
+        if (cultures.Count == 0)
+        {
+            cultures = ["en-US"];
+        }
+
+        foreach (var culture in cultures)
+        {
+            versions[culture] = new VersionState();
+        }
+
+        singleCulture = cultures[0];
+        activeCulture = cultures[0];
+
+        var state = await AuthState.GetAuthenticationStateAsync();
+        testAddress = state.User.FindFirst(ClaimTypes.Email)?.Value ?? state.User.FindFirst("email")?.Value;
+
+        try
+        {
+            plan = (await PlanClient.GetAllPlansAsync()).FirstOrDefault(p => p.Id == Id);
+        }
+        catch (Exception ex)
+        {
+            loadError = ApiErrorMessage.For(ex, "load the plan");
+        }
+
+        loading = false;
+        if (plan is null)
+        {
+            return;
+        }
+
+        await RefreshPreviewAsync();
+        await LoadHistoryAsync();
+        activeCulture = DefaultCulture;
+        singleCulture = DefaultCulture;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (plan is null || editorsCreated)
+        {
+            return;
+        }
+
+        editorsCreated = true;
+        self = DotNetObjectReference.Create(this);
+        foreach (var culture in cultures)
+        {
+            await JS.InvokeVoidAsync("announcementEditor.create", $"ann-editor-{culture}", null, self, culture);
+        }
+    }
+
+    /// <summary>Called by the editor as the message is typed: its content (the structured form, never HTML) and whether there is any text in it.</summary>
+    [JSInvokable]
+    public Task OnBodyChanged(string culture, string deltaJson, bool hasText)
+    {
+        if (versions.TryGetValue(culture, out var version))
+        {
+            version.BodyDelta = deltaJson;
+            version.HasText = hasText;
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnCriteriaChanged(bool? newer = null, bool? pastDue = null)
+    {
+        includeNewer = newer ?? includeNewer;
+        includePastDue = pastDue ?? includePastDue;
+        successMessage = null;
+        await RefreshPreviewAsync();
+    }
+
+    private AnnouncementCriteriaDto Criteria() => new() { IncludeSupersedingVersions = includeNewer && HasNewerVersions, IncludePastDue = includePastDue };
+
+    private async Task RefreshPreviewAsync()
+    {
+        try
+        {
+            preview = await PlanClient.PreviewAnnouncementAsync(Id, Criteria());
+        }
+        catch (Exception ex)
+        {
+            preview = null;
+            errorMessage = ApiErrorMessage.For(ex, "count the organizations");
+        }
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        try
+        {
+            history = await PlanClient.GetAnnouncementHistoryAsync(Id);
+        }
+        catch (Exception)
+        {
+            history = [];          // the history is a convenience; the page works without it
+        }
+    }
+
+    private void SetMode(AnnouncementLanguageMode value)
+    {
+        mode = value;
+        if (value == AnnouncementLanguageMode.SingleLanguage)
+        {
+            activeCulture = singleCulture;
+        }
+    }
+
+    private void SetSingleCulture(string? culture)
+    {
+        if (!string.IsNullOrEmpty(culture) && cultures.Contains(culture))
+        {
+            singleCulture = culture;
+            activeCulture = culture;
+        }
+    }
+
+    // ---- the words ----------------------------------------------------------------------------------------------------------------
+
+    /// <summary>What is wrong with the message as it stands, in words - shown under the editor and the reason the buttons are off.</summary>
+    private List<string> Problems
+    {
+        get
+        {
+            var problems = new List<string>();
+            if (mode == AnnouncementLanguageMode.SingleLanguage)
+            {
+                if (!versions[singleCulture].Complete)
+                {
+                    problems.Add(Localizer["Write a subject and a message in {0}.", LanguageName(singleCulture, null)]);
+                }
+
+                return problems;
+            }
+
+            if (!versions[DefaultCulture].Complete)
+            {
+                problems.Add(Localizer["Write a subject and a message in {0} - it is the version organizations without a version of their own get.", LanguageName(DefaultCulture, null)]);
+            }
+
+            foreach (var culture in cultures.Where(c => !string.Equals(c, DefaultCulture, StringComparison.OrdinalIgnoreCase) && versions[c].Partial))
+            {
+                problems.Add(Localizer["The {0} version needs both a subject and a message - or leave both empty to leave that language out.", LanguageName(culture, null)]);
+            }
+
+            return problems;
+        }
+    }
+
+    private bool CanTest => Problems.Count == 0 && !string.IsNullOrEmpty(TestAddress);
+
+    private bool CanSend => Problems.Count == 0 && preview is { Recipients: > 0 };
+
+    private AnnouncementContentDto BuildContent() => new()
+    {
+        Mode = mode,
+        SingleCulture = mode == AnnouncementLanguageMode.SingleLanguage ? singleCulture : null,
+        Versions = cultures
+            .Where(c => mode == AnnouncementLanguageMode.SingleLanguage ? c == singleCulture : versions[c].Complete)
+            .Select(c => new AnnouncementVersionDto { Culture = c, Subject = versions[c].Subject.Trim(), BodyDelta = versions[c].BodyDelta })
+            .ToList()
+    };
+
+    private async Task InsertIntoSubject(string culture, string token) =>
+        await JS.InvokeVoidAsync("announcementEditor.insertIntoInput", $"ann-subject-{culture}", "{{" + token + "}}");
+
+    private async Task InsertIntoBody(string culture, string token) =>
+        await JS.InvokeVoidAsync("announcementEditor.insertToken", $"ann-editor-{culture}", "{{" + token + "}}");
+
+    // ---- sending -----------------------------------------------------------------------------------------------------------------------
+
+    private async Task SendTestAsync()
+    {
+        busy = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            var result = await PlanClient.SendAnnouncementTestAsync(Id, new SendAnnouncementTestDto { Content = BuildContent(), ToAddress = TestAddress });
+            successMessage = Localizer["{0} test email(s) queued to {1}.", result.Queued, TestAddress];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "send the test");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void AskToSend()
+    {
+        errorMessage = null;
+        successMessage = null;
+        showConfirm = true;
+    }
+
+    private async Task HandleConfirmClose(bool confirmed)
+    {
+        showConfirm = false;
+        if (!confirmed || preview is null)
+        {
+            return;
+        }
+
+        busy = true;
+        try
+        {
+            var result = await PlanClient.SendAnnouncementAsync(Id, new SendPlanAnnouncementDto
+            {
+                Criteria = Criteria(), Content = BuildContent(), ExpectedRecipients = preview.Recipients
+            });
+            successMessage = Localizer["Queued {0} email(s).", result.Queued];
+            if (result.LeftOut.Count > 0)
+            {
+                successMessage += " " + Localizer["Not sent to {0} organization(s).", result.LeftOut.Sum(l => l.Count)];
+            }
+
+            await LoadHistoryAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "send the message");
+        }
+        finally
+        {
+            busy = false;
+        }
+
+        // Whatever happened, what the page says about who it reaches is looked at again: it may be why a send was refused.
+        await RefreshPreviewAsync();
+    }
+
+    private IEnumerable<string> ConfirmLines()
+    {
+        if (preview is null)
+        {
+            yield break;
+        }
+
+        yield return includeNewer && HasNewerVersions
+            ? Localizer["The \"{0}\" plan and its newer versions.", plan!.Name].Value
+            : Localizer["The \"{0}\" plan only.", plan!.Name].Value;
+        yield return includePastDue ? Localizer["Including organizations with an overdue invoice."].Value : Localizer["Not including organizations with an overdue invoice."].Value;
+        yield return mode == AnnouncementLanguageMode.SingleLanguage
+            ? Localizer["One message, in {0}, for everyone.", LanguageName(singleCulture, null)].Value
+            : Localizer["Each organization gets its own language's version ({0}); others get {1}.",
+                string.Join(", ", cultures.Where(c => versions[c].Complete).Select(c => LanguageName(c, null))), LanguageName(DefaultCulture, null)].Value;
+    }
+
+    private string LanguageName(string culture, string? defaultCulture)
+    {
+        if (string.IsNullOrEmpty(culture))
+        {
+            return defaultCulture is null ? string.Empty : Localizer["{0} (the default)", LanguageName(defaultCulture, null)].Value;
+        }
+
+        try
+        {
+            return CultureInfo.GetCultureInfo(culture).NativeName;
+        }
+        catch (CultureNotFoundException)
+        {
+            return culture;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (self is null)
+        {
+            return;
+        }
+
+        try
+        {
+            foreach (var culture in cultures)
+            {
+                await JS.InvokeVoidAsync("announcementEditor.destroy", $"ann-editor-{culture}");
+            }
+        }
+        catch (Exception)
+        {
+            // The circuit may already be gone; there is nothing left to clean up on a page that is gone.
+        }
+
+        self.Dispose();
+    }
+}

@@ -18,4 +18,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, IdentityR
         : base(options)
     {
     }
+
+    /// <summary>Languages still to be handed to the Api - see <see cref="LegacyUserCulture"/>.</summary>
+    public DbSet<LegacyUserCulture> LegacyUserCultures => Set<LegacyUserCulture>();
 }

@@ -98,11 +98,6 @@ else
             </button>
         </li>
         <li class="nav-item">
-            <button class="nav-link @(activeTab == Tab.Bases ? "active" : "")" data-testid="tab-bases" @onclick="() => SwitchTabAsync(Tab.Bases)">
-                <i class="bi bi-house-door"></i> @Localizer["Bases"]
-            </button>
-        </li>
-        <li class="nav-item">
             <button class="nav-link @(activeTab == Tab.Reports ? "active" : "")" data-testid="tab-reports" @onclick="() => SwitchTabAsync(Tab.Reports)">
                 <i class="bi bi-flag"></i> @Localizer["Reports"]
                 @if (newReportCount > 0)
@@ -114,6 +109,11 @@ else
         <li class="nav-item">
             <button class="nav-link @(activeTab == Tab.Plugins ? "active" : "")" @onclick="() => SwitchTabAsync(Tab.Plugins)">
                 <i class="bi bi-puzzle"></i> @Localizer["Plugins"]
+                @* How many plugins UpdateChecker says have a newer version - the ones the tab itself marks and counts. Not RustArchon's own plugin. *@
+                @if (pluginUpdates.Count > 0)
+                {
+                    <span class="badge @PluginUpdatesBadgeClass() ms-1" data-testid="plugins-updates-badge" title="@PluginUpdatesBadgeTitle()">@pluginUpdates.Count</span>
+                }
             </button>
         </li>
         <li class="nav-item">
@@ -883,7 +883,8 @@ else
         @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
         @if (activeTab == Tab.Map)
         {
-            <ServerMapPane ServerId="Id" PluginListed="PluginListed" PluginSupportsMap="PluginReports(RustArchonPlugin.MapCapability)" />
+            <ServerMapPane ServerId="Id" PluginListed="PluginListed" PluginSupportsMap="PluginReports(RustArchonPlugin.MapCapability)"
+                           RecordingEnabled="@(server?.PluginRecordingEnabled ?? true)" />
         }
 
         @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
@@ -1055,122 +1056,6 @@ else
         }
 
         @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
-        @if (activeTab == Tab.Bases)
-        {
-            <div class="bases-pane" data-testid="bases-pane">
-                @if (!PluginListed)
-                {
-                    <div class="alert alert-secondary" data-testid="bases-needs-plugin">
-                        <i class="bi bi-plug"></i>
-                        @Localizer["The bases list needs the RustArchon plugin, which is not detected on this server. Install it from the Plugins tab."]
-                    </div>
-                }
-                else if (pluginStatus is null)
-                {
-                    <div class="alert alert-secondary" data-testid="bases-no-handshake">
-                        @Localizer["The RustArchon plugin is loaded but has not answered yet. This can take a few minutes after it loads."]
-                    </div>
-                }
-                else if (!PluginReports(RustArchonPlugin.TcsCapability))
-                {
-                    <div class="alert alert-secondary" data-testid="bases-not-supported">
-                        @Localizer["This version of the RustArchon plugin cannot list bases yet. Update it from the Plugins tab."]
-                    </div>
-                }
-                else if (basesForbidden)
-                {
-                    <div class="alert alert-warning" data-testid="bases-forbidden">
-                        <i class="bi bi-shield-lock"></i>
-                        @Localizer["You don't have permission to see where players' bases are. The organization's owner can grant it to a role."]
-                    </div>
-                }
-                else
-                {
-                    @if (server is not null && !server.PluginRecordingEnabled)
-                    {
-                        <div class="alert alert-warning py-2 small" data-testid="bases-recording-off">
-                            @Localizer["Recording is switched off, so the bases list is not being kept up to date. Turn it on in the Plugins tab."]
-                        </div>
-                    }
-
-                    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" data-testid="bases-refresh" disabled="@loadingBases" @onclick="LoadBasesAsync">
-                            <i class="bi bi-arrow-clockwise"></i> @Localizer["Refresh"]
-                        </button>
-                        @if (bases?.CapturedAtUtc is not null)
-                        {
-                            <span class="small text-muted" data-testid="bases-captured">
-                                @Localizer["As of"] @bases.CapturedAtUtc.Value.ToString("yyyy-MM-dd HH:mm:ss") UTC
-                            </span>
-                        }
-                    </div>
-
-                    @if (basesError is not null)
-                    {
-                        <div class="alert alert-danger py-2 small" data-testid="bases-error">@basesError</div>
-                    }
-
-                    @if (bases is not null && bases.CapturedAtUtc is not null && !bases.Ready)
-                    {
-                        <div class="alert alert-info py-2 small" data-testid="bases-not-ready">
-                            @Localizer["The plugin is still scanning the world for bases, so this list may be incomplete."]
-                        </div>
-                    }
-
-                    @if (loadingBases && bases is null)
-                    {
-                        <p><em>@Localizer["Loading..."]</em></p>
-                    }
-                    else if (bases is null || bases.Tcs.Count == 0)
-                    {
-                        <p class="text-muted" data-testid="bases-empty">@Localizer["No bases found yet."]</p>
-                    }
-                    else
-                    {
-                        <div class="table-responsive">
-                            <table class="table table-sm align-middle" data-testid="bases-table">
-                                <thead>
-                                    <tr>
-                                        <th>@Localizer["Owner"]</th>
-                                        <th>@Localizer["Location"]</th>
-                                        <th>@Localizer["Authorized"]</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var tc in bases.Tcs.OrderBy(x => x.OwnerId).ThenBy(x => x.Id))
-                                    {
-                                        <tr data-testid="base-row">
-                                            <td>
-                                                <span>@BaseOwnerName(tc)</span>
-                                                <br />
-                                                <span class="text-muted small">@tc.OwnerId</span>
-                                            </td>
-                                            <td class="text-nowrap small">
-                                                x @tc.X.ToString("0", System.Globalization.CultureInfo.InvariantCulture),
-                                                z @tc.Z.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
-                                                <span class="text-muted">(@Localizer["height"] @tc.Y.ToString("0", System.Globalization.CultureInfo.InvariantCulture))</span>
-                                            </td>
-                                            <td class="small" data-testid="base-authorized">
-                                                @if (tc.Authorized.Count == 0)
-                                                {
-                                                    <span class="text-muted">@Localizer["Nobody"]</span>
-                                                }
-                                                else
-                                                {
-                                                    @string.Join(", ", tc.Authorized.Select(a => string.IsNullOrEmpty(a.Name) ? a.PlayerId : a.Name))
-                                                }
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                    }
-                }
-            </div>
-        }
-
-        @* Standalone @if, not "else if" - see the identical note on the Stats block above. *@
         @if (activeTab == Tab.Plugins)
         {
             <div class="plugins-pane">
@@ -1182,7 +1067,7 @@ else
                             <span class="badge text-bg-secondary ms-1">@pluginFramework</span>
                         }
                     </h2>
-                    <button class="btn btn-sm btn-outline-secondary" @onclick="LoadPluginsAsync" disabled="@loadingPlugins">
+                    <button class="btn btn-sm btn-outline-secondary" data-testid="plugins-refresh" @onclick="RefreshPluginsAsync" disabled="@loadingPlugins">
                         <i class="bi bi-arrow-clockwise"></i> @Localizer["Refresh"]
                     </button>
                 </div>
@@ -1478,51 +1363,61 @@ else
                     </div>
                 </div>
 
-                @if (pluginFailures.Count > 0)
+                @* Applying updates to the OTHER plugins on the server (the ones UpdateChecker reports) by itself. Only shown when the plan offers it -
+                   the Api refuses the opt-in otherwise, so this does not dangle a switch that would be turned down. Separate from the RustArchon
+                   plugin's own update switches above. *@
+                @if (thirdPartySettings is { PlanOffers: true })
                 {
-                    var failedFiles = pluginFailures.GroupBy(f => f.FileName).ToList();
-                    <div class="card border-danger mb-3" data-testid="plugin-failures">
+                    <div class="card mb-3" data-testid="third-party-updates">
                         <div class="card-body">
-                            <h3 class="h6">
-                                <i class="bi bi-exclamation-octagon text-danger"></i>
-                                @Localizer["Failed to load"]
-                                <span class="badge text-bg-danger" data-testid="plugin-failures-count">@failedFiles.Count</span>
-                            </h3>
-                            <p class="small text-muted mb-2">
-                                @Localizer["These plugin files are on the server but did not compile, so they are not running. This usually follows a Rust update that changed something the plugin uses; a newer version of the plugin normally fixes it."]
+                            <h3 class="h6 mb-2">@Localizer["Automatic updates for other plugins"]</h3>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="third-party-updates-enabled"
+                                       checked="@thirdPartySettings.Enabled"
+                                       disabled="@savingThirdParty"
+                                       @onchange="e => SaveThirdPartySettingsAsync((bool)e.Value!, thirdPartySettings.HoldDays)" />
+                                <label class="form-check-label" for="third-party-updates-enabled">@Localizer["Apply updates to the other plugins on this server automatically"]</label>
+                                <div class="form-text">@Localizer["Uses the updates the UpdateChecker plugin reports for plugins from the marketplaces. Off until you turn it on."]</div>
+                            </div>
+
+                            <div class="mt-2" data-testid="third-party-hold">
+                                <label class="form-label small mb-1" for="third-party-hold-days">@Localizer["Pause before the monthly wipe (days)"]</label>
+                                @* @key: a refused value is put back to the saved one by re-creating the box - Blazor would otherwise leave what was typed. *@
+                                <input type="number" class="form-control form-control-sm w-auto" id="third-party-hold-days" @key="thirdPartyHoldInputKey"
+                                       min="0" max="@thirdPartySettings.MaxHoldDays" value="@thirdPartySettings.HoldDays"
+                                       disabled="@savingThirdParty"
+                                       @onchange="e => SaveThirdPartyHoldDaysAsync(e.Value?.ToString())" />
+                                <div class="form-text">@Localizer["Plugins often update ahead of a wipe in ways the current server cannot run, so updates are held for this many days before the monthly wipe (the first Thursday of the month, 19:00 London time). 0 never holds them: every update is taken right up to wipe day, even if it may break."]</div>
+                            </div>
+
+                            <p class="small text-muted mt-2 mb-0" data-testid="third-party-wipe">
+                                @Localizer["Next monthly wipe: {0}", thirdPartySettings.NextWipeUtc.UtcDateTime.ToString("ddd d MMM yyyy HH:mm") + " UTC"]
+                                @if (thirdPartySettings.Enabled && thirdPartySettings.HeldUntilUtc is not null)
+                                {
+                                    <span data-testid="third-party-held"> · @Localizer["Updates are paused until the wipe, then resume."]</span>
+                                }
                             </p>
-                            @foreach (var file in failedFiles)
+
+                            @if (thirdPartyError is not null)
                             {
-                                <div class="mb-2" data-testid="plugin-failure" data-file="@file.Key">
-                                    <strong>@file.Key</strong>
-                                    @if (IsOwnPluginFile(file.Key))
-                                    {
-                                        <span class="badge text-bg-warning ms-1" data-testid="plugin-failure-own">@Localizer["This is the RustArchon plugin"]</span>
-                                        <div class="small" data-testid="plugin-failure-own-hint">
-                                            @Localizer["The RustArchon plugin itself failed to compile on this server. Download the plugin again with the button above and replace the file on the server."]
-                                        </div>
-                                    }
-                                    <ul class="small mb-0">
-                                        @foreach (var reason in file)
-                                        {
-                                            <li data-testid="plugin-failure-reason"><code>@reason.Line:@reason.Column</code> @reason.Message</li>
-                                        }
-                                    </ul>
-                                </div>
+                                <p class="small text-danger mt-2 mb-0" data-testid="third-party-error">@thirdPartyError</p>
                             }
                         </div>
                     </div>
                 }
 
+                @* One row per plugin the server told us about: the ones that are running, and the ones whose file did not compile (which Carbon lists
+                   separately, so they are not in the plugin list itself). *@
+                @{ var pluginRows = PluginRows(); }
                 @if (pluginsError is not null)
                 {
                     <div class="alert alert-warning py-2 px-3 small mb-0">@pluginsError</div>
                 }
-                else if (loadingPlugins && plugins.Count == 0)
+                else if (loadingPlugins && pluginRows.Count == 0)
                 {
                     <p><em>@Localizer["Loading plugins..."]</em></p>
                 }
-                else if (plugins.Count == 0)
+                else if (pluginRows.Count == 0)
                 {
                     <div class="console-empty">
                         <i class="bi bi-puzzle"></i>
@@ -1534,7 +1429,7 @@ else
                     if (pluginUpdates.Count > 0)
                     {
                         <p class="small mb-2" data-testid="plugin-updates-summary">
-                            <span class="badge text-bg-warning">@pluginUpdates.Count</span>
+                            <span class="badge @PluginUpdatesBadgeClass()" title="@PluginUpdatesBadgeTitle()">@pluginUpdates.Count</span>
                             @Localizer["plugins have updates available, according to the UpdateChecker plugin on this server."]
                         </p>
                     }
@@ -1545,17 +1440,18 @@ else
                                     <th>@Localizer["Name"]</th>
                                     <th>@Localizer["Author"]</th>
                                     <th>@Localizer["Version"]</th>
+                                    <th>@Localizer["Loaded"]</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var p in plugins)
+                                @foreach (var row in pluginRows)
                                 {
-                                    var update = UpdateFor(p);
-                                    <tr data-testid="plugin-row">
-                                        <td>@p.Name</td>
-                                        <td>@p.Author</td>
+                                    var update = row.Plugin is null ? null : UpdateFor(row.Plugin);
+                                    <tr data-testid="plugin-row" data-loaded="@(row.Loaded ? "yes" : "no")">
+                                        <td>@row.Name</td>
+                                        <td>@row.Author</td>
                                         <td>
-                                            @p.Version
+                                            @row.Version
                                             @if (update is not null)
                                             {
                                                 <div class="small mt-1" data-testid="plugin-update">
@@ -1572,7 +1468,172 @@ else
                                                     {
                                                         <span class="text-muted ms-1" data-testid="plugin-update-marketplace">@update.Marketplace</span>
                                                     }
+                                                    @* A direct download, when the platform has found one (free plugins on marketplaces that serve a file; never a paid or login-only one).
+                                                       It is a link for a person to follow - the Panel fetches nothing - and the Api has already checked where it points. *@
+                                                    @if (IsWebAddress(update.DownloadUrl))
+                                                    {
+                                                        <a href="@update.DownloadUrl" target="_blank" rel="noopener noreferrer nofollow" class="ms-2" data-testid="plugin-update-download"
+                                                           title="@Localizer["A direct download link, found through a public marketplace index. Check what you download before you install it."]">
+                                                            <i class="bi bi-download"></i> @Localizer["Download {0}", update.LatestVersion]
+                                                        </a>
+                                                    }
                                                 </div>
+                                                @* Applying it: only when the Api has a checked file for it and the plan offers the feature. What the server's plugin or the file check
+                                                   said is text from elsewhere and is shown as text. *@
+                                                @if (OfferFor(update) is { } offer)
+                                                {
+                                                    <div class="small mt-1" data-testid="plugin-apply" data-state="@offer.State">
+                                                        @switch (offer.State)
+                                                        {
+                                                            case "ready" when offer.Detail.Length > 0:
+                                                                <span class="text-muted" data-testid="plugin-apply-status">@Localizer["Not offered right now:"] @offer.Detail</span>
+                                                                break;
+                                                            case "applying":
+                                                                <span class="text-muted" data-testid="plugin-apply-status"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> @Localizer["Applying the update. The plugin reloads when it is in."]</span>
+                                                                break;
+                                                            case "applied":
+                                                                <span class="text-success" data-testid="plugin-apply-status"><i class="bi bi-check-circle"></i> @Localizer["Updated. The new version loaded."]</span>
+                                                                break;
+                                                            case "rolled-back":
+                                                                <span class="text-danger" data-testid="plugin-apply-status">@Localizer["The new version did not load, so the old one was put back."] @offer.Detail</span>
+                                                                break;
+                                                            case "failed":
+                                                                <span class="text-danger" data-testid="plugin-apply-status">@Localizer["The update did not complete."] @offer.Detail</span>
+                                                                break;
+                                                            case "refused":
+                                                                <span class="text-danger" data-testid="plugin-apply-status">@Localizer["The server turned the update down."] @offer.Detail</span>
+                                                                break;
+                                                            case "changed":
+                                                                <span class="text-warning-emphasis" data-testid="plugin-apply-status">@Localizer["The file the server downloaded does not match the one on record here, so nothing was applied."] @offer.Detail</span>
+                                                                break;
+                                                            case "needs-instructions":
+                                                                <span class="text-muted" data-testid="plugin-apply-status">@Localizer["This update is a zip archive. It is only applied once you say which of its files go where."] @offer.Detail</span>
+                                                                break;
+                                                            case "not-applicable":
+                                                                <span class="text-muted" data-testid="plugin-apply-status">@Localizer["This file was checked and cannot be applied automatically."] @offer.Detail</span>
+                                                                break;
+                                                            case "excluded":
+                                                                <span class="text-muted" data-testid="plugin-apply-status"><i class="bi bi-slash-circle"></i> @offer.Detail</span>
+                                                                break;
+                                                        }
+                                                        @if (offer.AutomaticUpdatesPausedUntilUtc is { } pausedUntil && offer.State == "ready")
+                                                        {
+                                                            <span class="text-muted" data-testid="plugin-apply-paused">@Localizer["Automatic updates are paused until {0} UTC; you can still update now.", pausedUntil.UtcDateTime.ToString("ddd d MMM HH:mm")]</span>
+                                                        }
+                                                        @* A zip is applied by folder rules a person gives (or saved ones); asking for them is its own control below. *@
+                                                        @if (offer.CanApply && !(offer.Kind == "zip" && offer.State == "needs-instructions"))
+                                                        {
+                                                            @if (offer.State == "changed" && !string.Equals(confirmingPlugin, offer.PluginName, StringComparison.OrdinalIgnoreCase))
+                                                            {
+                                                                <button type="button" class="btn btn-sm btn-outline-warning ms-1" data-testid="plugin-apply-review"
+                                                                        @onclick="() => confirmingPlugin = offer.PluginName">@Localizer["Review and apply"]</button>
+                                                            }
+                                                            else if (offer.State == "changed")
+                                                            {
+                                                                <span class="d-block mt-1" data-testid="plugin-apply-confirm">
+                                                                    @Localizer["Apply the file currently on record for this update?"]
+                                                                    <button type="button" class="btn btn-sm btn-warning ms-1" data-testid="plugin-apply-button" disabled="@(applyingPlugin is not null)"
+                                                                            @onclick="() => ApplyThirdPartyAsync(offer)">@Localizer["Apply it"]</button>
+                                                                    <button type="button" class="btn btn-sm btn-outline-secondary ms-1" data-testid="plugin-apply-cancel"
+                                                                            @onclick="() => confirmingPlugin = null">@Localizer["Cancel"]</button>
+                                                                </span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <button type="button" class="btn btn-sm btn-outline-primary ms-1" data-testid="plugin-apply-button" disabled="@(applyingPlugin is not null)"
+                                                                        @onclick="() => ApplyThirdPartyAsync(offer)">@(offer.State == "ready" ? Localizer["Update now"] : Localizer["Try again"])</button>
+                                                            }
+                                                        }
+                                                        @if (offer.Kind == "zip" && offer.CanApply)
+                                                        {
+                                                            <button type="button" class="btn btn-sm btn-outline-primary ms-1" data-testid="zip-instructions"
+                                                                    @onclick="() => editingZipFor = string.Equals(editingZipFor, offer.PluginName, StringComparison.OrdinalIgnoreCase) ? null : offer.PluginName">
+                                                                @(offer.SavedRules.Count == 0 ? Localizer["Give instructions"] : Localizer["Edit instructions"])
+                                                            </button>
+                                                        }
+                                                        @if (offer.Kind == "zip" && offer.MappingTrusted && offer.State == "ready")
+                                                        {
+                                                            <span class="text-muted ms-1" data-testid="zip-trusted">@Localizer["Using the instructions saved for this plugin."]</span>
+                                                        }
+                                                        @* Downloads the file again regardless of what is currently recorded - never blocked by another update being busy on this server, since it
+                                                           only touches the platform's own shared record of the file and never talks to this server's plugin. Not offered while under way or once
+                                                           applied: there is nothing left to check for either. *@
+                                                        @if (offer.State is not ("applying" or "applied" or "excluded"))
+                                                        {
+                                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-1" data-testid="plugin-recheck-button" disabled="@(recheckingPlugin is not null)"
+                                                                    @onclick="() => RecheckThirdPartyFileAsync(offer)">
+                                                                @if (string.Equals(recheckingPlugin, offer.PluginName, StringComparison.OrdinalIgnoreCase))
+                                                                {
+                                                                    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                                                }
+                                                                @Localizer["Check again"]
+                                                            </button>
+                                                        }
+                                                        @* A plugin whose update notice does not describe what is actually installed here (most often a free listing standing in for a
+                                                           different, paid build a person bought directly from its author) - excluded so it is never applied, automatically or by a
+                                                           click, until they lift it. Offered for any other outdated state; hidden mid-flight or once applied, same as recheck. *@
+                                                        @if (offer.State == "excluded")
+                                                        {
+                                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-1" data-testid="plugin-include-button" disabled="@(includingPlugin is not null)"
+                                                                    @onclick="() => IncludeThirdPartyPluginAsync(offer)">
+                                                                @if (string.Equals(includingPlugin, offer.PluginName, StringComparison.OrdinalIgnoreCase))
+                                                                {
+                                                                    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                                                }
+                                                                @Localizer["Allow updates again"]
+                                                            </button>
+                                                        }
+                                                        else if (offer.State is not ("applying" or "applied"))
+                                                        {
+                                                            @if (string.Equals(excludingPlugin, offer.PluginName, StringComparison.OrdinalIgnoreCase))
+                                                            {
+                                                                <span class="d-block mt-1" data-testid="plugin-exclude-form">
+                                                                    <input type="text" class="form-control form-control-sm d-inline-block w-auto" data-testid="plugin-exclude-note"
+                                                                           placeholder="@Localizer["Why? (optional)"]" @bind="excludeNoteDraft" @bind:event="oninput" />
+                                                                    <button type="button" class="btn btn-sm btn-outline-danger ms-1" data-testid="plugin-exclude-confirm" disabled="@(excludingBusy)"
+                                                                            @onclick="() => ExcludeThirdPartyPluginAsync(offer)">@Localizer["Exclude"]</button>
+                                                                    <button type="button" class="btn btn-sm btn-outline-secondary ms-1" data-testid="plugin-exclude-cancel"
+                                                                            @onclick="() => { excludingPlugin = null; return Task.CompletedTask; }">@Localizer["Cancel"]</button>
+                                                                </span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <button type="button" class="btn btn-sm btn-outline-secondary ms-1" data-testid="plugin-exclude-button"
+                                                                        @onclick="() => { excludingPlugin = offer.PluginName; excludeNoteDraft = string.Empty; }">@Localizer["Don't update this"]</button>
+                                                            }
+                                                        }
+                                                        @if (applyErrors.TryGetValue(offer.PluginName, out var applyError))
+                                                        {
+                                                            <span class="d-block text-danger mt-1" data-testid="plugin-apply-error">@applyError</span>
+                                                        }
+                                                        @if (recheckErrors.TryGetValue(offer.PluginName, out var recheckError))
+                                                        {
+                                                            <span class="d-block text-danger mt-1" data-testid="plugin-recheck-error">@recheckError</span>
+                                                        }
+                                                        @if (excludeErrors.TryGetValue(offer.PluginName, out var excludeError))
+                                                        {
+                                                            <span class="d-block text-danger mt-1" data-testid="plugin-exclude-error">@excludeError</span>
+                                                        }
+                                                        @if (offer.Kind == "zip" && string.Equals(editingZipFor, offer.PluginName, StringComparison.OrdinalIgnoreCase))
+                                                        {
+                                                            <ZipMappingEditor Files="offer.Files" InitialRules="offer.SavedRules" UncoveredPaths="offer.UncoveredPaths"
+                                                                              Busy="@(applyingPlugin is not null)"
+                                                                              OnApply="args => ApplyThirdPartyAsync(offer, args.Rules, args.Save)" OnCancel="() => { editingZipFor = null; return Task.CompletedTask; }" />
+                                                        }
+                                                    </div>
+                                                }
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (row.Loaded)
+                                            {
+                                                <span class="badge text-bg-success" data-testid="plugin-loaded" title="@Localizer["Loaded and running"]">@Localizer["Yes"]</span>
+                                            }
+                                            else
+                                            {
+                                                @* A button, so the keyboard reaches it; it looks like the chip beside it. The reasons are in the popup, not the row. *@
+                                                <button type="button" class="badge text-bg-danger border-0" data-testid="plugin-not-loaded"
+                                                        title="@Localizer["Did not load. Select to see why."]" @onclick="() => failureFile = row.FileName">@Localizer["No"]</button>
                                             }
                                         </td>
                                     </tr>
@@ -1580,6 +1641,45 @@ else
                             </tbody>
                         </table>
                     </div>
+                }
+
+                @* Why one plugin did not load: the compiler's messages, as text. Closed by its buttons or by clicking outside it. *@
+                @if (failureFile is not null && pluginRows.FirstOrDefault(r => !r.Loaded && r.FileName == failureFile) is { } failedRow)
+                {
+                    <div class="modal fade show" style="display: block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="plugin-failure-title"
+                         data-testid="plugin-failure-modal" @onclick="CloseFailure">
+                        <div class="modal-dialog modal-lg modal-dialog-scrollable" @onclick:stopPropagation="true">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title" id="plugin-failure-title">@Localizer["Why {0} did not load", failedRow.Name]</h5>
+                                    <button type="button" class="btn-close" @onclick="CloseFailure" aria-label="@Localizer["Close"]"></button>
+                                </div>
+                                <div class="modal-body">
+                                    @if (IsOwnPluginFile(failedRow.FileName!))
+                                    {
+                                        <p data-testid="plugin-failure-own">
+                                            <span class="badge text-bg-warning me-1">@Localizer["This is the RustArchon plugin"]</span>
+                                            <span data-testid="plugin-failure-own-hint">@Localizer["The RustArchon plugin itself failed to compile on this server. Download the plugin again with the button above and replace the file on the server."]</span>
+                                        </p>
+                                    }
+                                    <p class="small text-muted">
+                                        @Localizer["The plugin's file is on the server but did not compile, so it is not running. This usually follows a Rust update that changed something the plugin uses; a newer version of the plugin normally fixes it."]
+                                    </p>
+                                    <p class="small mb-1"><strong>@failedRow.FileName</strong></p>
+                                    <ul class="small mb-0">
+                                        @foreach (var reason in failedRow.Failures)
+                                        {
+                                            <li data-testid="plugin-failure-reason"><code>@reason.Line:@reason.Column</code> @reason.Message</li>
+                                        }
+                                    </ul>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" @onclick="CloseFailure">@Localizer["Close"]</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-backdrop fade show"></div>
                 }
             </div>
         }
@@ -1630,62 +1730,6 @@ else
     private string? banListError;
 
     private record BanListEntry(string SteamId, string Name, string Reason, bool IsPermanent, string Expiry);
-
-    // ---- Bases tab ----
-    private BasesDto? bases;
-    private bool loadingBases;
-    private bool basesForbidden;
-    private string? basesError;
-
-    /// <summary>The owner's name as the Api resolved it (the plugin's, else the last session's), falling back to a name listed on their own cupboard, else just their id.</summary>
-    private static string BaseOwnerName(BaseTcDto tc)
-    {
-        if (!string.IsNullOrEmpty(tc.OwnerName))
-        {
-            return tc.OwnerName;
-        }
-
-        var owner = tc.Authorized.FirstOrDefault(a => a.PlayerId == tc.OwnerId);
-        return owner is null || string.IsNullOrEmpty(owner.Name) ? tc.OwnerId : owner.Name;
-    }
-
-    /// <summary>
-    /// Loads the server's bases. Sensitive: the Api answers 403 to anyone without the bases permission, and that is shown
-    /// as "you are not allowed" rather than as a failure. Nothing is asked unless the plugin is here and reports the
-    /// capability (fail closed, like every plugin feature).
-    /// </summary>
-    private async Task LoadBasesAsync()
-    {
-        if (!PluginListed || !PluginReports(RustArchonPlugin.TcsCapability))
-        {
-            return;
-        }
-
-        loadingBases = true;
-        basesError = null;
-        basesForbidden = false;
-        StateHasChanged();
-
-        try
-        {
-            bases = await RustServerClient.GetBasesAsync(Id);
-        }
-        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
-        {
-            basesForbidden = true;
-            bases = null;
-        }
-        catch (Exception)
-        {
-            basesError = Localizer["Failed to load the bases."];
-        }
-        finally
-        {
-            loadingBases = false;
-        }
-
-        StateHasChanged();
-    }
 
     // ---- Positions tab ----
     private static readonly TimeSpan PositionsLiveWindow = TimeSpan.FromMinutes(10);
@@ -1919,6 +1963,61 @@ else
     private readonly List<ServerPluginDto> plugins = new();
     private ServerModFramework? pluginFramework;
     private readonly List<PluginUpdateNoticeDto> pluginUpdates = new();
+
+    /// <summary>
+    /// How many of <see cref="pluginUpdates"/> have a direct download link (see <see cref="IsWebAddress"/>) versus only a marketplace page - what the
+    /// updates chip's color is chosen from. A direct link means RustArchon can already act on it (show it here, or, with a third-party plugin's own
+    /// file checked, apply it); no link means the only path is leaving the Panel and downloading it by hand, which is the case actually worth flagging.
+    /// </summary>
+    private (int Downloadable, int NotDownloadable) PluginUpdateDownloadCounts()
+    {
+        var downloadable = pluginUpdates.Count(u => IsWebAddress(u.DownloadUrl));
+        return (downloadable, pluginUpdates.Count - downloadable);
+    }
+
+    /// <summary>
+    /// The updates chip's Bootstrap background class: green when every update has a direct link (nothing stands between the customer and applying
+    /// it), red when none do (everything needs a trip to another site), amber for a mix. Never called with an empty list - the chip is not shown then.
+    /// </summary>
+    private string PluginUpdatesBadgeClass()
+    {
+        var (downloadable, notDownloadable) = PluginUpdateDownloadCounts();
+        return notDownloadable == 0 ? "text-bg-success" : downloadable == 0 ? "text-bg-danger" : "text-bg-warning";
+    }
+
+    /// <summary>Explains what the chip's color means, in words, so it is not color alone carrying the information.</summary>
+    private string PluginUpdatesBadgeTitle()
+    {
+        var (downloadable, notDownloadable) = PluginUpdateDownloadCounts();
+        var basis = Localizer["Reported by the UpdateChecker plugin on this server."];
+        if (notDownloadable == 0)
+        {
+            return $"{Localizer["A direct download link is available for all of these."]} {basis}";
+        }
+
+        if (downloadable == 0)
+        {
+            return $"{Localizer["No direct download link for any of these - each needs a trip to its own marketplace page."]} {basis}";
+        }
+
+        return $"{Localizer["{0} with a direct download link, {1} without.", downloadable, notDownloadable]} {basis}";
+    }
+
+    // What can be done about each of those: a checked file to apply, an update under way, how the last one went. Read with the notices.
+    private readonly List<ThirdPartyPluginUpdateOfferDto> thirdPartyOffers = new();
+    private readonly Dictionary<string, string> applyErrors = new(StringComparer.OrdinalIgnoreCase);
+    private string? applyingPlugin;         // the plugin whose apply request is in flight: one at a time, since the server does one at a time
+    private string? confirmingPlugin;       // a changed file whose person has asked to review it and has not yet said to apply it
+    private string? editingZipFor;          // the plugin whose zip instructions are being edited
+    private string? recheckingPlugin;       // the plugin whose "Check again" request is in flight
+    private readonly Dictionary<string, string> recheckErrors = new(StringComparer.OrdinalIgnoreCase);
+    private string? excludingPlugin;        // the plugin whose "Don't update this" form is open, awaiting a reason (or none) and confirmation
+    private string excludeNoteDraft = string.Empty;
+    private bool excludingBusy;
+    private readonly Dictionary<string, string> excludeErrors = new(StringComparer.OrdinalIgnoreCase);
+    private string? includingPlugin;        // the plugin whose "Allow updates again" request is in flight
+    private CancellationTokenSource? applyPollCts;
+    private static readonly TimeSpan ApplyPollInterval = TimeSpan.FromSeconds(10);
     private readonly List<ServerPluginFailureDto> pluginFailures = new();
     private readonly List<PluginUpdateAttemptDto> pluginAttempts = new();
     private bool loadingPlugins = true;
@@ -1929,6 +2028,12 @@ else
     private ServerPluginStatusDto? pluginStatus;
     private bool savingPluginSettings;
     private string? pluginSettingsError;
+
+    // Automatic updates for the other (third-party) plugins on the server: null until read, and when it cannot be (the card is then not shown).
+    private ThirdPartyPluginUpdateSettingsDto? thirdPartySettings;
+    private bool savingThirdParty;
+    private string? thirdPartyError;
+    private int thirdPartyHoldInputKey;
     private bool downloadingPlugin;
     private string? pluginDownloadError;
     private bool updatingPlugin;
@@ -2057,7 +2162,7 @@ else
             "logs" => Tab.Logs,
             "plugins" => Tab.Plugins,
             "combat" => Tab.Combat,
-            "bases" => Tab.Bases,
+            "bases" => Tab.Map, // the Bases tab is gone - the bases are on the map now - so an old bookmark or shared link lands there
             "positions" => Tab.Positions,
             "map" => Tab.Map,
             "reports" => Tab.Reports,
@@ -2098,10 +2203,6 @@ else
             {
                 await LoadCombatAsync();
             }
-            else if (string.Equals(TabQuery, "bases", StringComparison.OrdinalIgnoreCase))
-            {
-                await LoadBasesAsync();
-            }
             else if (string.Equals(TabQuery, "positions", StringComparison.OrdinalIgnoreCase))
             {
                 await LoadPositionsAsync();
@@ -2139,6 +2240,7 @@ else
             HubClient.PlayerGeolocated += OnPlayerGeolocated;
             HubClient.PlayerKilled += OnPlayerKilled;
             HubClient.ServerReportsChanged += OnServerReportsChanged;
+            HubClient.PluginUpdatesChanged += OnPluginUpdatesChanged;
             await HubClient.ConnectAsync(Id);
         }
 
@@ -2237,7 +2339,7 @@ else
         // Console (the default) so the plain "/servers/{id}" URL stays the common case. This also
         // re-fires OnParametersSet with the same tab we just set directly above - a harmless,
         // idempotent confirmation, not a fight over which value wins.
-        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", Tab.Stats => "stats", Tab.Logs => "logs", Tab.Plugins => "plugins", Tab.Combat => "combat", Tab.Bases => "bases", Tab.Positions => "positions", Tab.Map => "map", Tab.Reports => "reports", Tab.Control => "control", _ => null };
+        var tabQueryValue = tab switch { Tab.Chat => "chat", Tab.Players => "players", Tab.Stats => "stats", Tab.Logs => "logs", Tab.Plugins => "plugins", Tab.Combat => "combat", Tab.Positions => "positions", Tab.Map => "map", Tab.Reports => "reports", Tab.Control => "control", _ => null };
         var newUri = tabQueryValue is null ? $"servers/{Id}" : $"servers/{Id}?tab={tabQueryValue}";
         NavigationManager.NavigateTo(newUri, replace: true);
 
@@ -2256,10 +2358,6 @@ else
         if (tab == Tab.Combat)
         {
             await LoadCombatAsync();
-        }
-        else if (tab == Tab.Bases)
-        {
-            await LoadBasesAsync();
         }
         else if (tab == Tab.Positions)
         {
@@ -2576,9 +2674,302 @@ else
     }
 
     /// <summary>
+    /// The plugins UpdateChecker says have a newer version. Feeds both the notices on the Plugins tab and the count on its tab button, so it
+    /// is read when the page opens (whichever tab that lands on) and again when the Api says one arrived. Separate from the plugin list so a
+    /// failure here (or a server that has never reported one) simply shows no update notices and no count.
+    /// </summary>
+    private async Task LoadPluginUpdatesAsync()
+    {
+        try
+        {
+            var updates = await RustServerClient.GetPluginUpdatesAsync(Id);
+            pluginUpdates.Clear();
+            pluginUpdates.AddRange(updates);
+        }
+        catch (Exception)
+        {
+            pluginUpdates.Clear();
+        }
+
+        // Its own read, so a failure only hides the apply controls and never the notices.
+        try
+        {
+            var offers = await RustServerClient.GetThirdPartyUpdatesAsync(Id);
+            thirdPartyOffers.Clear();
+            thirdPartyOffers.AddRange(offers);
+        }
+        catch (Exception)
+        {
+            thirdPartyOffers.Clear();
+        }
+
+        if (thirdPartyOffers.Any(o => o.State == "applying"))
+        {
+            StartApplyPolling();
+        }
+    }
+
+    // Matched by normalized name, not the exact string: the offer's PluginName comes from the UpdateChecker notice (e.g. "MonumentAddons",
+    // "BlueprintShare" - no spaces, matching how that plugin titles itself to UpdateChecker), while update.Name comes from the server's own plugin
+    // list (e.g. "Monument Addons", "Blueprint Share" - with a space, matching how c.plugins reports it). An exact-string match silently missed
+    // every plugin whose two names differ that way - the offer existed and was Ready, but the whole apply block (including the button) never
+    // rendered, with nothing to say why. Caught live: no "Update now" for MonumentAddons despite the Api already offering one. Mirrors the Api's
+    // own PluginUpdateNoticeRepository.Normalize exactly, so a plugin the two sides already agree on server-side is never split apart here.
+    private ThirdPartyPluginUpdateOfferDto? OfferFor(PluginUpdateNoticeDto update)
+    {
+        var normalized = NormalizePluginName(update.Name);
+        return thirdPartyOffers.FirstOrDefault(o => NormalizePluginName(o.PluginName) == normalized);
+    }
+
+    private static string NormalizePluginName(string name)
+    {
+        var key = new string(name.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+        return key.Length > 0 ? key : name.Trim().ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Applies one plugin's update now. Sends back the hash of the file the person was shown, so a file that changed since is refused rather than applied
+    /// unseen. A refusal is an ordinary result: its message is shown beside the plugin. The offers are read again either way, since what the button
+    /// offers depends on what the server is doing.
+    /// </summary>
+    private async Task ApplyThirdPartyAsync(ThirdPartyPluginUpdateOfferDto offer, List<RustArchon.Shared.PluginZips.ZipMappingRule>? rules = null, bool saveMapping = false)
+    {
+        if (applyingPlugin is not null)
+        {
+            return;
+        }
+
+        applyingPlugin = offer.PluginName;
+        applyErrors.Remove(offer.PluginName);
+        confirmingPlugin = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await RustServerClient.ApplyThirdPartyUpdateAsync(
+                Id, new ApplyThirdPartyPluginUpdateDto { PluginName = offer.PluginName, FileSha256 = offer.FileSha256, Rules = rules, SaveMapping = saveMapping });
+            if (result.Started)
+            {
+                editingZipFor = null;       // the instructions were taken; the editor has done its job
+            }
+            else
+            {
+                applyErrors[offer.PluginName] = string.IsNullOrWhiteSpace(result.Message) ? Localizer["The update could not be started."] : result.Message;
+            }
+        }
+        catch (Exception)
+        {
+            applyErrors[offer.PluginName] = Localizer["The update could not be started."];
+        }
+        finally
+        {
+            applyingPlugin = null;
+        }
+
+        await LoadPluginUpdatesAsync();
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// "Check again": downloads the file behind this plugin's update once more, right now, instead of trusting whatever was last recorded - for when
+    /// a person doubts it (a "changed" verdict that might have been a one-off blip, or simply wanting to know if the author has since published a fix).
+    /// Never blocked by another update being busy on this server: a recheck only touches the platform's own record of the file, shared across every
+    /// server, and never talks to this server's plugin at all.
+    /// </summary>
+    private async Task RecheckThirdPartyFileAsync(ThirdPartyPluginUpdateOfferDto offer)
+    {
+        if (recheckingPlugin is not null)
+        {
+            return;
+        }
+
+        recheckingPlugin = offer.PluginName;
+        recheckErrors.Remove(offer.PluginName);
+        StateHasChanged();
+
+        try
+        {
+            var found = await RustServerClient.RecheckThirdPartyFileAsync(Id, new RecheckThirdPartyPluginFileDto { PluginName = offer.PluginName });
+            if (!found)
+            {
+                recheckErrors[offer.PluginName] = Localizer["No download address is known for this plugin yet, so there is nothing to check again."];
+            }
+        }
+        catch (Exception)
+        {
+            recheckErrors[offer.PluginName] = Localizer["Could not check the file again."];
+        }
+        finally
+        {
+            recheckingPlugin = null;
+        }
+
+        await LoadPluginUpdatesAsync();
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// "Don't update this": says this plugin's update notice does not apply here - most often an UpdateChecker listing for a free build standing in
+    /// for a different, paid one a person actually runs. Never applied automatically or by a click again until they lift it. The optional note is
+    /// whatever was typed in the form, kept and shown back.
+    /// </summary>
+    private async Task ExcludeThirdPartyPluginAsync(ThirdPartyPluginUpdateOfferDto offer)
+    {
+        if (excludingBusy)
+        {
+            return;
+        }
+
+        excludingBusy = true;
+        excludeErrors.Remove(offer.PluginName);
+        StateHasChanged();
+
+        try
+        {
+            await RustServerClient.ExcludeThirdPartyPluginAsync(Id, new ExcludeThirdPartyPluginUpdateDto { PluginName = offer.PluginName, Note = excludeNoteDraft });
+            excludingPlugin = null;
+        }
+        catch (Exception)
+        {
+            excludeErrors[offer.PluginName] = Localizer["Could not exclude this plugin."];
+        }
+        finally
+        {
+            excludingBusy = false;
+        }
+
+        await LoadPluginUpdatesAsync();
+        StateHasChanged();
+    }
+
+    /// <summary>"Allow updates again": lifts an exclusion, so the plugin's update notice is offered the way any other outdated plugin's is.</summary>
+    private async Task IncludeThirdPartyPluginAsync(ThirdPartyPluginUpdateOfferDto offer)
+    {
+        if (includingPlugin is not null)
+        {
+            return;
+        }
+
+        includingPlugin = offer.PluginName;
+        excludeErrors.Remove(offer.PluginName);
+        StateHasChanged();
+
+        try
+        {
+            await RustServerClient.IncludeThirdPartyPluginAsync(Id, new RecheckThirdPartyPluginFileDto { PluginName = offer.PluginName });
+        }
+        catch (Exception)
+        {
+            excludeErrors[offer.PluginName] = Localizer["Could not allow updates again for this plugin."];
+        }
+        finally
+        {
+            includingPlugin = null;
+        }
+
+        await LoadPluginUpdatesAsync();
+        StateHasChanged();
+    }
+
+    // While an update is under way the page looks again every few seconds, so the outcome appears without a reload. The Api settles it when asked.
+    // Stops as soon as nothing is under way, and with the page.
+    private void StartApplyPolling()
+    {
+        if (applyPollCts is not null)
+        {
+            return;
+        }
+
+        var cts = applyPollCts = new CancellationTokenSource();
+        _ = PollApplyingAsync(cts);
+    }
+
+    private async Task PollApplyingAsync(CancellationTokenSource cts)
+    {
+        try
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                await Task.Delay(ApplyPollInterval, cts.Token);
+                await InvokeAsync(async () =>
+                {
+                    var busy = thirdPartyOffers.Any(o => o.State == "applying");
+                    if (!busy)
+                    {
+                        cts.Cancel();
+                        return;
+                    }
+
+                    try
+                    {
+                        var offers = await RustServerClient.GetThirdPartyUpdatesAsync(Id);
+                        thirdPartyOffers.Clear();
+                        thirdPartyOffers.AddRange(offers);
+                    }
+                    catch (Exception)
+                    {
+                        // Try again next time; the last thing shown stays.
+                    }
+
+                    if (!thirdPartyOffers.Any(o => o.State == "applying"))
+                    {
+                        cts.Cancel();
+                    }
+
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            if (ReferenceEquals(applyPollCts, cts))
+            {
+                applyPollCts = null;
+            }
+
+            cts.Dispose();
+        }
+    }
+
+    // Fires on a SignalR callback thread, so it goes through InvokeAsync. The hub only says "something changed"; the chip and the notices
+    // re-read through the endpoint.
+    private void OnPluginUpdatesChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadPluginUpdatesAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>
+    /// The Refresh button: asks the server to be polled right now (rather than waiting out the Worker's own few-minute schedule) and then reads the
+    /// stored data the same way the tab's own initial load does - so a person who just applied an update, or wants to see who is running what, sees
+    /// the truth within seconds of clicking rather than however long is left on the timer. Best effort: whatever came of the poll (not connected, no
+    /// worker, asked too recently), the read afterward is always safe and is simply whatever is stored - see <c>ServerPollResultDto</c>'s remarks.
+    /// </summary>
+    private async Task RefreshPluginsAsync()
+    {
+        try
+        {
+            await RustServerClient.PollPluginsNowAsync(Id);
+        }
+        catch (Exception)
+        {
+            // Reading what is already stored, right below, is always safe regardless of why the poll itself could not be sent.
+        }
+
+        await LoadPluginsAsync();
+    }
+
+    /// <summary>
     /// Loads the Plugins tab's list - the plugins the Worker last polled from this server (see
     /// <c>ServerPluginsCaptured</c>), read from the Api's stored copy rather than asked of the live
     /// server, so this is a plain database read like the other history loads, not an RCON round-trip.
+    /// Called on the tab's own load, and after <see cref="RefreshPluginsAsync"/> asks for a fresh poll.
     /// </summary>
     private async Task LoadPluginsAsync()
     {
@@ -2626,16 +3017,16 @@ else
             pluginFailures.Clear();
         }
 
-        // Separate from the list so a failure here (or a server that has never reported one) simply shows no update notices.
+        await LoadPluginUpdatesAsync();
+
+        // The settings for applying those updates automatically. Its own read, so a failure only hides the card.
         try
         {
-            var updates = await RustServerClient.GetPluginUpdatesAsync(Id);
-            pluginUpdates.Clear();
-            pluginUpdates.AddRange(updates);
+            thirdPartySettings = await RustServerClient.GetThirdPartyUpdateSettingsAsync(Id);
         }
         catch (Exception)
         {
-            pluginUpdates.Clear();
+            thirdPartySettings = null;
         }
 
         // Separate from the list above so a failure here cannot hide the list. A failure just means "no
@@ -2676,6 +3067,60 @@ else
     private static bool IsOwnPluginFile(string fileName) =>
         string.Equals(fileName, "RustArchon.cs", StringComparison.OrdinalIgnoreCase)
         || string.Equals(fileName, "RustArchonUpdater.cs", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// One line of the plugin list. <see cref="Plugin"/> is the plugin the server reported as running (null for a plugin whose file did not
+    /// compile and so is not in that list); <see cref="Failures"/> are the compiler's reasons, and a row with any is one that did not load.
+    /// </summary>
+    private sealed record PluginRow(
+        string Name, string Author, string Version, ServerPluginDto? Plugin, string? FileName, IReadOnlyList<ServerPluginFailureDto> Failures)
+    {
+        public bool Loaded => Failures.Count == 0;
+    }
+
+    /// <summary>
+    /// The running plugins plus the ones that failed to compile, sorted by name. A failed file is matched to a running plugin of the same
+    /// name (letters and digits, any case) so a plugin never shows twice; if there is none it gets a row of its own, named after its file, since
+    /// nothing else is known about it. A match means the failure is what to show: a file cannot both fail and be running.
+    /// </summary>
+    private List<PluginRow> PluginRows()
+    {
+        var failed = pluginFailures.GroupBy(f => f.FileName).ToList();
+        var rows = new List<PluginRow>();
+        var matched = new HashSet<string>();
+
+        foreach (var plugin in plugins)
+        {
+            var reasons = failed.FirstOrDefault(g => SameName(g.Key, plugin.Name));
+            if (reasons is not null)
+            {
+                matched.Add(reasons.Key);
+            }
+
+            rows.Add(new PluginRow(plugin.Name, plugin.Author, plugin.Version, plugin, reasons?.Key, reasons?.ToList() ?? []));
+        }
+
+        foreach (var file in failed.Where(g => !matched.Contains(g.Key)))
+        {
+            rows.Add(new PluginRow(FileStem(file.Key), string.Empty, string.Empty, null, file.Key, file.ToList()));
+        }
+
+        return rows.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    // The file name without its ".cs". Not Path.GetFileNameWithoutExtension: this is text from another machine, not a path on this one.
+    private static string FileStem(string fileName) =>
+        fileName.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ? fileName[..^3] : fileName;
+
+    private static bool SameName(string fileName, string pluginName) =>
+        Letters(FileStem(fileName)) is { Length: > 0 } name && name == Letters(pluginName);
+
+    private static string Letters(string text) => new(text.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+
+    // The file whose compile errors the popup is showing, or null when it is closed.
+    private string? failureFile;
+
+    private void CloseFailure() => failureFile = null;
 
     private PluginUpdateNoticeDto? UpdateFor(ServerPluginDto plugin) =>
         pluginUpdates.FirstOrDefault(u => string.Equals(u.Name, plugin.Name, StringComparison.OrdinalIgnoreCase));
@@ -2767,6 +3212,55 @@ else
         }
 
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// Saves the opt-in and the days before the monthly wipe for the other plugins' automatic updates. Both are sent every time (the
+    /// endpoint requires both); the one not being changed goes at its saved value. The card shows what the Api answers with.
+    /// </summary>
+    private async Task SaveThirdPartySettingsAsync(bool enabled, int holdDays)
+    {
+        savingThirdParty = true;
+        thirdPartyError = null;
+        StateHasChanged();
+
+        try
+        {
+            thirdPartySettings = await RustServerClient.UpdateThirdPartyUpdateSettingsAsync(
+                Id, new UpdateThirdPartyPluginUpdateSettingsDto { Enabled = enabled, HoldDays = holdDays });
+        }
+        catch (Exception)
+        {
+            thirdPartyError = Localizer["Failed to save the automatic update settings."];
+        }
+        finally
+        {
+            savingThirdParty = false;
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// The days box. Anything that is not a whole number in range is put back to what is saved rather than sent: the Api would refuse it,
+    /// and a person who typed 40 has not asked for 21.
+    /// </summary>
+    private async Task SaveThirdPartyHoldDaysAsync(string? typed)
+    {
+        if (thirdPartySettings is null)
+        {
+            return;
+        }
+
+        if (!int.TryParse(typed, out var days) || days < 0 || days > thirdPartySettings.MaxHoldDays)
+        {
+            thirdPartyError = Localizer["Enter a whole number of days from 0 to {0}.", thirdPartySettings.MaxHoldDays];
+            thirdPartyHoldInputKey++;
+            StateHasChanged();
+            return;
+        }
+
+        await SaveThirdPartySettingsAsync(thirdPartySettings.Enabled, days);
     }
 
     /// <summary>
@@ -3696,6 +4190,7 @@ else
 
     public async ValueTask DisposeAsync()
     {
+        applyPollCts?.Cancel();
         HubClient.EventReceived -= OnEventReceived;
         HubClient.StatusChanged -= OnStatusChanged;
         HubClient.LogEntryReceived -= OnLogEntryReceived;
@@ -3704,6 +4199,7 @@ else
         HubClient.PlayerGeolocated -= OnPlayerGeolocated;
         HubClient.PlayerKilled -= OnPlayerKilled;
         HubClient.ServerReportsChanged -= OnServerReportsChanged;
+        HubClient.PluginUpdatesChanged -= OnPluginUpdatesChanged;
         await HubClient.DisposeAsync();
 
         try
@@ -3716,5 +4212,5 @@ else
         }
     }
 
-    private enum Tab { Console, Chat, Players, Stats, Logs, Control, Plugins, Combat, Bases, Positions, Map, Reports }
+    private enum Tab { Console, Chat, Players, Stats, Logs, Control, Plugins, Combat, Positions, Map, Reports }
 }

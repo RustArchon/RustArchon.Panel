@@ -29,6 +29,41 @@ public interface IPlanApiClient : IApiClient<PlanDto, CreatePlanDto, UpdatePlanD
     Task<List<PlanDto>> GetAllPlansAsync();
 
     /// <summary>
+    /// What superseding a plan with these terms would do to its current subscribers if they were moved along (who could be, who would stay and why) -
+    /// asked before superseding. Nothing is created.
+    /// </summary>
+    [Post("/{id}/supersede/preview")]
+    Task<PlanMovePreviewDto> PreviewSupersedeAsync(Guid id, [Body] SupersedePlanDto terms);
+
+    /// <summary>Who an announcement to this plan's organizations would reach for these criteria. Nothing is sent.</summary>
+    [Post("/{id}/announcements/preview")]
+    Task<AnnouncementPreviewDto> PreviewAnnouncementAsync(Guid id, [Body] AnnouncementCriteriaDto criteria);
+
+    /// <summary>Emails each language's version of the message to one address, to see how it will look.</summary>
+    [Post("/{id}/announcements/test")]
+    Task<AnnouncementResultDto> SendAnnouncementTestAsync(Guid id, [Body] SendAnnouncementTestDto request);
+
+    /// <summary>Emails the message to every organization the criteria reach - only if that is the number the admin confirmed (otherwise 409, nothing sent).</summary>
+    [Post("/{id}/announcements/send")]
+    Task<AnnouncementResultDto> SendAnnouncementAsync(Guid id, [Body] SendPlanAnnouncementDto request);
+
+    /// <summary>The announcements already sent from this plan, newest first.</summary>
+    [Get("/{id}/announcements")]
+    Task<List<AnnouncementBatchDto>> GetAnnouncementHistoryAsync(Guid id);
+
+    /// <summary>What moving a replaced plan's current subscribers to its latest version would do.</summary>
+    [Get("/{id}/move-preview")]
+    Task<PlanMovePreviewDto> GetMovePreviewAsync(Guid id);
+
+    /// <summary>Moves a replaced plan's current subscribers to its latest version - those it is no worse for; the rest stay.</summary>
+    [Post("/{id}/move-subscribers")]
+    Task<PlanMoveResultDto> MoveSubscribersAsync(Guid id);
+
+    /// <summary>Switches a Plan on or off and nothing else - see <see cref="SetPlanActiveDto"/>.</summary>
+    [Put("/{id}/active")]
+    Task<PlanDto> SetActiveAsync(Guid id, [Body] SetPlanActiveDto dto);
+
+    /// <summary>
     /// Supersedes a Plan that already has subscribers - see <see cref="SupersedePlanDto"/>'s remarks.
     /// </summary>
     [Post("/{id}/supersede")]

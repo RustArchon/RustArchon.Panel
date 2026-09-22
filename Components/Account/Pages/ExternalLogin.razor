@@ -21,6 +21,7 @@
 @inject ILogger<ExternalLogin> Logger
 @inject NewTenantBootstrapper TenantBootstrapper
 @inject IInvitationApiClient InvitationClient
+@inject RustArchon.Panel.Services.IUserProfileWriter ProfileWriter
 
 <PageTitle>@Localizer["Register"]</PageTitle>
 
@@ -194,15 +195,15 @@
         var emailStore = GetEmailStore();
         var user = CreateUser();
 
-        // See Register.razor's matching line/remarks.
-        user.PreferredCulture = CultureInfo.CurrentUICulture.Name;
-
         await UserStore.SetUserNameAsync(user, Input.Email, CancellationToken.None);
         await emailStore.SetEmailAsync(user, Input.Email, CancellationToken.None);
 
         var result = await UserManager.CreateAsync(user);
         if (result.Succeeded)
         {
+            // Their language, captured at the moment of sign-up (see Register.razor's matching line/remarks). Best effort - see IUserProfileWriter.
+            await ProfileWriter.SetPreferredCultureAsync(user.Id, CultureInfo.CurrentUICulture.Name);
+
             result = await UserManager.AddLoginAsync(user, externalLoginInfo);
             if (result.Succeeded)
             {

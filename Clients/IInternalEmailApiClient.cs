@@ -35,10 +35,26 @@ public interface IInternalEmailApiClient
 /// </remarks>
 public interface IInternalRegistrationApiClient
 {
+    // (see below for the profile client)
     /// <summary>
     /// Discards the organization <paramref name="userId"/> just founded, if it is still empty.
     /// </summary>
     /// <returns>Whether one was discarded - <c>false</c> is ordinary, not a failure.</returns>
     [Post("/internal/registrations/{userId}/discard-organization")]
     Task<bool> DiscardOrganizationAsync(Guid userId);
+}
+
+/// <summary>
+/// Refit client for keeping a person's own settings (see <c>RustArchon.Api.Data.UserProfile</c>) in step with what the Panel learns: their language at
+/// sign-up and whenever they switch it. Same shared-secret channel as the other internal clients - at sign-up there is no signed-in person yet.
+/// </summary>
+public interface IInternalUserProfileApiClient
+{
+    /// <summary>Sets the person's settings (replacing them). Creates the profile if there is none.</summary>
+    [Put("/internal/users/{userId}/profile")]
+    Task<UserProfileDto> SetAsync(Guid userId, [Body] UpdateUserProfileDto settings);
+
+    /// <summary>Hands over languages the identity database holds, for people with no profile yet. Never overwrites. Returns how many profiles it created.</summary>
+    [Post("/internal/users/profiles/backfill")]
+    Task<int> BackfillAsync([Body] BackfillUserProfilesDto batch);
 }
