@@ -17,6 +17,37 @@
 // Delegated listeners on document, not bound to the nav elements directly, so this keeps working
 // across Blazor's enhanced-navigation DOM patches without needing to re-attach anything.
 (function () {
+    // A flyout opens at its trigger's height, so one that is long (Configuration has grown to nine entries) or opened low in the sidebar
+    // runs off the bottom of the screen - and being position:fixed it cannot be scrolled to with the page. Keep it on screen: slide it up
+    // just enough to fit, and if it is taller than the whole window, cap its height and let it scroll inside itself.
+    var MARGIN = 8;
+
+    function fitInViewport(menu, triggerTop) {
+        menu.style.maxHeight = "";
+        menu.style.overflowY = "";
+
+        // A menu that is not displayed has no height to read; show it invisibly just long enough to measure it.
+        var hidden = window.getComputedStyle(menu).display === "none";
+        if (hidden) {
+            menu.style.visibility = "hidden";
+            menu.style.display = "block";
+        }
+        var height = menu.offsetHeight;
+        if (hidden) {
+            menu.style.display = "";
+            menu.style.visibility = "";
+        }
+
+        var available = window.innerHeight - 2 * MARGIN;
+        if (height > available) {
+            menu.style.maxHeight = available + "px";
+            menu.style.overflowY = "auto";
+            menu.style.top = MARGIN + "px";
+        } else if (triggerTop + height > window.innerHeight - MARGIN) {
+            menu.style.top = Math.max(MARGIN, window.innerHeight - MARGIN - height) + "px";
+        }
+    }
+
     function positionFlyout(group) {
         // :scope > rather than a plain descendant query - a Reports entry nests a further
         // .nav-flyout-group of its own now (see NavMenu.razor), so an unscoped query here could
@@ -33,6 +64,7 @@
         var rect = toggle.getBoundingClientRect();
         menu.style.top = rect.top + "px";
         menu.style.left = rect.right + "px";
+        fitInViewport(menu, rect.top);
     }
 
     function onPointerOrFocus(event) {
