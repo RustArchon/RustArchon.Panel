@@ -134,6 +134,61 @@ public sealed class LogReadProxy(
         Finish(address, 200);
     }
 
+    /// <summary>
+    /// The diagnostic views door (ADR-0007): <c>GET /diagnostics/views</c> (the catalog) and <c>GET /diagnostics/views/{name}</c>. The same token, throttle and
+    /// rejection rules as the logs; the Api's answer is passed through with its status and body, because it is already in its final shape. There is no fallback
+    /// when the Api cannot be reached: a view is the Api's own data, so without the Api there is nothing to serve.
+    /// </summary>
+    public async Task HandleViewsAsync(HttpContext context, string? name, CancellationToken cancellationToken)
+    {
+        var response = context.Response;
+        response.Headers.CacheControl = "no-store";
+        var address = ClientAddress(context);
+        if (Blocked(response, address))
+        {
+            return;
+        }
+
+        var token = PresentedToken(context);
+        var path = "/internal/diagnostics/views" + (name is null ? string.Empty : "/" + Uri.EscapeDataString(name)) + context.Request.QueryString;
+        var upstream = await CallApiAsync(path, token, cancellationToken, jsonServerErrorsAreAnswers: true);
+        if (upstream.Failure is not null)
+        {
+            response.StatusCode = 503;
+            response.ContentType = "text/plain; charset=utf-8";
+            await response.WriteAsync("The Api cannot be reached, so nothing can be read.", cancellationToken);
+            Finish(address, 503, upstream.Failure);
+            return;
+        }
+
+        switch (upstream.Status)
+        {
+            case HttpStatusCode.Unauthorized:
+                Refused(address, token);
+                response.StatusCode = 401;
+                return;
+            case HttpStatusCode.OK or HttpStatusCode.NotFound or HttpStatusCode.BadRequest or HttpStatusCode.RequestEntityTooLarge or HttpStatusCode.InternalServerError:
+                if (upstream.Status == HttpStatusCode.OK)
+                {
+                    verified.Remember(token);
+                }
+
+                response.StatusCode = (int)upstream.Status!.Value;
+                if (upstream.Body.Length > 0)
+                {
+                    response.ContentType = upstream.ContentType ?? "application/json";
+                    await response.WriteAsync(upstream.Body, cancellationToken);
+                }
+
+                Finish(address, response.StatusCode, response.StatusCode is 200 or 404 ? null : "the Api reported an error");
+                return;
+            default:
+                response.StatusCode = 502;
+                Finish(address, 502, $"the Api answered {(int?)upstream.Status}");
+                return;
+        }
+    }
+
     public async Task HandleHelpAsync(HttpContext context, CancellationToken cancellationToken)
     {
         var response = context.Response;
@@ -215,7 +270,7 @@ public sealed class LogReadProxy(
             "Diagnostic log request from {Address} answered 200 from the Panel's own logs only: the Api could not be reached ({Failure}).", address, failure);
     }
 
-    private async Task<Upstream> CallApiAsync(string pathAndQuery, string token, CancellationToken cancellationToken)
+    private async Task<Upstream> CallApiAsync(string pathAndQuery, string token, CancellationToken cancellationToken, bool jsonServerErrorsAreAnswers = false)
     {
         try
         {
@@ -223,7 +278,10 @@ public sealed class LogReadProxy(
             request.Headers.TryAddWithoutValidation(TokenHeader, token);
             using var response = await clients.CreateClient(ClientName).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
-            if ((int)response.StatusCode >= 500)
+            // A 500 the Api itself wrote (a JSON error body) is an answer; a 5xx from anything in front of it, or without a body to read, means it cannot be reached.
+            var apiAnswered = jsonServerErrorsAreAnswers && response.StatusCode == HttpStatusCode.InternalServerError
+                && response.Content.Headers.ContentType?.MediaType == "application/json";
+            if ((int)response.StatusCode >= 500 && !apiAnswered)
             {
                 return new Upstream(null, string.Empty, null, $"the Api answered {(int)response.StatusCode}");
             }

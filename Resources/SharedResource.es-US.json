@@ -995,6 +995,7 @@
   "Update Updater": "Actualizar Updater",
   "Updater update started. It takes under a minute - press Refresh to see the new version.": "Actualización del Updater iniciada. Tarda menos de un minuto: pulse Actualizar para ver la nueva versión.",
   "The installed plugin is too old to do this. Update the plugin first.": "El plugin instalado es demasiado antiguo para hacer esto. Actualice primero el plugin.",
+  "The server's plugin answered, but the answer could not be read. The details are in the diagnostic log.": "El plugin del servidor respondió, pero no se pudo leer la respuesta. Los detalles están en el registro de diagnóstico.",
   "This server's plugin trusts an older signing key. Update the plugin first.": "El plugin de este servidor confía en una clave de firma anterior. Actualice primero el plugin.",
   "This Panel does not serve an Updater.": "Este Panel no ofrece un Updater.",
   "plugins have updates available, according to the UpdateChecker plugin on this server.": "plugins tienen actualizaciones disponibles, según el plugin UpdateChecker de este servidor.",

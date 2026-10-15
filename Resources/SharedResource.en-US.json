@@ -1029,6 +1029,7 @@
   "Update Updater": "Update Updater",
   "Updater update started. It takes under a minute - press Refresh to see the new version.": "Updater update started. It takes under a minute - press Refresh to see the new version.",
   "The installed plugin is too old to do this. Update the plugin first.": "The installed plugin is too old to do this. Update the plugin first.",
+  "The server's plugin answered, but the answer could not be read. The details are in the diagnostic log.": "The server's plugin answered, but the answer could not be read. The details are in the diagnostic log.",
   "This server's plugin trusts an older signing key. Update the plugin first.": "This server's plugin trusts an older signing key. Update the plugin first.",
   "This Panel does not serve an Updater.": "This Panel does not serve an Updater.",
   "plugins have updates available, according to the UpdateChecker plugin on this server.": "plugins have updates available, according to the UpdateChecker plugin on this server.",
