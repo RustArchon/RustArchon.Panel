@@ -3377,6 +3377,7 @@ else
     private string PluginUpdateRefusal(string code) => code switch
     {
         "plugin_too_old" => Localizer["The installed plugin is too old to do this. Update the plugin first."],
+        "unreadable_reply" => Localizer["The server's plugin answered, but the answer could not be read. The details are in the diagnostic log."],
         "update_plugin_first" => Localizer["This server's plugin trusts an older signing key. Update the plugin first."],
         "no_updater_version" => Localizer["This Panel does not serve an Updater."],
         "updates_disabled" => Localizer["Updates are turned off for this server."],

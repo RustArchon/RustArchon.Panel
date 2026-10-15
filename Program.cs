@@ -693,6 +693,13 @@ app.MapGet("/diagnostics/logs", (HttpContext httpContext, LogReadProxy proxy, Ca
 app.MapGet("/diagnostics/logs/help", (HttpContext httpContext, LogReadProxy proxy, CancellationToken cancellationToken) =>
     proxy.HandleHelpAsync(httpContext, cancellationToken));
 
+// The read-only diagnostic views (ADR-0007) - the same token and rules as the logs above: the catalog, then one view by name.
+app.MapGet("/diagnostics/views", (HttpContext httpContext, LogReadProxy proxy, CancellationToken cancellationToken) =>
+    proxy.HandleViewsAsync(httpContext, null, cancellationToken));
+
+app.MapGet("/diagnostics/views/{name}", (string name, HttpContext httpContext, LogReadProxy proxy, CancellationToken cancellationToken) =>
+    proxy.HandleViewsAsync(httpContext, name, cancellationToken));
+
 // Stripe's webhook target - anonymous and unconditional, same "one public door" reasoning as the
 // tracking pixel and theme assets above: RustArchon.Api never publishes a port, so Stripe's servers
 // reach this Panel instead, and StripeWebhookHandler verifies the payload itself (hand-rolled
