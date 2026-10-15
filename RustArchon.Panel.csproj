@@ -33,6 +33,7 @@
          pull the Api's entire dependency graph (EF Core, Npgsql, MassTransit, Kestrel hosting) into a
          Blazor Server app, and it is not a hypothetical risk: it once made Routes.razor's own `Program`
          type ambiguous against the Api's top-level one, a warning today and a landmine tomorrow. -->
+    <ProjectReference Include="..\RustArchon.Diagnostics\RustArchon.Diagnostics.csproj" />
     <ProjectReference Include="..\RustArchon.Shared\RustArchon.Shared.csproj" />
     <ProjectReference Include="..\JumpStart\JumpStart\JumpStart.csproj" />
   </ItemGroup>

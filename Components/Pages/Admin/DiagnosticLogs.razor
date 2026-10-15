@@ -1,0 +1,220 @@
+@* Copyright ©2026 Scott Blomfield *@
+
+@page "/Admin/DiagnosticLogs"
+@using System.Net
+@using Microsoft.AspNetCore.Authorization
+@using RustArchon.Panel.Clients
+@using RustArchon.Panel.Services
+@using RustArchon.Shared.DTOs
+@attribute [Authorize]
+@inject IDiagnosticLogAdminApiClient Client
+@inject NavigationManager Navigation
+@rendermode RenderModes.NonPrerenderedServer
+
+<PageTitle>@Localizer["Diagnostic logs"]</PageTitle>
+
+<h1>@Localizer["Diagnostic logs"]</h1>
+<p class="text-muted">
+    @Localizer["A read-only way for someone you trust (or an assistant working with you) to read this platform's recent logs without any login to your servers. One token opens it, it can do nothing else, and you can replace or revoke it at any time. Logs are redacted for secrets before they are kept."]
+</p>
+
+@if (accessDenied)
+{
+    <div class="alert alert-warning" data-testid="diagnostics-denied">
+        <i class="bi bi-shield-lock"></i> @Localizer["You don't have access to manage the diagnostic logs."]
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert" data-testid="diagnostics-error">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (loading)
+    {
+        <p><em>@Localizer["Loading..."]</em></p>
+    }
+    else
+    {
+        @if (created is not null)
+        {
+            <div class="alert alert-success" data-testid="new-token-panel">
+                <p class="mb-2">
+                    <strong>@Localizer["Copy this token now."]</strong>
+                    @Localizer["It is shown only this once and cannot be retrieved again. If you lose it, create a new one."]
+                </p>
+                <div class="input-group">
+                    <input class="form-control font-monospace" readonly value="@created.Token" data-testid="new-token" @onfocus="SelectAll" />
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-testid="dismiss-token" @onclick="() => created = null">
+                    @Localizer["I have copied it"]
+                </button>
+            </div>
+        }
+
+        <div class="card mb-4" data-testid="token-card">
+            <div class="card-body">
+                <h2 class="h5">@Localizer["Access token"]</h2>
+
+                @if (status is not { Exists: true })
+                {
+                    <p data-testid="token-none">
+                        <span class="badge text-bg-secondary">@Localizer["Off"]</span>
+                        @Localizer["No token has been created, so the diagnostic log address does not exist."]
+                    </p>
+                    <button type="button" class="btn btn-primary" data-testid="create-token" disabled="@busy" @onclick="Create">
+                        <i class="bi bi-key"></i> @Localizer["Create token"]
+                    </button>
+                }
+                else
+                {
+                    <dl class="row mb-3" data-testid="token-status">
+                        <dt class="col-sm-3">@Localizer["Token id"]</dt>
+                        <dd class="col-sm-9"><code data-testid="token-id">@status.TokenId</code></dd>
+                        <dt class="col-sm-3">@Localizer["Created"]</dt>
+                        <dd class="col-sm-9">@status.CreatedAtUtc?.ToString("yyyy-MM-dd HH:mm") UTC @Localizer["by"] @status.CreatedBy</dd>
+                        <dt class="col-sm-3">@Localizer["State"]</dt>
+                        <dd class="col-sm-9">
+                            @if (status.RevokedAtUtc is null)
+                            {
+                                <span class="badge text-bg-success" data-testid="token-state">@Localizer["Active"]</span>
+                            }
+                            else
+                            {
+                                <span class="badge text-bg-danger" data-testid="token-state">@Localizer["Revoked"]</span>
+                                <span class="small text-muted ms-1">@status.RevokedAtUtc?.ToString("yyyy-MM-dd HH:mm") UTC</span>
+                            }
+                        </dd>
+                    </dl>
+
+                    @if (confirm == Confirm.None)
+                    {
+                        <button type="button" class="btn btn-outline-danger me-2" data-testid="rotate-token" disabled="@busy" @onclick="() => confirm = Confirm.Rotate">
+                            <i class="bi bi-arrow-repeat"></i> @(status.RevokedAtUtc is null ? Localizer["Replace token"] : Localizer["Create new token"])
+                        </button>
+                        @if (status.RevokedAtUtc is null)
+                        {
+                            <button type="button" class="btn btn-outline-danger" data-testid="revoke-token" disabled="@busy" @onclick="() => confirm = Confirm.Revoke">
+                                <i class="bi bi-slash-circle"></i> @Localizer["Revoke"]
+                            </button>
+                        }
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning" data-testid="confirm-panel">
+                            <p class="mb-2">
+                                @(confirm == Confirm.Rotate
+                                    ? Localizer["Creating a new token stops the current one working immediately."]
+                                    : Localizer["Revoking the token stops it working immediately. The address stays closed to everyone until you create a new one."])
+                            </p>
+                            <button type="button" class="btn btn-danger me-2" data-testid="confirm-yes" disabled="@busy" @onclick="Confirmed">@Localizer["Yes, do it"]</button>
+                            <button type="button" class="btn btn-outline-secondary" data-testid="confirm-no" disabled="@busy" @onclick="() => confirm = Confirm.None">@Localizer["Cancel"]</button>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <div class="card" data-testid="usage-card">
+            <div class="card-body">
+                <h2 class="h5">@Localizer["Using it"]</h2>
+                <p class="small text-muted">
+                    @Localizer["Send the token in the X-RustArchon-Log-Token header (never in the address). Ask for /diagnostics/logs/help to see everything it can do."]
+                </p>
+<pre class="small mb-0" data-testid="usage-example">curl -sS -H "X-RustArchon-Log-Token: &lt;token&gt;" "@(Navigation.BaseUri)diagnostics/logs/help"</pre>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private enum Confirm { None, Rotate, Revoke }
+
+    private DiagnosticLogTokenStatusDto? status;
+    private DiagnosticLogTokenCreatedDto? created;
+    private bool loading = true;
+    private bool accessDenied;
+    private bool busy;
+    private string? errorMessage;
+    private Confirm confirm = Confirm.None;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            status = await Client.GetAsync();
+            accessDenied = false;
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            accessDenied = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "load the diagnostic log settings");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task Create()
+    {
+        busy = true;
+        errorMessage = null;
+        try
+        {
+            created = await Client.CreateAsync();
+            confirm = Confirm.None;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "create the token");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task Confirmed()
+    {
+        if (confirm == Confirm.Rotate)
+        {
+            await Create();
+            return;
+        }
+
+        busy = true;
+        errorMessage = null;
+        try
+        {
+            await Client.RevokeAsync();
+            created = null;
+            confirm = Confirm.None;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "revoke the token");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private static void SelectAll()
+    {
+        // The browser selects the whole value on focus where it can; nothing to do on the server.
+    }
+}
