@@ -63,6 +63,10 @@ public interface IPluginAdminApiClient
     [Get("/releases/{id}/download")]
     Task<HttpResponseMessage> DownloadReleaseAsync(Guid id);
 
+    /// <summary>The plugin (kind: main or updater) this Panel is serving right now, signed with the active key, as the raw response. Audit-logged.</summary>
+    [Get("/served/{kind}/download")]
+    Task<HttpResponseMessage> DownloadServedAsync(string kind);
+
     [Post("/releases/{id}/publish")]
     Task<PluginReleaseDto> PublishReleaseAsync(Guid id);
 

@@ -51,9 +51,19 @@ else
                 }
             </p>
         </div>
-        <span class="badge status-badge @StatusBadgeClass(status)">
-            <i class="bi @StatusIcon(status)"></i> @StatusText(status)
-        </span>
+        <div class="d-flex flex-column align-items-end gap-1">
+            <span class="badge status-badge @StatusBadgeClass(status)">
+                <i class="bi @StatusIcon(status)"></i> @StatusText(status)
+            </span>
+            @* Visible from every tab: updates to other plugins (and to this plugin) are refused while the plugin on the server trusts another Panel's key. *@
+            @if (PluginNotFromThisPanel)
+            {
+                <a href="@($"servers/{Id}?tab=plugins")" class="badge text-bg-warning text-decoration-none" data-testid="plugin-not-signed-badge"
+                   title="@Localizer["The RustArchon plugin on this server was not signed by this Panel, so updates from here are refused. Open the Plugins tab for what to do."]">
+                    <i class="bi bi-exclamation-triangle"></i> @Localizer["RustArchon plugin not signed by this Panel"]
+                </a>
+            }
+        </div>
     </div>
 
     <ul class="nav nav-tabs console-tabs mb-3">
@@ -1398,6 +1408,36 @@ else
                                 }
                             </p>
 
+                            @* Whether the automatic pass will look at this server, and if not, the first reason why - the answer is the one the updater itself gets. *@
+                            <div class="small mt-2" data-testid="third-party-auto">
+                                @if (thirdPartySettings.AutoState == "eligible")
+                                {
+                                    <span class="text-success" data-testid="third-party-auto-state" data-state="eligible"><i class="bi bi-check-circle"></i> @Localizer["The automatic updater will update this server's plugins when it runs."]</span>
+                                }
+                                else
+                                {
+                                    <span class="text-warning-emphasis" data-testid="third-party-auto-state" data-state="@thirdPartySettings.AutoState"><i class="bi bi-pause-circle"></i> @thirdPartySettings.AutoStateMessage</span>
+                                    @if (thirdPartySettings.AutoState is "not_signed_by_this_panel" or "key_revoked" or "plugin_too_old")
+                                    {
+                                        <a href="Admin/Plugin" class="ms-1" data-testid="third-party-auto-remedy">@Localizer["Get the plugin file"]</a>
+                                    }
+                                }
+                                <div class="text-muted" data-testid="third-party-pass">
+                                    @if (thirdPartySettings.LastPassUtc is { } lastPass)
+                                    {
+                                        <span>@Localizer["Last automatic pass: {0} UTC.", lastPass.UtcDateTime.ToString("ddd d MMM HH:mm")]</span>
+                                    }
+                                    else
+                                    {
+                                        <span>@Localizer["The automatic pass has not run yet since the platform last restarted."]</span>
+                                    }
+                                    @if (thirdPartySettings.NextPassUtc is { } nextPass)
+                                    {
+                                        <span> @Localizer["Next: {0} UTC.", nextPass.UtcDateTime.ToString("ddd d MMM HH:mm")]</span>
+                                    }
+                                </div>
+                            </div>
+
                             @if (thirdPartyError is not null)
                             {
                                 <p class="small text-danger mt-2 mb-0" data-testid="third-party-error">@thirdPartyError</p>
@@ -1519,6 +1559,10 @@ else
                                                         @if (offer.AutomaticUpdatesPausedUntilUtc is { } pausedUntil && offer.State == "ready")
                                                         {
                                                             <span class="text-muted" data-testid="plugin-apply-paused">@Localizer["Automatic updates are paused until {0} UTC; you can still update now.", pausedUntil.UtcDateTime.ToString("ddd d MMM HH:mm")]</span>
+                                                        }
+                                                        @if (offer.BlockCode is "not_signed_by_this_panel" or "key_revoked" or "plugin_too_old")
+                                                        {
+                                                            <a href="Admin/Plugin" class="ms-1" data-testid="plugin-apply-remedy">@Localizer["Get the plugin file"]</a>
                                                         }
                                                         @* A zip is applied by folder rules a person gives (or saved ones); asking for them is its own control below. *@
                                                         @if (offer.CanApply && !(offer.Kind == "zip" && offer.State == "needs-instructions"))
@@ -2054,6 +2098,10 @@ else
                                                             @onclick="DownloadPluginAsync" disabled="@downloadingPlugin">
         <i class="bi bi-download"></i> @Localizer["Download plugin"]
     </button>;
+
+    /// <summary>The plugin vouches for its own file, but under a key that is not (or is no longer) one this Panel can sign with.</summary>
+    private bool PluginNotFromThisPanel =>
+        pluginStatus is { SigningState: PluginSigningStates.Valid } && (pluginStatus.SigningKeyMatchesThisPanel == false || pluginStatus.SigningKeyState == "revoked");
 
     /// <summary>The plugin is positively in the server's plugin list - the gate for everything about it.</summary>
     private bool PluginListed => RustArchonPlugin.IsListed(plugins.Select(p => p.Name));

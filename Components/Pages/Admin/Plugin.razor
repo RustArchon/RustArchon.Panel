@@ -309,14 +309,40 @@ else
                             @Localizer["serving"] <code>@(releases.Main.ServedVersion ?? "?")</code>
                             <span class="text-muted">(@(releases.Main.FromRelease ? Localizer["uploaded release"] : Localizer["built-in"]); @Localizer["built-in version"] @(releases.Main.EmbeddedVersion ?? "?"))</span>
                             @RolloutNote(releases.Main)
+                            <button type="button" class="btn btn-sm btn-outline-primary ms-2" data-testid="download-served-main" disabled="@busy"
+                                    title="@Localizer["Download the plugin this Panel is serving now, signed with the active key"]"
+                                    @onclick="() => DownloadServedAsync(MainKind)"><i class="bi bi-download"></i> @Localizer["Download signed"]</button>
                         </li>
                         <li>
                             <strong>@Localizer["Updater"]</strong>:
                             @Localizer["serving"] <code>@(releases.Updater.ServedVersion ?? "?")</code>
                             <span class="text-muted">(@(releases.Updater.FromRelease ? Localizer["uploaded release"] : Localizer["built-in"]); @Localizer["built-in version"] @(releases.Updater.EmbeddedVersion ?? "?"))</span>
                             @RolloutNote(releases.Updater)
+                            <button type="button" class="btn btn-sm btn-outline-primary ms-2" data-testid="download-served-updater" disabled="@busy"
+                                    title="@Localizer["Download the updater this Panel is serving now, signed with the active key"]"
+                                    @onclick="() => DownloadServedAsync(UpdaterKind)"><i class="bi bi-download"></i> @Localizer["Download signed"]</button>
                         </li>
                     </ul>
+                    <p class="small text-muted mb-3" data-testid="served-install-note">
+                        @Localizer["Signing is by this Panel's key, not by server, so this is one file for every server."]
+                        @Localizer["Signed with the active key"] <code>@(keys?.FirstOrDefault(k => k.State == "active")?.Fingerprint ?? "?")</code>.
+                        @Localizer["A server whose RustArchon plugin was signed by another Panel refuses updates from this one: replace the plugin file on that game server with this download once, and updates flow after that."]
+                    </p>
+                    <p class="small text-muted mb-3" data-testid="third-party-pass-admin">
+                        @Localizer["Automatic updates for other plugins:"]
+                        @if (releases.ThirdPartyLastPassUtc is { } lastPass)
+                        {
+                            <span>@Localizer["last pass"] @lastPass.UtcDateTime.ToString("yyyy-MM-dd HH:mm") UTC</span>
+                        }
+                        else
+                        {
+                            <span>@Localizer["has not run yet since the platform last restarted"]</span>
+                        }
+                        @if (releases.ThirdPartyNextPassUtc is { } nextPass)
+                        {
+                            <span>· @Localizer["next pass"] @nextPass.UtcDateTime.ToString("yyyy-MM-dd HH:mm") UTC</span>
+                        }
+                    </p>
                 }
 
                 <div class="border rounded p-3 mb-3" data-testid="sign-file">
@@ -884,6 +910,34 @@ else
         catch (Exception ex)
         {
             errorMessage = ApiErrorMessage.For(ex, "sign the file");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private const string MainKind = "main";
+    private const string UpdaterKind = "updater";
+
+    private async Task DownloadServedAsync(string kind)
+    {
+        busy = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            using var response = await Client.DownloadServedAsync(kind);
+            var fileName = await HandOverFileAsync(response, KindLabel(kind), "download the served plugin");
+            if (fileName is not null)
+            {
+                successMessage = string.Format(Localizer["Downloaded {0}, signed with the active key. Install it on the game server in place of the plugin file there. It was recorded in the audit log."], fileName);
+                events = await Client.GetEventsAsync(50);
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorMessage.For(ex, "download the served plugin");
         }
         finally
         {
