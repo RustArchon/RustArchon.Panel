@@ -23,12 +23,14 @@ WORKDIR /src
 COPY ["RustArchon.Panel/RustArchon.Panel.csproj", "RustArchon.Panel/"]
 COPY ["RustArchon.Shared/RustArchon.Shared.csproj", "RustArchon.Shared/"]
 COPY ["RustArchon.Messaging/RustArchon.Messaging.csproj", "RustArchon.Messaging/"]
+COPY ["RustArchon.Diagnostics/RustArchon.Diagnostics.csproj", "RustArchon.Diagnostics/"]
 COPY ["JumpStart/JumpStart/JumpStart.csproj", "JumpStart/JumpStart/"]
 RUN dotnet restore "RustArchon.Panel/RustArchon.Panel.csproj" -r linux-x64
 
 COPY ["RustArchon.Panel/", "RustArchon.Panel/"]
 COPY ["RustArchon.Shared/", "RustArchon.Shared/"]
 COPY ["RustArchon.Messaging/", "RustArchon.Messaging/"]
+COPY ["RustArchon.Diagnostics/", "RustArchon.Diagnostics/"]
 COPY ["JumpStart/", "JumpStart/"]
 WORKDIR "/src/RustArchon.Panel"
 

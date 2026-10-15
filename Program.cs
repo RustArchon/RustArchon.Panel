@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Localization;
+using RustArchon.Diagnostics;
 using RustArchon.Panel;
 using RustArchon.Panel.Clients;
 using RustArchon.Panel.Components;
@@ -27,6 +28,11 @@ using RustArchon.Panel.Services;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Every log entry at Debug and above is kept in memory (whatever the console shows) so it can be read through the diagnostic log door below, next to
+// the Api's, the Worker's and the plugins'. See ADR-0006.
+var panelLogRing = new LogRing("panel", Guid.NewGuid().ToString("N"), 5000);
+builder.Logging.AddDiagnosticRing(panelLogRing);
 
 // ============================================
 // 1. BLAZOR COMPONENTS
@@ -248,6 +254,12 @@ builder.Services.AddApiClient<IPlatformSettingsApiClient>($"{apiBaseUrl}/api/pla
 // Same handler chain, same Platform.ManageSettings gate: rotating the plugin signing key and uploading, publishing
 // and withdrawing plugin releases (see PluginAdminController).
 builder.Services.AddApiClient<IPluginAdminApiClient>($"{apiBaseUrl}/api/admin/plugin")
+    .AddHttpMessageHandler<JwtExchangeHandler>()
+    .AddHttpMessageHandler<JwtAuthenticationHandler>();
+
+// Same handler chain, same Platform.ManageSettings gate: creating, replacing and revoking the one read-only diagnostic log token
+// (see DiagnosticLogAdminController).
+builder.Services.AddApiClient<IDiagnosticLogAdminApiClient>($"{apiBaseUrl}/api/admin/diagnostics/log-token")
     .AddHttpMessageHandler<JwtExchangeHandler>()
     .AddHttpMessageHandler<JwtAuthenticationHandler>();
 
@@ -520,6 +532,20 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
+// Backs /diagnostics/logs below (ADR-0006): the read-only door for the diagnostic logs. Carries the internal-service key to the Api, which alone decides
+// whether the caller's log token is the live one. Its own client so its timeout can differ from the others'.
+builder.Services.AddHttpClient(LogReadProxy.ClientName, client =>
+{
+    client.BaseAddress = new Uri(apiBaseUrl);
+    client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddSingleton<LogReadLimit>();
+builder.Services.AddSingleton<VerifiedLogTokenCache>();
+builder.Services.AddSingleton(sp =>
+    new LogReadThrottle(sp.GetRequiredService<TimeProvider>(), () => sp.GetRequiredService<LogReadLimit>().FailuresPerAddressPerMinute));
+builder.Services.AddSingleton<LogReadProxy>();
+
 builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
@@ -658,6 +684,14 @@ app.MapPost("/ingest/reports/{serverId:guid}/{token}", (
     ReportIngestProxy.HandleAsync(
         serverId, token, httpContext.Request, httpClientFactory.CreateClient(ReportIngestProxy.ClientName), cancellationToken))
     .RequireRateLimiting(ReportIngestProxy.RateLimitPolicy);
+
+// The read-only diagnostic logs (ADR-0006) - anonymous at the route, the log token in the X-RustArchon-Log-Token header is the credential and the Api
+// alone decides whether it is the live one. Refused requests are throttled per address inside LogReadProxy. The token is never in the address.
+app.MapGet("/diagnostics/logs", (HttpContext httpContext, LogReadProxy proxy, CancellationToken cancellationToken) =>
+    proxy.HandleLogsAsync(httpContext, cancellationToken));
+
+app.MapGet("/diagnostics/logs/help", (HttpContext httpContext, LogReadProxy proxy, CancellationToken cancellationToken) =>
+    proxy.HandleHelpAsync(httpContext, cancellationToken));
 
 // Stripe's webhook target - anonymous and unconditional, same "one public door" reasoning as the
 // tracking pixel and theme assets above: RustArchon.Api never publishes a port, so Stripe's servers
